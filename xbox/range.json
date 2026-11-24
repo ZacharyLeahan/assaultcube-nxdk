@@ -1,8 +1,0 @@
-{
-  "name": "assaultcube-range",
-  "start_state": "Fresh launch with first target centered and 20 rounds",
-  "steps": [
-    {"name":"first-burst","buttons":["rt"],"hold_ms":1150,"wait_ms":400,"screenshot":true},
-    {"name":"reload","buttons":["x"],"hold_ms":180,"wait_ms":2400,"screenshot":true}
-  ]
-}

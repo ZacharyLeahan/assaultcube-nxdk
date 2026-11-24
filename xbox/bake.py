@@ -22,9 +22,10 @@ def pixels(name, rgb):
     (OUT / (name + ".bin")).write_bytes(rgb[:, :, [2, 1, 0, 3]].tobytes())
 
 
-def sprite(name, model, skin, angle, width, height):
+def sprite(name, model, skin, angle, width, height, frame_index=0):
     data = model.read_bytes()
-    _, _, sw, sh, _, _, nv, nt, nf, _, _, _, uvs, triangles, frame, _, _ = struct.unpack_from("<17i", data)
+    _, _, sw, sh, stride, _, nv, nt, nf, _, _, _, uvs, triangles, frame, _, _ = struct.unpack_from("<17i", data)
+    frame += frame_index * stride
     scale = np.array(struct.unpack_from("<3f", data, frame))
     vertices = np.frombuffer(data, np.uint8, nv * 4, frame + 40).reshape(-1, 4)[:, :3] * scale
     tex = np.asarray(Image.open(skin).convert("RGB"))
@@ -76,10 +77,14 @@ def bake():
     sky = Image.open(PKG / "textures/skymaps/makke/sand_ft.jpg").convert("RGBA").resize((256, 128))
     pixels("sky", np.asarray(sky))
     starts = []
+    pickups = []
+    item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
     for i in range(count):
-        x, y, z, yaw, kind = struct.unpack_from("<4hB", data, offset + 16*i)
-        if kind == 2:
+        x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
+        if kind == 2 and team == 100:
             starts.append((x, y, yaw))
+        elif kind in item_kinds:
+            pickups.append((x, y, item_kinds[kind]))
     pos = offset + 16*count
     cells = bytearray()
     while len(cells) < (1 << (2*factor))*8:
@@ -106,11 +111,24 @@ def bake():
     (OUT / "world.bin").write_bytes(cells)
     (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
+    (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
+        "".join(f"    {{{x}, {y}, {kind}}},\n" for x, y, kind in pickups) + "};\n")
     players = PKG / "models/playermodels"
     sprite("target", players/"tris.md2", players/"CLA/01_redvest.jpg", 0.2, 48, 80)
+    poses = []
+    for frame in (40, 42, 44, 47):
+        sprite("pose", players/"tris.md2", players/"CLA/01_redvest.jpg", .2, 48, 80, frame)
+        poses.append((OUT/"pose.bin").read_bytes())
+    (OUT/"poses.bin").write_bytes(b"".join(poses))
+    icons = Image.open(PKG/"misc/items.png").convert("RGBA")
+    tiles = [icons.crop((64*x,64*y,64*x+64,64*y+64)).resize((32,32)) for x,y in
+             ((1,0),(2,1),(2,3),(0,2),(3,2))]
+    pixels("items", np.concatenate([np.asarray(tile) for tile in tiles]))
+    pistol = PKG / "models/weapons/pistol/world"
+    sprite("pistol", pistol/"tris.md2", pistol/"skin.jpg", 2.85, 100, 72)
     rifle = PKG / "models/weapons/assault/world"
     sprite("rifle", rifle/"tris.md2", rifle/"skin.jpg", 2.85, 100, 72)
-    for name in ("auto", "auto_reload"):
+    for name in ("auto", "auto_reload", "usp", "pistol_reload"):
         samples, rate = soundfile.read(PKG/"audio/weapon"/(name+".ogg"), always_2d=True)
         mono = samples.mean(axis=1)
         sample = np.interp(np.arange(0, len(mono), rate/48000), np.arange(len(mono)), mono)

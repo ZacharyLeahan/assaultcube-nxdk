@@ -11,6 +11,11 @@ asset world
 asset atlas
 asset sky
 asset target
+asset poses
+asset items
+asset pistol
+asset usp
+asset pistol_reload
 asset rifle
 asset auto
 asset auto_reload
