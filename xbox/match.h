@@ -17,7 +17,7 @@ typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD } MatchSound;
 typedef struct { int x, y, icon; } ItemView;
 typedef struct {
-    float px, py, eye, angle, pitch, tx, ty;
+    float px, py, eye, angle, pitch, tx, ty, bot_yaw;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
     int bot_pose, bot_flash, respawning, reload, flash, hitflash, hurt;
     unsigned seconds;
@@ -32,6 +32,7 @@ int map_solid(const Cube *cube);
 void match_prepare(void);
 void match_update(const MatchInput *input, unsigned elapsed);
 MatchSound match_attack(const MatchInput *input, int aimed);
+int match_targeted(const MatchView *view);
 void match_view(MatchView *view);
 #ifdef __cplusplus
 }

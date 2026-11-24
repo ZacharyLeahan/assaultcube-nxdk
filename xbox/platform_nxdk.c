@@ -6,13 +6,12 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
-#include "render.h"
+#include "gpu_render.h"
 #include "controllers.h"
 
 extern const uint8_t shot_audio[] __asm__("_auto"), shot_end[] __asm__("_auto_end");
 extern const uint8_t auto_reload[], auto_reload_end[];
 extern const uint8_t usp[], usp_end[], pistol_reload[], pistol_reload_end[];
-static MatchFrame frame;
 static SDL_AudioDeviceID audio_device;
 
 typedef struct { const uint8_t *data; Uint32 left; } Voice;
@@ -45,9 +44,9 @@ static float axis(SDL_GameController *pad, SDL_GameControllerAxis a) {
 }
 
 int main(void) {
-    XVideoSetMode(640,480,32,REFRESH_DEFAULT);
-    if (SDL_Init(SDL_INIT_GAMECONTROLLER) || pb_init()) { debugPrint("AssaultCube init failed"); return 1; }
-    pb_show_front_screen();
+    if (!XVideoSetMode(1280,720,32,REFRESH_60HZ)) XVideoSetMode(640,480,32,REFRESH_DEFAULT);
+    VIDEO_MODE mode = XVideoGetMode();
+    if (SDL_Init(SDL_INIT_GAMECONTROLLER) || !gpu_init(mode.width,mode.height)) { debugPrint("AssaultCube init failed"); return 1; }
     if (SDL_InitSubSystem(SDL_INIT_AUDIO)==0) {
         SDL_AudioSpec spec = {0};
         spec.freq = 48000; spec.format = AUDIO_S16LSB; spec.channels = 1; spec.samples = 1024; spec.callback = mix_audio;
@@ -98,43 +97,12 @@ int main(void) {
         };
         match_update(&input, elapsed);
         match_view(&view);
-        int aimed = render_scene(&view, frame);
+        int aimed = match_targeted(&view);
         MatchSound effect = match_attack(&input, aimed);
         sound(effect,0);
         sound(view.bot_sound,1);
         match_view(&view);
-        render_overlay(&view, aimed, frame);
-        pb_target_back_buffer();
-        pb_reset();
-        unsigned pitch_bytes = pb_back_buffer_pitch();
-        uint8_t *back = (uint8_t *)pb_back_buffer();
-        uint32_t row[W*2];
-        for (int y = 0; y < H; ++y) {
-            for (int x = 0; x < W; ++x) row[2*x] = row[2*x+1] = frame[y][x];
-            memcpy(back+y*2*pitch_bytes,row,sizeof(row));
-            memcpy(back+(y*2+1)*pitch_bytes,row,sizeof(row));
-        }
-        pb_erase_text_screen();
-        pb_print("\n   ASSAULTCUBE   /   ac_desert   /   BOT DM\n");
-        if (view.phase == READY) {
-            pb_print("   Press START   /   first to %d or 90 seconds\n", FRAG_LIMIT);
-            pb_print("   RT fire    X reload    Y weapon\n");
-        } else {
-            pb_print("   YOU %d   BOT %d     %u:%02u\n",view.player_frags,view.bot_frags,view.seconds/60,view.seconds%60);
-            if (view.phase == INTERMISSION) {
-                pb_print("   %s    START for rematch\n", view.player_frags > view.bot_frags ? "YOU WIN" :
-                         view.player_frags < view.bot_frags ? "BOT WINS" : "DRAW");
-            } else if (view.respawning) pb_print("   FRAGGED    Respawning...\n");
-            else pb_print("   HP %d   ARM %d   %s %d/%d  %s\n",view.health,view.armour,
-                          view.pistol ? "MK-77" : "MTP-57", view.magazine,view.reserve,
-                          view.reload ? "RELOAD" : view.hurt ? "HIT" : "");
-        }
-        if (!connected) pb_print("   Connect an Xbox controller\n");
-        else if (view.phase != PLAYING) pb_print("   Controllers connected: %d\n",connected);
-        pb_print("   %u.%u FPS\n",fps10/10,fps10%10);
-        pb_draw_text_screen();
-        while (pb_busy()) {}
-        while (pb_finished()) {}
+        gpu_present(&view, aimed, fps10, connected);
         ++frames;
     }
 }

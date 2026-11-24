@@ -8,15 +8,10 @@ _\name:
 _\name\()_end:
 .endm
 asset world
-asset atlas
-asset sky
-asset target
-asset poses
-asset items
-asset pistol
+asset gpu_vertices
+asset gpu_textures
 asset usp
 asset pistol_reload
-asset rifle
 asset auto
 asset auto_reload
 .set "@feat.00", 1

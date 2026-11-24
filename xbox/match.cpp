@@ -202,7 +202,7 @@ MatchSound match_attack(const MatchInput *in, int aimed) {
 void match_view(MatchView *v) {
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
-    v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
+    v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
     v->bot_flash = bot.flash_until > clock_ms;
     v->bot_pose = v->bot_flash ? 4 : bot_pose;
     v->player_frags = player.frags; v->bot_frags = bot.frags;
@@ -220,4 +220,21 @@ void match_view(MatchView *v) {
         int icon = p.kind >= I_HEALTH ? 2+p.kind-I_HEALTH : p.kind-I_CLIPS;
         item_views[v->item_count++] = {p.x,p.y,icon};
     }
+}
+
+// Intersect the crosshair ray with the upright player cylinder, independently of output resolution.
+int match_targeted(const MatchView *v) {
+    if (!v->bot_alive || v->respawning) return 0;
+    float c=cosf(v->angle), s=sinf(v->angle), dx=v->tx-v->px, dy=v->ty-v->py;
+    float along=dx*c+dy*s, across=dy*c-dx*s;
+    const float radius=1.0f;
+    if (fabsf(across)>radius) return 0;
+    float half=sqrtf(fmaxf(0,radius*radius-across*across));
+    float enter=fmaxf(.01f,along-half), exit=along+half;
+    float base=ground(v->tx,v->ty), slope=v->pitch/180.f;
+    if (fabsf(slope)>.00001f) {
+        float a=(base-v->eye)/slope,b=(base+4.6f-v->eye)/slope;
+        enter=fmaxf(enter,fminf(a,b)); exit=fminf(exit,fmaxf(a,b));
+    } else if (v->eye<base || v->eye>base+4.6f) return 0;
+    return enter<=exit && visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter);
 }

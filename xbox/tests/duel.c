@@ -1,9 +1,7 @@
 #include "../match.h"
-#include "../render.h"
 #include <assert.h>
 #include <stdio.h>
 
-static MatchFrame frame;
 
 int main(void) {
     MatchView view;
@@ -20,7 +18,7 @@ int main(void) {
         input.fire = tick < 34;
         match_update(&input,33);
         match_view(&view);
-        int aimed = input.fire && render_scene(&view,frame);
+        int aimed = input.fire && match_targeted(&view);
         match_attack(&input,aimed);
         match_view(&view);
         if (view.player_frags && !view.bot_alive) saw_bot_death = 1;

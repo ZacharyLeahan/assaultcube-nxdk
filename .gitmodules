@@ -1,0 +1,4 @@
+[submodule "xbox/third_party/pbgl"]
+	path = xbox/third_party/pbgl
+	url = https://github.com/fgsfdsfgs/pbgl.git
+	ignore = untracked
