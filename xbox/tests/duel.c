@@ -61,5 +61,24 @@ int main(void) {
     match_update(&input,17,1.f/60);
     match_view(&view);
     assert(fabsf((second-first)-(view.angle-second))<.00001f);
+    input.turn=1;
+    for (int i=0;i<26;++i) match_update(&input,16,1.f/60);
+    match_view(&view);
+    float boosted=view.angle;
+    match_update(&input,16,1.f/60);
+    match_view(&view);
+    assert(fabsf(remainderf(view.angle-boosted,6.2831853f)-220*.017453293f/60)<.0001f);
+    float before_reverse=view.angle;
+    input.turn=-1;
+    match_update(&input,16,1.f/60);
+    match_view(&view);
+    float reversed=remainderf(view.angle-before_reverse,6.2831853f);
+    assert(reversed<0 && fabsf(reversed)<155*.017453293f/60);
+    float stopped=view.angle;
+    input.turn=0;
+    input.look=1;
+    for (int i=0;i<60;++i) match_update(&input,16,1.f/60);
+    match_view(&view);
+    assert(view.angle==stopped && fabsf(view.pitch-75*.017453293f)<.0001f);
     puts("Passed bot duel, respawns, score limit, rematch and time limit.");
 }

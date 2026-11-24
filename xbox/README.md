@@ -96,3 +96,11 @@ python xbox/tests/frame_trace.py frame-trace.bin
 ```
 
 The analysis excludes capture boundaries, respawns and trials where the camera was already turning. A normal build uses the stock SDL Xbox driver.
+
+### Camera response and motion
+
+Build `c13dff1a` uses a 10% circular aiming deadzone and a progressive response curve. Horizontal sensitivity reaches 150 degrees per second before boost. Holding the stick at the horizontal edge ramps to 220 degrees per second over 0.4 seconds. Releasing or reversing resets the boost. Vertical sensitivity reaches 105 degrees per second with a pitch limit of 75 degrees in either direction. These values are specific to this port. The controller menu in THE FINALS was a reference for independent horizontal and vertical sensitivity, response curve and boost ramp. [Controller menu screenshot](https://cdn.mos.cms.futurecdn.net/suqdRGeWho7ieBpFEQktCT.jpg)
+
+At 720p on the physical Xbox, a 15% stick pan moved 0.070 degrees per refresh, a 47% pan moved 0.702, and the sustained full turn moved 3.666. The previous version measured 0.092, 0.996 and 2.483 respectively. The turn sweep and a separate walking and combat replay each delivered 719 consecutive single-refresh intervals. The longest intervals were 16.97 and 16.71 ms.
+
+Player movement ramps to full speed in 125 ms on unobstructed ground and brakes from full speed in about 67 ms. The bot blends the original six running poses by distance traveled. First-person fire and reload transitions are evaluated each frame.
