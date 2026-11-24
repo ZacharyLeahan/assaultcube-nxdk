@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "render.h"
+#include "controllers.h"
 
 extern const uint8_t shot_audio[] __asm__("_auto"), shot_end[] __asm__("_auto_end");
 extern const uint8_t auto_reload[], auto_reload_end[];
@@ -53,50 +54,42 @@ int main(void) {
         audio_device = SDL_OpenAudioDevice(NULL,0,&spec,NULL,0);
         if (audio_device) SDL_PauseAudioDevice(audio_device,0);
     }
-    SDL_GameController *pads[4] = {0};
-    unsigned last = SDL_GetTicks(), reset_time = 0;
-    int previous_start = 0, previous_swap = 0;
+    Pad pads[PAD_COUNT] = {0};
+    unsigned last = SDL_GetTicks();
     MatchView view = {0};
     match_prepare();
     for (;;) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_CONTROLLERDEVICEADDED) {
-                for (int i = 0; i < 4; ++i) if (!pads[i]) {
-                    pads[i] = SDL_GameControllerOpen(event.cdevice.which);
-                    break;
-                }
-            }
-            if (event.type == SDL_CONTROLLERDEVICEREMOVED)
-                for (int i = 0; i < 4; ++i) if (pads[i] && !SDL_GameControllerGetAttached(pads[i])) {
-                    SDL_GameControllerClose(pads[i]); pads[i] = NULL;
-                }
-        }
+        SDL_PumpEvents();
+        SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+        refresh_pads(pads);
         unsigned now = SDL_GetTicks(), elapsed = now-last;
         last = now;
         float move = 0, strafe = 0, turn = 0, look = 0;
-        int swap = 0, fire = 0, refill = 0, start = 0, reset = 0, connected = 0;
-        for (int i = 0; i < 4; ++i) if (pads[i]) {
-            SDL_GameController *p = pads[i];
-            connected = 1;
+        int swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
+        for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
+            Pad *pad = &pads[i];
+            SDL_GameController *p = pad->handle;
+            ++connected;
             move -= axis(p,SDL_CONTROLLER_AXIS_LEFTY); strafe += axis(p,SDL_CONTROLLER_AXIS_LEFTX);
             turn += axis(p,SDL_CONTROLLER_AXIS_RIGHTX); look -= axis(p,SDL_CONTROLLER_AXIS_RIGHTY);
             int rt = axis(p,SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > .25f;
             fire |= rt; refill |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_X);
-            swap |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
-            start |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
-            reset |= rt && axis(p,SDL_CONTROLLER_AXIS_TRIGGERLEFT) > .5f &&
+            int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
+            int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
+            swap |= y && !pad->previous_swap;
+            start |= menu && !pad->previous_start;
+            pad->previous_swap = y;
+            pad->previous_start = menu;
+            int reset = rt && axis(p,SDL_CONTROLLER_AXIS_TRIGGERLEFT) > .5f &&
                      SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_BACK) &&
                      SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+            pad->reset_ms = reset ? pad->reset_ms+elapsed : 0;
+            if (pad->reset_ms >= 1000) XReboot();
         }
-        reset_time = reset ? reset_time+elapsed : 0;
-        if (reset_time >= 1000) XReboot();
         MatchInput input = {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
-            .fire = fire, .refill = refill, .swap = swap && !previous_swap, .start = start && !previous_start
+            .fire = fire, .refill = refill, .swap = swap, .start = start
         };
-        previous_start = start;
-        previous_swap = swap;
         match_update(&input, elapsed);
         match_view(&view);
         int aimed = render_scene(&view, frame);
@@ -131,6 +124,7 @@ int main(void) {
                           view.reload ? "RELOAD" : view.hurt ? "HIT" : "");
         }
         if (!connected) pb_print("   Connect an Xbox controller\n");
+        else if (view.phase != PLAYING) pb_print("   Controllers connected: %d\n",connected);
         pb_draw_text_screen();
         while (pb_busy()) {}
         while (pb_finished()) {}
