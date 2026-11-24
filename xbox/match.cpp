@@ -19,6 +19,8 @@ constexpr float radians = .017453293f;
 struct Fighter {
     playerstate state;
     float x, y, yaw, pitch, eye_height;
+    float velocity_x, velocity_y, turn_boost;
+    int turn_direction;
     int frags;
     unsigned respawn_at, ready_at, reload_at, flash_until;
 };
@@ -41,13 +43,15 @@ void spawn(Fighter &f, int index) {
     f.x = starts[index][0]+.5f; f.y = starts[index][1]+.5f;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=ground(f.x,f.y)+3.6f;
+    f.velocity_x=f.velocity_y=f.turn_boost=0;
+    f.turn_direction=0;
     f.state.respawn();
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
     f.respawn_at = f.ready_at = f.reload_at = f.flash_until = 0;
 }
 void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.yaw = atan2f(opponent.y-f.y,opponent.x-f.x);
-    f.pitch = (eye(opponent)-1-eye(f))*180/fmaxf(1,distance(f.x,f.y,opponent.x,opponent.y));
+    f.pitch = atan2f(eye(opponent)-1-eye(f),fmaxf(1,distance(f.x,f.y,opponent.x,opponent.y)));
 }
 void begin(MatchPhase initial) {
     clock_ms = 0; random_state = 7331; phase = initial;
@@ -183,11 +187,27 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     if (bot.respawn_at && bot.respawn_at <= clock_ms) respawn_near(bot,player);
     float dt = fminf(.10f,motion_seconds);
     if (!player.respawn_at) {
-        player.yaw = fmodf(player.yaw+in->turn*2.6f*dt,6.2831853f);
-        player.pitch = fmaxf(-75,fminf(75,player.pitch+in->look*130*dt));
-        float speed = 16*dt/fmaxf(1,hypotf(in->move,in->strafe));
-        float c = cosf(player.yaw), s = sinf(player.yaw);
-        walk(&player.x,&player.y,(in->move*c-in->strafe*s)*speed,(in->move*s+in->strafe*c)*speed);
+        float turn=fmaxf(-1,fminf(1,in->turn));
+        int direction=(turn>0)-(turn<0);
+        if (direction!=player.turn_direction || fabsf(turn)<.85f) player.turn_boost=0;
+        player.turn_direction=direction;
+        if (fabsf(turn)>=.85f) player.turn_boost=fminf(1,player.turn_boost+dt/.4f);
+        float outer=fmaxf(0,(fabsf(turn)-.85f)/.15f);
+        float yaw_rate=turn*(150+70*outer*player.turn_boost)*radians;
+        player.yaw=fmodf(player.yaw+yaw_rate*dt,6.2831853f);
+        float look=fmaxf(-1,fminf(1,in->look));
+        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+look*105*radians*dt));
+
+        float speed=16/fmaxf(1,hypotf(in->move,in->strafe));
+        float c=cosf(player.yaw), s=sinf(player.yaw);
+        float dx=(in->move*c-in->strafe*s)*speed-player.velocity_x;
+        float dy=(in->move*s+in->strafe*c)*speed-player.velocity_y;
+        float change=hypotf(dx,dy);
+        float acceleration=(in->move || in->strafe) ? 128.f : 240.f;
+        float fraction=change>0 ? fminf(1,acceleration*dt/change) : 0;
+        player.velocity_x+=dx*fraction;
+        player.velocity_y+=dy*fraction;
+        walk(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt);
         // Ease eye height over grid steps. Keep the sight origin inside the new cell.
         const Cube *cell=map_cube((int)player.x,(int)player.y);
         float delta=cell->floor+3.6f-player.eye_height;
@@ -237,7 +257,7 @@ int match_targeted(const MatchView *v) {
     if (fabsf(across)>radius) return 0;
     float half=sqrtf(fmaxf(0,radius*radius-across*across));
     float enter=fmaxf(.01f,along-half), exit=along+half;
-    float base=ground(v->tx,v->ty), slope=v->pitch/180.f;
+    float base=ground(v->tx,v->ty), slope=tanf(v->pitch);
     if (fabsf(slope)>.00001f) {
         float a=(base-v->eye)/slope,b=(base+4.6f-v->eye)/slope;
         enter=fmaxf(enter,fminf(a,b)); exit=fminf(exit,fmaxf(a,b));

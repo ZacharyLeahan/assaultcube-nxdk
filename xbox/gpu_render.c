@@ -172,8 +172,7 @@ static void skybox(void) {
 }
 static void level(const MatchView *v) {
     float c=cosf(v->angle),s=sinf(v->angle);
-    float slope=v->pitch/180.f;
-    float cp=1.f/sqrtf(1+slope*slope), sp=slope*cp;
+    float cp=cosf(v->pitch), sp=sinf(v->pitch);
     const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
     projection();
     glLoadMatrixf(camera);

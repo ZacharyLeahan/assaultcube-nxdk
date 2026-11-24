@@ -14,7 +14,7 @@ int main(void) {
     miss.angle += 3.14159265f;
     assert(!match_targeted(&miss));
     miss = view;
-    miss.pitch = 160;
+    miss.pitch = 1.f;
     assert(!match_targeted(&miss));
     miss = view;
     miss.bot_alive = 0;

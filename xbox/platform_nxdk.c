@@ -48,9 +48,11 @@ static void read_aim(SDL_GameController *pad, float *turn, float *look) {
     float x=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_RIGHTX)/32768.f;
     float y=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_RIGHTY)/32768.f;
     float magnitude=sqrtf(x*x+y*y);
-    const float deadzone=.12f;
+    const float deadzone=.10f;
     if (magnitude<=deadzone) return;
-    float scale=(fminf(1,magnitude)-deadzone)/((1-deadzone)*magnitude);
+    float travel=(fminf(1,magnitude)-deadzone)/(1-deadzone);
+    // Keep the onset responsive and give fine corrections more stick travel.
+    float scale=travel*(.45f+.55f*travel)/magnitude;
     *turn+=x*scale;
     *look-=y*scale;
 }
