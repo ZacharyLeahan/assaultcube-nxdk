@@ -34,6 +34,19 @@ The Xbox-specific renderer follows grid boundaries through the CGZ map and draws
 
 The MTP-57 uses the PC game's 20-round magazine, 120 ms shot interval, 22 damage and two-second reload. The target range has its own input, collision, scoring and hitscan logic. The original client simulation, moving bots, multiplayer, menus, and additional maps remain future port work.
 
+## Source layout
+
+The port builds independently under `xbox/`. The desktop client, its build system and the original asset tree require no changes.
+
+| File | Responsibility |
+| --- | --- |
+| `platform_nxdk.c` | Xbox entry point, SDL controller and audio devices, pbkit display and reboot |
+| `range.c`, `range.h` | Portable C movement, collision, target placement, weapon and score state |
+| `render.c`, `render.h` | Portable C scene rendering, target visibility and weapon overlay into a caller-owned framebuffer |
+| `bake.py`, `assets.s` | Host-side import of bundled game assets and link-time embedding |
+
+The platform translates controller state into a `RangeInput` and plays the sound event returned by the range. Both range and renderer can be compiled without SDL or nxdk. This keeps Xbox-specific changes local as upstream engine code is brought across.
+
 ## Hardware check
 
-On November 24, 2026, build `b4a72471` booted on an original Xbox after exact FTP readback. ESP-KVM player-one input advanced the range score, dropped the magazine from 20 to 15, restored it to 20 with X, moved forward, and turned the camera. The smoke scenario in `range.json` exercises firing and reloading from a fresh launch. Use a live MJPEG stream when inspecting the KVM stills. Audio playback and sustained frame rate have not been measured.
+On November 24, 2026, both the initial build `b4a72471` and the platform-separated build `3b1fcf72` booted on an original Xbox after exact FTP readback. ESP-KVM player-one input advanced the range score, dropped the magazine from 20 to 15, restored it to 20 with X, moved forward, and turned the camera. The smoke scenario in `range.json` exercises firing and reloading from a fresh launch. Use a live MJPEG stream when inspecting the KVM stills. Audio playback and sustained frame rate have not been measured.
