@@ -2,13 +2,22 @@
 #include <assert.h>
 #include <stdio.h>
 
-
 int main(void) {
     MatchView view;
     MatchInput input = {0};
     match_prepare();
     match_view(&view);
     assert(view.phase == READY);
+    assert(match_targeted(&view));
+    MatchView miss = view;
+    miss.angle += 3.14159265f;
+    assert(!match_targeted(&miss));
+    miss = view;
+    miss.pitch = 160;
+    assert(!match_targeted(&miss));
+    miss = view;
+    miss.bot_alive = 0;
+    assert(!match_targeted(&miss));
     input.start = 1;
     match_update(&input,16);
     input.start = 0;
