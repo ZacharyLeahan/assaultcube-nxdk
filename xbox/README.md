@@ -1,52 +1,52 @@
 # AssaultCube on original Xbox
 
-This first nxdk build boots straight into a single-player target range on the bundled `ac_desert` map by makkE and Arghvark. Each target takes five center-mass hits. The next target appears nearby, and the score carries over until you start a new range.
+Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and Arghvark. Press Start to begin. Reach three frags to win, or lead when the 90-second clock expires. A tied score at time produces a draw. Both fighters respawn after two seconds.
 
 | Control | Action |
 | --- | --- |
 | Left stick | Move and strafe |
-| Right stick | Turn and look up or down |
-| Right trigger | Fire the MTP-57, hold for automatic fire |
-| X | Reload the 20-round magazine |
-| Start | Move to the next map spawn and reset the score |
+| Right stick | Turn and aim vertically |
+| Right trigger | Fire. Hold for automatic rifle fire, tap for each pistol shot |
+| X | Reload from reserve ammunition |
+| Y | Switch between the MTP-57 rifle and MK-77 pistol |
+| Start | Begin the match or play again from the result screen |
 | LT + RT + Back + Black | Hold for one second to reboot |
+
+The HUD shows frags, time remaining, health, armour, and ammunition in the magazine and reserve. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot can collect them too.
 
 ## Build and run
 
-From the repository root, use Python 3 with Pillow, NumPy and SoundFile installed. The asset baker reads the original map, MD2 meshes, skins, textures, and Ogg sounds from `packages/`. Generated data goes in `xbox/generated/`. Rerun the baker after changing those inputs.
+From the repository root, install the Python asset-baking dependencies and bake the map, character poses, textures, pickups, and sounds from the bundled game data.
 
 ```sh
 python -m pip install Pillow numpy soundfile
 python xbox/bake.py
 ```
 
-In an activated nxdk shell, run the following from the repository root. The Makefile also accepts `NXDK_DIR` explicitly. The SDK needs its SDL2 and pbkit libraries and its XISO tools.
+In an activated nxdk shell with SDL2, pbkit, C++ support and the XISO tools, run the following from the repository root.
 
 ```sh
 make -C xbox -j4
 ```
 
-Copy `xbox/bin/default.xbe` into its own Games folder on a homebrew-capable original Xbox, or load `xbox/assaultcube.iso` as a disc in xemu. The executable includes the baked assets. Original asset credits and licenses remain in the map and packages directories.
+Copy `xbox/bin/default.xbe` into its own Games folder on a homebrew-capable original Xbox. The executable includes the baked assets. The build also produces `xbox/assaultcube.iso`. Original asset credits and licenses remain in the map and packages directories.
 
-## Implementation scope
+## Shared gameplay and platform code
 
-The Xbox-specific renderer follows grid boundaries through the CGZ map and draws textured floors, ceilings, and wall spans at 320×240, doubled to 640×480. Player starts, wall and floor heights and texture slots come from the map. Corner cubes use solid blocks and heightfields use flat cells. Placed map models, lighting and clip entities still need porting. The player and rifle use static views baked from the original meshes.
+The PC client, dedicated server, and Xbox match consume the same `playerstate` class and weapon and item definitions in `source/src/playerstate.h` and `source/src/weaponstats.inc`. The Xbox runs the original free-for-all spawn loadout, gun statistics, pickup limits, and armour damage calculation for both fighters.
 
-The MTP-57 uses the PC game's 20-round magazine, 120 ms shot interval, 22 damage and two-second reload. The target range has its own input, collision, scoring and hitscan logic. The original client simulation, moving bots, multiplayer, menus, and additional maps remain future port work.
-
-## Source layout
-
-The port builds independently under `xbox/`. The desktop client, its build system and the original asset tree require no changes.
-
-| File | Responsibility |
+| Xbox file | Responsibility |
 | --- | --- |
-| `platform_nxdk.c` | Xbox entry point, SDL controller and audio devices, pbkit display and reboot |
-| `range.c`, `range.h` | Portable C movement, collision, target placement, weapon and score state |
-| `render.c`, `render.h` | Portable C scene rendering, target visibility and weapon overlay into a caller-owned framebuffer |
-| `bake.py`, `assets.s` | Host-side import of bundled game assets and link-time embedding |
+| `platform_nxdk.c` | Xbox entry point, controller input, SDL audio mixing, pbkit display, and reboot |
+| `match.cpp` | Portable local duel, bot decisions, active weapons, item timers, respawns, and intermission |
+| `navigation.c` | Map collision, line of sight, and shortest walkable paths around obstacles |
+| `render.c` | Textured scene, animated bot sprites, pickups, visibility at the crosshair, and weapon overlay |
+| `bake.py`, `assets.s` | Import and embed original game assets including free-for-all player starts |
 
-The platform translates controller state into a `RangeInput` and plays the sound event returned by the range. Both range and renderer can be compiled without SDL or nxdk. This keeps Xbox-specific changes local as upstream engine code is brought across.
+The duel rules and bot navigation are local to this port. The renderer approximates slopes and diagonal walls with flat grid cells. The complete PC bot AI, recoil and spread simulation, jump physics, placed map models, other weapons, and multiplayer remain future work.
 
-## Hardware check
+## Verification
 
-On November 24, 2026, both the initial build `b4a72471` and the platform-separated build `3b1fcf72` booted on an original Xbox after exact FTP readback. ESP-KVM player-one input advanced the range score, dropped the magazine from 20 to 15, restored it to 20 with X, moved forward, and turned the camera. The smoke scenario in `range.json` exercises firing and reloading from a fresh launch. Use a live MJPEG stream when inspecting the KVM stills. Audio playback and sustained frame rate have not been measured.
+With baked assets and host C and C++ compilers on PATH, run `python xbox/tests/run.py`. Set `CC` and `CXX` to select the compilers. The regression uses the actual map and center-pixel targeting for the opening volley, then checks bot pursuit, frags, respawns, the score and time limits, and rematch reset.
+
+On November 24, 2026, XBE SHA-256 prefix `583a61ed` booted on physical Xbox after FTP readback. Player-one KVM input scored the opening frag, reloaded the rifle from 10/40 to 20/30, switched to the pistol, and fired it. The bot respawned, pursued and killed the player, and won 3–1. Start reset the score to 0–0, health to 100, and the clock to 1:30. Both sticks changed the player view in the rematch. The short input sequence in `bot-match.json` exercises the opening burst, reload, and weapon switch using the ESP-KVM scenario runner. Use a live video stream to review its screenshots.
