@@ -28,6 +28,7 @@ Fighter player, bot;
 unsigned clock_ms, next_route, bot_attack_at, hit_until, hurt_until;
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
+float stride_phase;
 bool was_firing, bot_saw_player;
 MatchPhase phase;
 MatchSound bot_sound;
@@ -56,6 +57,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
 void begin(MatchPhase initial) {
     clock_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
+    stride_phase=0;
     next_route = hit_until = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = was_firing = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
@@ -149,7 +151,12 @@ void update_bot(float dt) {
     if (length > .001f) {
         float step = fminf(length,(sees ? 4 : 11)*dt);
         walk(&bot.x,&bot.y,mx/length*step,my/length*step);
-        if (distance(old_x,old_y,bot.x,bot.y)>.001f) bot_pose = 1+(clock_ms/140)%3;
+        float traveled=distance(old_x,old_y,bot.x,bot.y);
+        if (traveled>.001f) {
+            // Advance the six original run poses by distance to avoid foot sliding.
+            stride_phase=fmodf(stride_phase+traveled*1.5f,6.f);
+            bot_pose=1+(int)stride_phase;
+        }
     }
     if (!sees) { bot_saw_player = false; burst = 0; return; }
     if (!bot_saw_player) {
@@ -230,13 +237,25 @@ void match_view(MatchView *v) {
     v->angle = player.yaw; v->pitch = player.pitch;
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
     v->bot_flash = bot.flash_until > clock_ms;
-    v->bot_pose = v->bot_flash ? 4 : bot_pose;
+    v->bot_pose = bot_pose ? bot_pose : (v->bot_flash ? 7 : 0);
+    v->stride_blend = bot_pose ? stride_phase-floorf(stride_phase) : 0;
     v->player_frags = player.frags; v->bot_frags = bot.frags;
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;
     v->magazine = player.state.mag[gun]; v->reserve = player.state.ammo[gun];
     v->pistol = gun == GUN_PISTOL;
     v->respawning = !!player.respawn_at; v->reload = player.reload_at > clock_ms;
+    v->reload_lower=0;
+    if (v->reload) {
+        unsigned left=player.reload_at-clock_ms;
+        float t=fminf(1,fminf(left,reloadtime(gun)-left)/160.f);
+        v->reload_lower=t*t*(3-2*t);
+    }
+    v->weapon_kick=0;
+    if (player.flash_until>clock_ms) {
+        float t=(90-(player.flash_until-clock_ms))/90.f;
+        v->weapon_kick=fminf(t/.22f,(1-t)/.78f);
+    }
     v->flash = player.flash_until > clock_ms; v->hitflash = hit_until > clock_ms;
     v->hurt = hurt_until > clock_ms; v->phase = phase; v->bot_sound = bot_sound;
     v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;

@@ -97,7 +97,7 @@ def bake_gpu(out, packages, names, cells, entities):
         uv=np.frombuffer(d,"<i2",nt*2,st).reshape(-1,2)/[sw,sh]
         faces=np.frombuffer(d,"<u2",nf*6,tr).reshape(-1,6)
         tex=model_skin(skin,size)
-        for pose in (0,40,42,44,47):
+        for pose in (0,40,41,42,43,44,45,47):
             off=frame+pose*stride
             scale=np.array(struct.unpack_from("<3f",d,off))
             pos=np.frombuffer(d,np.uint8,nv*4,off+40).reshape(-1,4)[:,:3]*scale+struct.unpack_from("<3f",d,off+12)

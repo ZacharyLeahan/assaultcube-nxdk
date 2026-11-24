@@ -19,6 +19,7 @@ typedef struct { int x, y, icon; } ItemView;
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_yaw;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
+    float stride_blend, weapon_kick, reload_lower;
     int bot_pose, bot_flash, respawning, reload, flash, hitflash, hurt;
     unsigned seconds;
     MatchPhase phase;

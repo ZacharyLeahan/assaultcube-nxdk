@@ -18,6 +18,9 @@ typedef struct { int x, y, w, h; } Glyph;
 extern const unsigned char gpu_vertices[], gpu_textures[];
 typedef struct { float x,y,z,u,v; unsigned char rgba[4]; } Vertex;
 static const Vertex *geometry;
+typedef struct { float x,y,z; } Position;
+static Position *pose_positions;
+static unsigned pose_cursor;
 enum { STREAM_CAPACITY = 2048 };
 static Vertex *stream;
 static unsigned cursor, first;
@@ -71,6 +74,11 @@ int gpu_init(int width, int height) {
     if (!buffer) return 0;
     memcpy(buffer,gpu_vertices,VERTEX_BYTES);
     geometry = buffer;
+    unsigned rifle=batches[ASSAULT_BATCH].count+batches[ASSAULT_BATCH+1].count;
+    unsigned pistol=batches[PISTOL_BATCH].count+batches[PISTOL_BATCH+1].count;
+    unsigned count=batches[BODY_BATCH].count+batches[BOT_GUN_BATCH].count+(rifle>pistol?rifle:pistol);
+    pose_positions=pbgl_alloc(count*sizeof(Position));
+    if (!pose_positions) return 0;
     glGenTextures(sizeof(textures)/sizeof(textures[0]),textures);
     for (unsigned i=0;i<sizeof(textures)/sizeof(textures[0]);++i) {
         const ImageInfo *im = &images[i];
@@ -130,6 +138,29 @@ static void batch(unsigned n) {
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
     glDrawArrays(b->primitive==4?GL_QUADS:GL_TRIANGLES,b->first,b->count);
 }
+// Pose pairs share topology and UVs. Read positions from cached XBE memory
+// and write each mesh to its own GPU span until this frame has finished.
+static void animated_batch(unsigned current,unsigned next,float blend) {
+    const Batch *b=&batches[current];
+    if (blend<=0) {
+        bind_vertices(geometry);
+        batch(current);
+        return;
+    }
+    const Vertex *source=(const Vertex *)gpu_vertices;
+    const Vertex *a=source+b->first, *z=source+batches[next].first;
+    Position *out=pose_positions+pose_cursor;
+    pose_cursor+=b->count;
+    for (unsigned i=0;i<b->count;++i) {
+        out[i]=(Position){a[i].x+(z[i].x-a[i].x)*blend,
+                          a[i].y+(z[i].y-a[i].y)*blend,
+                          a[i].z+(z[i].z-a[i].z)*blend};
+    }
+    bind_vertices(geometry+b->first);
+    glVertexPointer(3,GL_FLOAT,sizeof(Position),out);
+    glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
+    glDrawArrays(GL_TRIANGLES,0,b->count);
+}
 static void projection(void) {
     float near=.25f, half_h=near*(120.f/180.f);
     glMatrixMode(GL_PROJECTION);
@@ -188,7 +219,9 @@ static void level(const MatchView *v) {
         glPushMatrix();
         glTranslatef(v->tx,v->ty,map_cube((int)v->tx,(int)v->ty)->floor);
         glRotatef(v->bot_yaw*57.29578f,0,0,1);
-        batch(BODY_BATCH+v->bot_pose); batch(BOT_GUN_BATCH+v->bot_pose);
+        int next=v->bot_pose%6+1;
+        animated_batch(BODY_BATCH+v->bot_pose,BODY_BATCH+next,v->stride_blend);
+        animated_batch(BOT_GUN_BATCH+v->bot_pose,BOT_GUN_BATCH+next,v->stride_blend);
         glPopMatrix();
     }
     bind_vertices(stream);
@@ -218,10 +251,11 @@ static void weapon(const MatchView *v) {
     projection();
     const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 4,-1,-10,1};
     glLoadMatrixf(camera);
-    if(v->reload) glTranslatef(0,0,-6);
+    glTranslatef(0,0,-6*v->reload_lower);
     bind_vertices(geometry);
-    int first=(v->pistol?PISTOL_BATCH:ASSAULT_BATCH)+(v->flash?2:0);
-    batch(first); batch(first+1);
+    int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
+    animated_batch(first,first+2,v->weapon_kick);
+    animated_batch(first+1,first+3,v->weapon_kick);
     bind_vertices(stream);
 }
 static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
@@ -281,6 +315,7 @@ void gpu_trace_init(void) {
 }
 unsigned gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
     cursor=0;
+    pose_cursor=0;
     bind_vertices(stream);
     glDepthMask(GL_TRUE);
     // The sky covers the background. Clear the full tiled Z24S8 surface for z compression.
