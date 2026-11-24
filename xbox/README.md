@@ -76,3 +76,23 @@ xemu 0.8.139 booted the same XISO with HD enabled and with the 4:3 fallback. The
 Build `38ac0d41` was tested at 720p with one bot, an opening rifle burst, a steady right-stick turn, forward movement, and a turn in the opposite direction. The instrumented previous build (`53a596b5`) recorded ten two-refresh intervals and one three-refresh interval in 719 intervals. Two fresh launches of the revised build each recorded 719 consecutive one-refresh intervals. Worst measured intervals were 50.00 ms before and 17.06 and 16.84 ms after. Camera rotation at fixed stick deflection advanced by 0.887 degrees each frame in both revised runs. These measurements cover presentation register writes on the console. TV processing and end-to-end input latency were outside the test.
 
 For a trace, place an empty `frame-trace.on` beside the installed XBE and start a match. After 720 frames, the title saves `frame-trace.bin` in that folder. Run `python xbox/tests/frame_trace.py frame-trace.bin` on the host to inspect refresh intervals. Remove or rename the marker before the next launch to disable recording.
+
+### Right-stick latency
+
+The physical Xbox timing test pairs a changed XID report in the USB completion callback with the presentation of the first frame turning in the requested direction. Both endpoints use the Xbox performance counter. The pixel check additionally requires a change in a row of scene samples taken from the completed framebuffer. The measurements exclude stick mechanics, USB travel before the callback, panel scanout and TV processing.
+
+| Right-stick step | Previous build | Revised run | Revised repeat with pixel check |
+| --- | ---: | ---: | ---: |
+| 58% travel, median USB arrival to presentation | 25.0 ms (17 turns) | 21.0 ms (18 turns) | 17.9 ms (18 turns) |
+| 15% travel, turns detected within 100 ms | 0 of 4 | 4 of 4 | 4 of 4 |
+
+In the pixel-checked run the 58% steps took 12.2–27.4 ms. Both revised captures presented 720 frames over 719 consecutive refresh intervals. The regular play XBE was `78a266fb`. The right stick uses a 12% circular deadzone. The game reserves time for a slow recent frame and samples the pad later when the GPU has headroom.
+
+To reproduce, build with `make -C xbox AIM_TRACE=1` and place `frame-trace.on` alongside the XBE on the HDD. From the ready screen, start the duel with a rifle burst. Alternate horizontal right-stick reports of ±19000 and ±5000 with neutral gaps. Keep the game running for at least 16 seconds after the first stick pulse. Retrieve `aim-usb.bin`, `frame-trace.bin` and `input-times.bin` from the title directory, then run:
+
+```sh
+python xbox/tests/aim_latency.py aim-usb.bin frame-trace.bin --pixels input-times.bin
+python xbox/tests/frame_trace.py frame-trace.bin
+```
+
+The analysis excludes capture boundaries, respawns and trials where the camera was already turning. A normal build uses the stock SDL Xbox driver.
