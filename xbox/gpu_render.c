@@ -1,6 +1,7 @@
 #include "gpu_render.h"
 #define GL_GLEXT_PROTOTYPES
 #include <pbgl.h>
+#include <xboxkrnl/xboxkrnl.h>
 #include <pbkit/pbkit.h>
 #include <GL/gl.h>
 #include <GL/glext.h>
@@ -235,6 +236,19 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
     text(hud_width-128,29,22,line);
     glDisable(GL_BLEND);
 }
+// An opt-in 12-second capture. Defer disk I/O until the sample is complete.
+typedef struct {
+    unsigned tick, vblank, prior_surface, next_surface;
+    float yaw, eye;
+    unsigned expired;
+} FrameSample;
+static FrameSample samples[720];
+static unsigned sample_count;
+static int tracing;
+void gpu_trace_init(void) {
+    FILE *marker=fopen("D:\\frame-trace.on","rb");
+    if (marker) { fclose(marker); tracing=1; }
+}
 void gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
     cursor=0;
     bind_vertices(stream);
@@ -249,6 +263,22 @@ void gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
     glFinish();
     unsigned address=(unsigned)pb_back_buffer() & 0x03ffffff;
     pb_wait_for_vbl();
+    unsigned prior=VIDEOREG(PCRTC_START) & 0x03ffffff;
     VIDEOREG(PCRTC_START)=address;
+    if (tracing && (v->phase==PLAYING || sample_count)) {
+        FrameSample *sample=&samples[sample_count++];
+        *sample=(FrameSample){(unsigned)KeQueryPerformanceCounter(),pb_get_vbl_counter(),
+                              prior,address,v->angle,v->eye,v->respawning};
+        if (sample_count==sizeof(samples)/sizeof(samples[0])) {
+            unsigned hz=(unsigned)KeQueryPerformanceFrequency();
+            FILE *file=fopen("D:\\frame-trace.bin","wb");
+            if (file) {
+                fwrite(&hz,sizeof(hz),1,file);
+                fwrite(samples,sizeof(samples),1,file);
+                fclose(file);
+            }
+            tracing=0;
+        }
+    }
     pbgl_swap_buffers();
 }

@@ -57,6 +57,7 @@ int main(void) {
     unsigned last = SDL_GetTicks();
     unsigned sample_start = last, frames = 0, fps10 = 0;
     MatchView view = {0};
+    gpu_trace_init();
     match_prepare();
     for (;;) {
         SDL_PumpEvents();
