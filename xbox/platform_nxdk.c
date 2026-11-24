@@ -56,6 +56,7 @@ int main(void) {
     }
     Pad pads[PAD_COUNT] = {0};
     unsigned last = SDL_GetTicks();
+    unsigned sample_start = last, frames = 0, fps10 = 0;
     MatchView view = {0};
     match_prepare();
     for (;;) {
@@ -64,6 +65,11 @@ int main(void) {
         refresh_pads(pads);
         unsigned now = SDL_GetTicks(), elapsed = now-last;
         last = now;
+        if (now-sample_start >= 2000) {
+            fps10 = (frames*10000u + (now-sample_start)/2)/(now-sample_start);
+            sample_start = now;
+            frames = 0;
+        }
         float move = 0, strafe = 0, turn = 0, look = 0;
         int swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
@@ -125,8 +131,10 @@ int main(void) {
         }
         if (!connected) pb_print("   Connect an Xbox controller\n");
         else if (view.phase != PLAYING) pb_print("   Controllers connected: %d\n",connected);
+        pb_print("   %u.%u FPS\n",fps10/10,fps10%10);
         pb_draw_text_screen();
         while (pb_busy()) {}
         while (pb_finished()) {}
+        ++frames;
     }
 }
