@@ -43,6 +43,18 @@ static float axis(SDL_GameController *pad, SDL_GameControllerAxis a) {
     return fabsf(v) < .18f ? 0 : copysignf((fabsf(v)-.18f)/.82f,v);
 }
 
+// A circular deadzone lets small diagonal aim corrections follow the stick direction.
+static void read_aim(SDL_GameController *pad, float *turn, float *look) {
+    float x=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_RIGHTX)/32768.f;
+    float y=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_RIGHTY)/32768.f;
+    float magnitude=sqrtf(x*x+y*y);
+    const float deadzone=.12f;
+    if (magnitude<=deadzone) return;
+    float scale=(fminf(1,magnitude)-deadzone)/((1-deadzone)*magnitude);
+    *turn+=x*scale;
+    *look-=y*scale;
+}
+
 int main(void) {
     if (!XVideoSetMode(1280,720,32,REFRESH_60HZ)) XVideoSetMode(640,480,32,REFRESH_DEFAULT);
     VIDEO_MODE mode = XVideoGetMode();
@@ -58,11 +70,13 @@ int main(void) {
     unsigned sample_start = last, frames = 0, fps10 = 0;
     unsigned previous_vblank=pb_get_vbl_counter();
     unsigned refreshes=1;
-    float refresh_period=1.f/(mode.refresh==50 ? 50 : 60);
+    unsigned refresh_hz=mode.refresh==50 ? 50 : 60;
+    float refresh_period=1.f/refresh_hz;
     MatchView view = {0};
     gpu_trace_init();
     match_prepare();
     for (;;) {
+        gpu_begin_input(refresh_hz,view.respawning);
         SDL_PumpEvents();
         SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
         refresh_pads(pads);
@@ -80,7 +94,7 @@ int main(void) {
             SDL_GameController *p = pad->handle;
             ++connected;
             move -= axis(p,SDL_CONTROLLER_AXIS_LEFTY); strafe += axis(p,SDL_CONTROLLER_AXIS_LEFTX);
-            turn += axis(p,SDL_CONTROLLER_AXIS_RIGHTX); look -= axis(p,SDL_CONTROLLER_AXIS_RIGHTY);
+            read_aim(p,&turn,&look);
             int rt = axis(p,SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > .25f;
             fire |= rt; refill |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_X);
             int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);

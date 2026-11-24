@@ -8,10 +8,15 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def measure(usb, trace):
+def measure(usb, trace, pixels=None):
     data = trace.read_bytes()
     hz, = struct.unpack_from("<I", data)
     frames = list(struct.iter_unpack("<4I2fI", data[4:]))
+    signatures = None
+    if pixels:
+        signatures = [r[2] for r in struct.iter_unpack("<III", pixels.read_bytes())]
+        if len(signatures) != len(frames):
+            raise ValueError("Pixel and frame captures have different lengths")
     origin = frames[0][0]
     def seconds(tick):
         return ((tick - origin + 2**31) % 2**32 - 2**31) / hz
@@ -34,7 +39,8 @@ def measure(usb, trace):
         delay = None
         for j in range(i, end):
             angle = math.remainder(frames[j][4]-base, 2*math.pi)
-            if angle * axis > 0 and abs(angle) > 0.00001:
+            changed = signatures is None or signatures[j] != signatures[i-1]
+            if changed and angle * axis > 0 and abs(angle) > 0.00001:
                 delay = 1000*(times[j]-start)
                 break
         groups[abs(axis)].append(delay)
@@ -51,5 +57,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("usb", type=Path)
     p.add_argument("frames", type=Path)
+    p.add_argument("--pixels", type=Path, help="also require a change in rendered scene pixels")
     a = p.parse_args()
-    measure(a.usb, a.frames)
+    measure(a.usb, a.frames, a.pixels)
