@@ -122,7 +122,7 @@ int main(void) {
         sound(effect,0);
         sound(view.bot_sound,1);
         match_view(&view);
-        unsigned vblank=gpu_present(&view, aimed, fps10, connected);
+        unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected);
         refreshes=vblank-previous_vblank;
         previous_vblank=vblank;
         ++frames;

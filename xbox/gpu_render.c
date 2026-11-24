@@ -1,4 +1,5 @@
 #include "gpu_render.h"
+#include "navigation.h"
 #define GL_GLEXT_PROTOTYPES
 #include <pbgl.h>
 #include <xboxkrnl/xboxkrnl.h>
@@ -307,13 +308,18 @@ typedef struct {
 } FrameSample;
 static FrameSample samples[720];
 static unsigned input_times[720][3];
+typedef struct {
+    float px,py,eye,yaw,pitch,tx,ty,chest,strafe,turn;
+    unsigned live,clear,aimed;
+} TrackingFrame;
+static TrackingFrame tracking_frames[720];
 static unsigned sample_count;
 static int tracing;
 void gpu_trace_init(void) {
     FILE *marker=fopen("D:\\frame-trace.on","rb");
     if (marker) { fclose(marker); tracing=1; }
 }
-unsigned gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
+unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected) {
     cursor=0;
     pose_cursor=0;
     bind_vertices(stream);
@@ -354,6 +360,11 @@ unsigned gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) 
         input_times[sample_count][0]=sample_tick;
         input_times[sample_count][1]=work_ticks[(work_index-1)%32];
         input_times[sample_count][2]=signature;
+        float chest=map_cube((int)v->tx,(int)v->ty)->floor+2.6f;
+        int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
+        tracking_frames[sample_count]=(TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,
+            v->tx,v->ty,chest,input->strafe,input->turn,live,
+            live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};
         FrameSample *sample=&samples[sample_count++];
         *sample=(FrameSample){(unsigned)KeQueryPerformanceCounter(),pb_get_vbl_counter(),
                               prior,address,v->angle,v->eye,v->respawning};
@@ -368,6 +379,11 @@ unsigned gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) 
             file=fopen("D:\\input-times.bin","wb");
             if (file) {
                 fwrite(input_times,sizeof(input_times),1,file);
+                fclose(file);
+            }
+            file=fopen("D:\\tracking.bin","wb");
+            if (file) {
+                fwrite(tracking_frames,sizeof(tracking_frames),1,file);
                 fclose(file);
             }
             tracing=0;
