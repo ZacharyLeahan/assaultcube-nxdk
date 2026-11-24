@@ -193,6 +193,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     if (player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
     if (bot.respawn_at && bot.respawn_at <= clock_ms) respawn_near(bot,player);
     float dt = fminf(.10f,motion_seconds);
+    float old_dx=bot.x-player.x, old_dy=bot.y-player.y;
+    float manual_yaw=0;
     if (!player.respawn_at) {
         float turn=fmaxf(-1,fminf(1,in->turn));
         int direction=(turn>0)-(turn<0);
@@ -201,7 +203,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (fabsf(turn)>=.85f) player.turn_boost=fminf(1,player.turn_boost+dt/.4f);
         float outer=fmaxf(0,(fabsf(turn)-.85f)/.15f);
         float yaw_rate=turn*(150+70*outer*player.turn_boost)*radians;
-        player.yaw=fmodf(player.yaw+yaw_rate*dt,6.2831853f);
+        manual_yaw=yaw_rate*dt;
+        player.yaw=fmodf(player.yaw+manual_yaw,6.2831853f);
         float look=fmaxf(-1,fminf(1,in->look));
         player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+look*105*radians*dt));
 
@@ -226,6 +229,25 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         }
     }
     collect(player); update_bot(dt); collect(bot);
+    // During fine two-stick tracking, share a fraction of the target's angular
+    // motion. An existing aiming error never pulls the crosshair to center.
+    if (!player.respawn_at && !bot.respawn_at && fabsf(in->strafe)>.05f &&
+        fabsf(in->turn)>.001f && fabsf(in->turn)<.45f && fabsf(in->look)<.45f) {
+        float dx=bot.x-player.x, dy=bot.y-player.y;
+        float forward=dx*cosf(player.yaw)+dy*sinf(player.yaw);
+        if (forward<=1 || forward>55) return;
+        float side=dy*cosf(player.yaw)-dx*sinf(player.yaw);
+        float chest=eye(bot)-1;
+        float offset=hypotf(side,chest-eye(player)-forward*tanf(player.pitch))/forward;
+        float proximity=fmaxf(0,1-offset/.14f);
+        if (proximity>0 && visible(player.x,player.y,eye(player),bot.x,bot.y,chest)) {
+            float bearing_change=atan2f(old_dx*dy-old_dy*dx,old_dx*dx+old_dy*dy);
+            float cap=32*radians*dt;
+            float strength=.65f*proximity*fminf(1,(.45f-fabsf(in->turn))/.20f)
+                           *fminf(1,fabsf(in->strafe)/.25f);
+            player.yaw+=strength*fmaxf(-cap,fminf(cap,bearing_change-manual_yaw));
+        }
+    }
 }
 MatchSound match_attack(const MatchInput *in, int aimed) {
     bool fire = in->fire && (guns[player.state.gunselect].isauto || !was_firing);
