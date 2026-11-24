@@ -1,3 +1,6 @@
+#ifndef AC_PROTOCOL_H
+#define AC_PROTOCOL_H
+
 #define MAXCLIENTS 256                  // in a multiplayer game, can be arbitrarily changed
 #define MAXPLAYERS 32                   // in a multiplayer game, can be arbitrarily changed
 #define DEFAULTCLIENTS 6
@@ -247,3 +250,4 @@ enum
 #define FTXT__SERVPARNAME   (FTXT_NOWHITE | FTXT_NOCOLOR | FTXT_SAFECS)
 #define FTXT__FORMATSTRING  (FTXT_NOWHITE | FTXT_NOCOLOR)
 
+#endif
