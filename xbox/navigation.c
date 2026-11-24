@@ -57,6 +57,21 @@ static uint8_t next_step[MAP*MAP];
 static uint16_t queue[MAP*MAP];
 static const int vx[] = {1,-1,0,0}, vy[] = {0,0,1,-1};
 static int goal_x = -1, goal_y = -1;
+// The map is immutable. Bake directed arrival edges once so a route refresh
+// during combat only visits bytes and queue entries.
+static uint8_t arrivals[MAP*MAP];
+void navigation_prepare(void) {
+    for (int y=0; y<MAP; ++y) for (int x=0; x<MAP; ++x) {
+        const Cube *dest=map_cube(x,y);
+        unsigned mask=0;
+        if (!map_solid(dest)) for (int i=0; i<4; ++i) {
+            const Cube *from=map_cube(x-vx[i],y-vy[i]);
+            if (fits(from,from->floor) && fits(dest,from->floor)) mask |= 1u<<i;
+        }
+        arrivals[y*MAP+x]=(uint8_t)mask;
+    }
+    goal_x=goal_y=-1;
+}
 void route_to(int x, int y) {
     if (goal_x == x && goal_y == y) return;
     goal_x = x; goal_y = y;
@@ -66,13 +81,10 @@ void route_to(int x, int y) {
     next_step[id] = 4;
     while (head < tail) {
         id = queue[head++];
-        int cx = id % MAP, cy = id / MAP;
-        const Cube *dest = map_cube(cx,cy);
-        for (int i = 0; i < 4; ++i) {
-            int px = cx-vx[i], py = cy-vy[i];
-            const Cube *from = map_cube(px,py);
-            if (map_solid(from) || !fits(from,from->floor) || !fits(dest,from->floor)) continue;
-            int previous = py*MAP+px;
+        unsigned mask=arrivals[id];
+        for (int i=0; i<4; ++i) {
+            if (!(mask & (1u<<i))) continue;
+            int previous=id-vx[i]-vy[i]*MAP;
             if (next_step[previous] != 255) continue;
             next_step[previous] = (uint8_t)i;
             queue[tail++] = (uint16_t)previous;

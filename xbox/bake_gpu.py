@@ -54,8 +54,8 @@ def bake_gpu(out, packages, names, cells, entities):
             if kind < 2:
                 continue
             f,c = (f+128)%256-128, (c+128)%256-128
-            planes[0,f][x,y] = ft
-            if ct: planes[1,c][x,y] = ct
+            planes[0,f,False][x,y] = ft
+            if ct: planes[1,c,True][x,y] = ct
             for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
                 nk,nf,nc,nw,_,_,nu,_ = map(int,world[y+dy,x+dx])
                 nf,nc = (nf+128)%256-128,(nc+128)%256-128
@@ -63,9 +63,9 @@ def bake_gpu(out, packages, names, cells, entities):
                 walls = [(f,c,nw)] if nk<2 else [(f,min(c,nf),nw),(max(f,nc),c,nu)]
                 for low,high,material in walls:
                     for z in range(low,high):
-                        planes[axis,coord][u,z] = material
+                        planes[axis,coord,dx>0 or dy<0][u,z] = material
     groups = defaultdict(list)
-    for (face,level), surface in planes.items():
+    for (face,level,reverse), surface in planes.items():
         for a,b in sorted(surface,key=lambda k:(k[1],k[0])):
             tex = surface.get((a,b))
             if tex is None: continue
@@ -74,7 +74,8 @@ def bake_gpu(out, packages, names, cells, entities):
             while height<16 and all(surface.get((a+i,b+height))==tex for i in range(width)): height+=1
             for j in range(height):
                 for i in range(width): del surface[a+i,b+j]
-            for u,v in ((a,b),(a+width,b),(a+width,b+height),(a,b+height)):
+            corners=((a,b),(a+width,b),(a+width,b+height),(a,b+height))
+            for u,v in (reversed(corners) if reverse else corners):
                 xyz = (u,v,level) if face<2 else (level,u,v) if face==2 else (u,level,v)
                 groups[tex].append((xyz,(u/8,(v if face<2 else -v)/8),light(*xyz,face)))
     for tex,points in sorted(groups.items()): add_batch(tex,points,4)

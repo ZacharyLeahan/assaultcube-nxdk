@@ -56,6 +56,9 @@ int main(void) {
     Pad pads[PAD_COUNT] = {0};
     unsigned last = SDL_GetTicks();
     unsigned sample_start = last, frames = 0, fps10 = 0;
+    unsigned previous_vblank=pb_get_vbl_counter();
+    unsigned refreshes=1;
+    float refresh_period=1.f/(mode.refresh==50 ? 50 : 60);
     MatchView view = {0};
     gpu_trace_init();
     match_prepare();
@@ -96,14 +99,16 @@ int main(void) {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
             .fire = fire, .refill = refill, .swap = swap, .start = start
         };
-        match_update(&input, elapsed);
+        match_update(&input, elapsed, refreshes*refresh_period);
         match_view(&view);
         int aimed = match_targeted(&view);
         MatchSound effect = match_attack(&input, aimed);
         sound(effect,0);
         sound(view.bot_sound,1);
         match_view(&view);
-        gpu_present(&view, aimed, fps10, connected);
+        unsigned vblank=gpu_present(&view, aimed, fps10, connected);
+        refreshes=vblank-previous_vblank;
+        previous_vblank=vblank;
         ++frames;
     }
 }

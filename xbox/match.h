@@ -30,7 +30,7 @@ typedef struct {
 const Cube *map_cube(int x, int y);
 int map_solid(const Cube *cube);
 void match_prepare(void);
-void match_update(const MatchInput *input, unsigned elapsed);
+void match_update(const MatchInput *input, unsigned elapsed, float motion_seconds);
 MatchSound match_attack(const MatchInput *input, int aimed);
 int match_targeted(const MatchView *view);
 void match_view(MatchView *view);

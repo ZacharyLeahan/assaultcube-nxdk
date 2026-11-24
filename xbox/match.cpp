@@ -18,7 +18,7 @@ constexpr unsigned duration = 90000;
 constexpr float radians = .017453293f;
 struct Fighter {
     playerstate state;
-    float x, y, yaw, pitch;
+    float x, y, yaw, pitch, eye_height;
     int frags;
     unsigned respawn_at, ready_at, reload_at, flash_until;
 };
@@ -36,10 +36,11 @@ unsigned random_number() {
 }
 float ground(float x, float y) { return map_cube((int)x,(int)y)->floor; }
 float distance(float x,float y,float tx,float ty) { return hypotf(tx-x,ty-y); }
-float eye(const Fighter &f) { return ground(f.x,f.y)+3.6f; }
+float eye(const Fighter &f) { return &f==&player ? f.eye_height : ground(f.x,f.y)+3.6f; }
 void spawn(Fighter &f, int index) {
     f.x = starts[index][0]+.5f; f.y = starts[index][1]+.5f;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
+    f.eye_height=ground(f.x,f.y)+3.6f;
     f.state.respawn();
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
     f.respawn_at = f.ready_at = f.reload_at = f.flash_until = 0;
@@ -169,8 +170,8 @@ void update_bot(float dt) {
 }
 }
 
-void match_prepare(void) { begin(READY); }
-void match_update(const MatchInput *in, unsigned elapsed) {
+void match_prepare(void) { navigation_prepare(); begin(READY); }
+void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     bot_sound = SILENT;
     if (phase != PLAYING) {
         if (in->start) begin(PLAYING);
@@ -180,13 +181,18 @@ void match_update(const MatchInput *in, unsigned elapsed) {
     if (clock_ms >= duration) { phase = INTERMISSION; return; }
     if (player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
     if (bot.respawn_at && bot.respawn_at <= clock_ms) respawn_near(bot,player);
-    float dt = fminf(.10f,elapsed*.001f);
+    float dt = fminf(.10f,motion_seconds);
     if (!player.respawn_at) {
         player.yaw = fmodf(player.yaw+in->turn*2.6f*dt,6.2831853f);
         player.pitch = fmaxf(-75,fminf(75,player.pitch+in->look*130*dt));
         float speed = 16*dt/fmaxf(1,hypotf(in->move,in->strafe));
         float c = cosf(player.yaw), s = sinf(player.yaw);
         walk(&player.x,&player.y,(in->move*c-in->strafe*s)*speed,(in->move*s+in->strafe*c)*speed);
+        // Ease eye height over grid steps. Keep the sight origin inside the new cell.
+        const Cube *cell=map_cube((int)player.x,(int)player.y);
+        float delta=cell->floor+3.6f-player.eye_height;
+        player.eye_height+=fmaxf(-12*dt,fminf(12*dt,delta));
+        player.eye_height=fmaxf(cell->floor+.1f,fminf(cell->ceil-.1f,player.eye_height));
         if (in->swap && player.ready_at <= clock_ms) {
             player.state.gunselect = player.state.gunselect == GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
             player.ready_at = clock_ms+250;

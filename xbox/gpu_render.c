@@ -107,11 +107,11 @@ static void batch(unsigned n) {
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
     glDrawArrays(b->primitive==4?GL_QUADS:GL_TRIANGLES,b->first,b->count);
 }
-static void projection(float pitch) {
-    float near=.25f, half_h=near*(120.f/180.f), shift=near*pitch/180.f;
+static void projection(void) {
+    float near=.25f, half_h=near*(120.f/180.f);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glFrustum(-half_h*aspect,half_h*aspect,-half_h+shift,half_h+shift,near,350);
+    glFrustum(-half_h*aspect,half_h*aspect,-half_h,half_h,near,350);
     glMatrixMode(GL_MODELVIEW);
 }
 static void quad(float x,float y,float w,float h,float u,float v,float du,float dv) {
@@ -149,8 +149,10 @@ static void skybox(void) {
 }
 static void level(const MatchView *v) {
     float c=cosf(v->angle),s=sinf(v->angle);
-    const float camera[16]={-s,0,-c,0, c,0,-s,0, 0,1,0,0, 0,0,0,1};
-    projection(v->pitch);
+    float slope=v->pitch/180.f;
+    float cp=1.f/sqrtf(1+slope*slope), sp=slope*cp;
+    const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
+    projection();
     glLoadMatrixf(camera);
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -158,7 +160,11 @@ static void level(const MatchView *v) {
     glTranslatef(-v->px,-v->py,-v->eye);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
     bind_vertices(geometry);
+    // The map uses +Y to the camera's right, reversing projected winding.
+    glFrontFace(GL_CW);
+    glEnable(GL_CULL_FACE);
     for (int i=0;i<WORLD_BATCHES;++i) batch(i);
+    glDisable(GL_CULL_FACE);
     if (v->bot_alive) {
         glPushMatrix();
         glTranslatef(v->tx,v->ty,map_cube((int)v->tx,(int)v->ty)->floor);
@@ -186,7 +192,7 @@ static void weapon(const MatchView *v) {
     if(v->respawning) return;
     // Give the first-person mesh its own depth pass and camera, as in the PC client.
     glClear(GL_DEPTH_BUFFER_BIT);
-    projection(0);
+    projection();
     const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 4,-1,-10,1};
     glLoadMatrixf(camera);
     if(v->reload) glTranslatef(0,0,-6);
@@ -249,7 +255,7 @@ void gpu_trace_init(void) {
     FILE *marker=fopen("D:\\frame-trace.on","rb");
     if (marker) { fclose(marker); tracing=1; }
 }
-void gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
+unsigned gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
     cursor=0;
     bind_vertices(stream);
     glDepthMask(GL_TRUE);
@@ -262,7 +268,7 @@ void gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
     // an in-progress frame on this console when rendering the full 720p scene.
     glFinish();
     unsigned address=(unsigned)pb_back_buffer() & 0x03ffffff;
-    pb_wait_for_vbl();
+    unsigned vblank=pb_wait_for_vbl();
     unsigned prior=VIDEOREG(PCRTC_START) & 0x03ffffff;
     VIDEOREG(PCRTC_START)=address;
     if (tracing && (v->phase==PLAYING || sample_count)) {
@@ -281,4 +287,5 @@ void gpu_present(const MatchView *v,int aimed,unsigned fps10,int connected) {
         }
     }
     pbgl_swap_buffers();
+    return vblank;
 }
