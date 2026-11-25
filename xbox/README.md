@@ -29,7 +29,7 @@ Local rifle and pistol impacts use the crosshair depth of the map and its props.
 
 The bot uses the original player model scale and animated head position for hit detection. The rifle and pistol deal their normal damage to both the head and torso.
 
-The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Gunfire briefly brightens the baked light grid around either fighter. Walls, floors, props, pickups and both fighters' models use that lighting. The bot and its rifle cast a moving stencil shadow from their animated meshes. The HUD updates its frame counter every two seconds.
+The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Gunfire briefly brightens the baked light grid around either fighter. Walls, floors, props, pickups and both fighters' models use that lighting. When the bot runs out of rifle ammunition it draws the MK-77. Both guns use their original animated models, muzzle positions and moving stencil shadows. The HUD updates its frame counter every two seconds.
 
 ## Build and run
 
@@ -127,7 +127,7 @@ On unobstructed ground, movement now follows the PC friction curve. Holding the 
 
 The Xbox port shares some of the visible opponent's angular motion during small two-stick corrections. Build `6ddbe28b` gives this assistance a constant gain near the torso and gradually fades it near the edge of the aiming cone. Full horizontal stick immediately selects the ordinary turn rate.
 
-The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. The companion `bot-aim.bin` records the bot’s yaw and pitch in radians, player health, and the bot’s weapon sound for each frame (little-endian `<2f2i`). Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
+The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. For a sidearm encounter, write `pistol` into the marker to start the capture when the bot equips its pistol. The companion `bot-aim.bin` records the bot’s yaw and pitch in radians, player health, and the bot’s weapon sound for each frame (little-endian `<2f2i`). Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
 
 | Opening life, visible strafing frames only | Previous run 1 / 2 | Revised run 1 / 2 |
 | --- | --- | --- |

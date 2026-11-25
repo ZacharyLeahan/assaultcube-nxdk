@@ -624,6 +624,7 @@ void update_bot(float dt) {
     MatchSound shot=trigger(bot,true,false);
     if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
         int fired=bot.state.gunselect;
+        if (fired==GUN_ASSAULT) bot.shot_until=bot.ready_at;
         start_recoil(bot,fired);
         float x=cosf(bot.pitch)*cosf(bot.yaw),y=cosf(bot.pitch)*sinf(bot.yaw),z=sinf(bot.pitch);
         firing_impulse(bot,fired,x,y,z,false);
@@ -837,7 +838,8 @@ static MatchPoint head_position(BotPose pose) {
 }
 static void bot_view(MatchView *v) {
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-PLAYER_EYE_HEIGHT; v->bot_alive = !bot.respawn_at;
-    // The world rifle's md2emit lasts 50 ms of the 90 ms attack cue.
+    v->bot_pistol=bot.state.gunselect==GUN_PISTOL && clock_ms>=bot.shot_until;
+    // Both world model configs use md2emit for 50 ms.
     v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     unsigned now=clock_ms+intermission_age;

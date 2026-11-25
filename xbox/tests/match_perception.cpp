@@ -103,8 +103,15 @@ extern "C" void test_easy_bot_spacing(void) {
 
     bot.state.mag[GUN_ASSAULT]=bot.state.ammo[GUN_ASSAULT]=0;
     place_target(0,8);
+    MatchView v={};
+    bot.shot_until=bot.ready_at=clock_ms+120;
     update_bot(0);
-    assert(bot.state.gunselect==GUN_PISTOL && combat_forward==0);
+    bot_view(&v);
+    assert(!v.bot_pistol);
+    clock_ms=bot.ready_at;
+    update_bot(0);
+    bot_view(&v);
+    assert(v.bot_pistol && combat_forward==0);
 }
 
 extern "C" void test_easy_bot_aim(void) {

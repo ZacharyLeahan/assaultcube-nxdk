@@ -263,13 +263,14 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("BODY_BATCH",len(batches))
     player=packages/"models/playermodels"
     md2(player,player/"CLA/01_redvest.jpg",(256,256),"BODY")
-    mark("BOT_GUN_BATCH",len(batches))
-    gun=packages/"models/weapons/assault/world"
-    bot_muzzle=[]
-    md2(gun,gun/"skin.jpg",(128,64),"BOT_GUN",bot_muzzle)
+    for weapon,name in (("assault","bot_gun"),("pistol","world_pistol")):
+        mark(name.upper()+"_BATCH",len(batches))
+        gun=packages/"models/weapons"/weapon/"world"
+        muzzle=[]
+        md2(gun,gun/"skin.jpg",(128,64),name.upper(),muzzle)
+        symbols.append(f"static const float {name}_muzzle[][3] = {{"+
+                       ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in muzzle)+"};\n")
     (out/"bot_poses.bin").write_bytes(bot_positions)
-    symbols.append("static const float bot_muzzle[][3] = {"+
-                   ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in bot_muzzle)+"};\n")
 
     hands=model_skin(packages/"models/weapons/knife/skin_hands.jpg",(256,256))
     for name in ("assault","pistol","knife"):
@@ -292,10 +293,9 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
     mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
-    for name in ("pistol","knife"):
-        folder=packages/"models/weapons"/name/"world"
-        mark(name.upper()+"_DEATH_BATCH",len(batches))
-        md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
+    folder=packages/"models/weapons/knife/world"
+    mark("KNIFE_DEATH_BATCH",len(batches))
+    md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
     mark("GIB_BATCH",len(batches))
     for i in range(1,4):
         folder=packages/f"models/misc/gib0{i}"
