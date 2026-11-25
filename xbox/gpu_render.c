@@ -24,6 +24,7 @@ static const Vertex *geometry;
 typedef struct { float u,v; } LightUV;
 static LightUV *world_light_uv;
 typedef struct { float x,y,z; } Position;
+extern const Position bot_poses[];
 static Position *pose_positions;
 static unsigned pose_cursor;
 enum { STREAM_CAPACITY = 2048 };
@@ -187,6 +188,26 @@ static void animated_batch(unsigned current,unsigned next,float blend) {
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
     glDrawArrays(GL_TRIANGLES,0,b->count);
 }
+
+static void bot_batch(unsigned batch_id,unsigned base,unsigned count,const unsigned short *indices,
+                      unsigned current,unsigned next,float blend) {
+    if (!current && blend==0) { batch(batch_id); return; }
+    // MD2 shares positions across UV seams. Interpolate each source vertex
+    // once, then expand in the same triangle order as the static UV buffer.
+    static Position mixed[BODY_VERTICES>BOT_GUN_VERTICES?BODY_VERTICES:BOT_GUN_VERTICES];
+    const Position *a=bot_poses+base+current*count,*b=bot_poses+base+next*count;
+    for (unsigned i=0;i<count;++i)
+        mixed[i]=(Position){a[i].x+blend*(b[i].x-a[i].x),a[i].y+blend*(b[i].y-a[i].y),
+                            a[i].z+blend*(b[i].z-a[i].z)};
+    const Batch *mesh=&batches[batch_id];
+    Position *out=pose_positions+pose_cursor;
+    pose_cursor+=mesh->count;
+    for (unsigned i=0;i<mesh->count;++i) out[i]=mixed[indices[i]];
+    bind_vertices(geometry+mesh->first);
+    glVertexPointer(3,GL_FLOAT,sizeof(Position),out);
+    glBindTexture(GL_TEXTURE_2D,textures[mesh->texture]);
+    glDrawArrays(GL_TRIANGLES,0,mesh->count);
+}
 static void projection(float near,float half_h) {
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -292,8 +313,8 @@ static void level(const MatchView *v) {
         glRotatef(v->bot_yaw*57.29578f,0,0,1);
         glRotatef(-v->bot_tilt*57.29578f,0,1,0);
         unsigned current=bot_frame_batch[v->bot_pose],next=bot_frame_batch[v->next_bot_pose];
-        animated_batch(BODY_BATCH+current,BODY_BATCH+next,v->bot_pose_blend);
-        animated_batch(BOT_GUN_BATCH+current,BOT_GUN_BATCH+next,v->bot_pose_blend);
+        bot_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,current,next,v->bot_pose_blend);
+        bot_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,current,next,v->bot_pose_blend);
         glPopMatrix();
     }
     bind_vertices(geometry);

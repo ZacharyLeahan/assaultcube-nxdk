@@ -12,6 +12,7 @@ asset deltas
 asset cell_light
 asset ambience
 asset gpu_vertices
+asset bot_poses
 asset gpu_textures
 asset usp
 asset pistol_reload
