@@ -16,7 +16,7 @@ typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, 
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     PLAYER_JUMP, PLAYER_LAND, PLAYER_STEP, PLAYER_PAIN, PLAYER_DEATH,
-    PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR } MatchSound;
+    PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR, WEAPON_CHANGE } MatchSound;
 typedef struct { int x, y, icon; float base; } ItemView;
 typedef struct { float x,y,z; int axis; unsigned expires; } BulletMark;
 typedef struct {
@@ -27,7 +27,7 @@ typedef struct {
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_yaw;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
-    float stride_blend, weapon_kick, reload_lower;
+    float stride_blend, weapon_kick;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     unsigned gun_pose, next_gun_pose;
     int bot_pose, bot_flash, respawning, reload, flash, wide_crosshair;

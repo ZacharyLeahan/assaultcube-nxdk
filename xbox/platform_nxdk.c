@@ -15,10 +15,12 @@ extern const uint8_t usp[], usp_end[], pistol_reload[], pistol_reload_end[];
 typedef struct { const uint8_t *start,*end; } Clip;
 #define DECLARE_CLIP(n) extern const uint8_t n[], n##_end[]
 DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(step); DECLARE_CLIP(pain1); DECLARE_CLIP(die1);
+DECLARE_CLIP(change_gun);
 DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup_helmet); DECLARE_CLIP(pickup_armour);
 #define CLIP(n) {n,n##_end}
 static const Clip clips[] = {
     [RIFLE_SHOT]={shot_audio,shot_end}, [RIFLE_RELOAD]=CLIP(auto_reload),
+    [WEAPON_CHANGE]=CLIP(change_gun),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
     [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land), [PLAYER_STEP]=CLIP(step),
     [PLAYER_PAIN]=CLIP(pain1), [PLAYER_DEATH]=CLIP(die1), [PICKUP_AMMO]=CLIP(pickup_ammo_clip),

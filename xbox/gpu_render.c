@@ -288,8 +288,8 @@ static void weapon(const MatchView *v) {
     projection(.30f,.30f*.76732699f);
     const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 4,-1,-10,1};
     glLoadMatrixf(camera);
-    glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up-4*v->reload_lower);
-    glRotatef(v->gun_rotation-45*v->reload_lower,1,0,0);
+    glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up);
+    glRotatef(v->gun_rotation,1,0,0);
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
     int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;

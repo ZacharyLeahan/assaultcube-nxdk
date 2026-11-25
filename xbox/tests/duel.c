@@ -47,7 +47,30 @@ static void test_stance(void) {
     match_view(&v); assert(fabsf(v.eye-standing)<.001f);
 }
 
+static void test_weapon_switch(void) {
+    MatchView v;
+    MatchInput in={.start=1};
+    match_prepare();
+    match_update(&in,16,.016f);
+    in=(MatchInput){.swap=1};
+    match_update(&in,16,.016f);
+    assert(match_attack(&in)==WEAPON_CHANGE);
+    in=(MatchInput){.fire=1};
+    match_update(&in,199,.016f);
+    match_view(&v);
+    assert(!v.pistol && v.gun_rotation < -89 && match_attack(&in)==SILENT);
+    match_update(&in,2,.002f);
+    match_view(&v);
+    assert(v.pistol && v.gun_rotation < -89 && match_attack(&in)==SILENT);
+    in.fire=0;
+    match_update(&in,199,.016f);
+    assert(match_attack(&in)==SILENT);
+    in.fire=1;
+    match_update(&in,1,.001f);
+    assert(match_attack(&in)==PISTOL_SHOT);
+}
 int main(void) {
+    test_weapon_switch();
     MatchInput floor_shot={.start=1};
     MatchView effects;
     match_prepare();

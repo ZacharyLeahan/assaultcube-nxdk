@@ -15,6 +15,7 @@ struct ItemLocation { int x, y, height_tenths, kind; };
 constexpr int start_count = sizeof(starts)/sizeof(starts[0]);
 constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
+constexpr unsigned switch_ms = 400;
 constexpr float radians = .017453293f;
 struct Fighter {
     playerstate state;
@@ -36,6 +37,8 @@ unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
 float stride_phase;
 bool was_firing, bot_saw_player;
+unsigned switch_end;
+int next_gun;
 MatchPhase phase;
 bool classic_assist;
 MatchSound bot_sound;
@@ -75,6 +78,7 @@ void spawn(Fighter &f, int index) {
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=ground(f.x,f.y)+3.6f;
     if (&f==&player) {
+        switch_end=0;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
         feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=air_seconds=0;
@@ -309,9 +313,13 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float delta=feet_z+stance-player.eye_height;
         player.eye_height+=grounded?fmaxf(-12*dt,fminf(12*dt,delta)):delta;
         player.eye_height=fmaxf(floor+.1f,fminf(ceiling-.1f,player.eye_height));
-        if (in->swap && player.ready_at <= clock_ms) {
-            player.state.gunselect = player.state.gunselect == GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
-            player.ready_at = clock_ms+250;
+        if (switch_end) {
+            if (clock_ms+switch_ms/2>switch_end) player.state.gunselect=next_gun;
+            if (clock_ms>switch_end) switch_end=0;
+        }
+        if (in->swap && !switch_end && player.reload_at<=clock_ms) {
+            next_gun=player.state.gunselect==GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
+            switch_end=clock_ms+switch_ms;
             player.shots=player.shot_until=0;
         }
     }
@@ -342,6 +350,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
 MatchSound match_attack(const MatchInput *in) {
     bool fire = in->fire && (guns[player.state.gunselect].isauto || !was_firing);
     was_firing = in->fire;
+    if (switch_end && !player.respawn_at && phase==PLAYING)
+        return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
     if (!in->fire) player.shots=0;
     MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill,false,bot) : SILENT;
     if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
@@ -387,11 +397,11 @@ void match_view(MatchView *v) {
     v->magazine = player.state.mag[gun]; v->reserve = player.state.ammo[gun];
     v->pistol = gun == GUN_PISTOL;
     v->respawning = !!player.respawn_at; v->reload = player.reload_at > clock_ms;
-    v->reload_lower=0;
+    float lower=0;
     if (v->reload) {
-        unsigned left=player.reload_at-clock_ms;
-        float t=fminf(1,fminf(left,reloadtime(gun)-left)/160.f);
-        v->reload_lower=t*t*(3-2*t);
+        lower=sinf(3.14159265f*(player.reload_at-clock_ms)/reloadtime(gun));
+    } else if (switch_end && switch_end>clock_ms) {
+        lower=sinf(3.14159265f*(switch_end-clock_ms)/switch_ms);
     }
     v->weapon_kick=0;
     float speed=fminf(1,hypotf(player.sway_x,player.sway_y));
@@ -400,7 +410,7 @@ void match_view(MatchView *v) {
                 -.26f*speed*sinf(step);
     v->gun_up=-.28f*speed*fabsf(cosf(step));
     v->gun_forward=.45f*(player.sway_x*cosf(player.yaw)+player.sway_y*sinf(player.yaw));
-    v->gun_rotation=v->gun_back=0;
+    v->gun_rotation=-90*lower; v->gun_back=0;
     v->gun_pose=v->next_gun_pose=0;
     v->flash=0;
     if (player.shot_until>clock_ms) {

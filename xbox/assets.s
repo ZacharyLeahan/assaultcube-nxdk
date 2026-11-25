@@ -24,4 +24,5 @@ asset pickup_ammo_clip
 asset pickup_health
 asset pickup_helmet
 asset pickup_armour
+asset change_gun
 .set "@feat.00", 1

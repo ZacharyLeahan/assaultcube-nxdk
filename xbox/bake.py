@@ -70,7 +70,7 @@ def bake():
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots)
     sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
             "player/jump","player/land","player/step","player/pain1","player/die1",
-            "misc/pickup_ammo_clip","misc/pickup_health","misc/pickup_helmet","misc/pickup_armour")
+            "misc/pickup_ammo_clip","misc/pickup_health","misc/pickup_helmet","misc/pickup_armour","misc/change_gun")
     for sound in sounds:
         name=sound.split("/")[-1]
         samples, rate = soundfile.read(PKG/"audio"/(sound+".ogg"), always_2d=True)
