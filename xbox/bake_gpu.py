@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 
-def bake_gpu(out, packages, names, cells, entities):
+def bake_gpu(out, packages, names, cells, entities, model_slots):
     blob = bytearray()
     textures, batches, symbols = [], [], []
     vertices = bytearray()
@@ -161,6 +161,29 @@ def bake_gpu(out, packages, names, cells, entities):
             pos=pos[:,[1,0,2]]
             if name=="helmet": pos[:,2]-=15  # mdltrans in the bundled md3.cfg
             model_batch(tex,pos/16,uv,tri,tri)
+    mark("PROP_START",len(batches))
+    for slot,(offset,name) in enumerate(model_slots):
+        folder=packages/"models/mapmodels"/name.decode()
+        cfg=(folder/"md3.cfg").read_text()
+        mesh=re.search(r"^md3load (\S+)",cfg,re.M)
+        skin=re.search(r"^md3skin \S+ (\S+)",cfg,re.M)
+        d=(folder/(mesh[1] if mesh else "tris.md3")).read_bytes()
+        tex=texture(Image.open(folder/(skin[1] if skin else "skin.jpg")),(128,128))
+        header=struct.unpack_from("<4si64s9i",d)
+        points=[]
+        for _,pos,uv,tri in md3_surfaces(d,header,0):
+            local=pos[:,[1,0,2]]/16
+            for x,y,_,yaw,kind,index,elevation,_ in entities:
+                if kind!=10 or index!=slot: continue
+                angle=np.radians(yaw*.1+180)
+                c,s=np.cos(angle),np.sin(angle)
+                xyz=local@np.array([[c,s,0],[-s,c,0],[0,0,1]])
+                z=int(world[y,x,1].view(np.int8))+int(offset)+elevation/5
+                xyz+=[x,y,z]
+                rgb=light(x,y,z,2)
+                points.extend((xyz[v],uv[v],rgb) for face in tri for v in face)
+        if points: add_batch(tex,points,3)
+    mark("PROP_END",len(batches))
     icons = Image.open(packages/"misc/items.png").convert("RGBA")
     # Top-down floor material and elevation, in the same XY coordinates as the duel.
     tiles=np.array([np.asarray(Image.open(packages/"textures"/n.decode()).convert("RGB").resize((16,16)))

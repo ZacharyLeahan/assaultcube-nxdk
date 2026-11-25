@@ -218,6 +218,7 @@ static void level(const MatchView *v) {
     glEnable(GL_CULL_FACE);
     for (int i=0;i<WORLD_BATCHES;++i) batch(i);
     glDisable(GL_CULL_FACE);
+    for (int i=PROP_START;i<PROP_END;++i) batch(i);
     if (v->bot_alive) {
         glPushMatrix();
         glTranslatef(v->tx,v->ty,map_cube((int)v->tx,(int)v->ty)->floor);

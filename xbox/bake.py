@@ -61,7 +61,8 @@ def bake():
         "".join(f"    {{{x}, {y}, {height}, {kind}}},\n" for x, y, height, kind in pickups) + "};\n")
     from bake_gpu import bake_gpu
     entities = [struct.unpack_from("<4h4B", data, offset+16*i) for i in range(count)]
-    bake_gpu(OUT, PKG, names, cells, entities)
+    model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
+    bake_gpu(OUT, PKG, names, cells, entities, model_slots)
     for name in ("auto", "auto_reload", "usp", "pistol_reload"):
         samples, rate = soundfile.read(PKG/"audio/weapon"/(name+".ogg"), always_2d=True)
         mono = samples.mean(axis=1)
