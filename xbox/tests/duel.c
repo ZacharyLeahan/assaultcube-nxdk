@@ -4,6 +4,28 @@
 #include <math.h>
 #include <stdio.h>
 
+static void test_strafe_reversal(unsigned hz) {
+    MatchInput in={.start=1};
+    MatchView start,v;
+    match_prepare(); match_update(&in,0,0); match_view(&start);
+    float velocity=0,distance=0;
+    for (int section=0;section<3;++section) {
+        in=(MatchInput){.strafe=section==0?.6f:section==1?-.6f:0};
+        for (unsigned frame=0;frame<hz/5;++frame) {
+            unsigned dt=(frame+1)*1000/hz-frame*1000/hz;
+            match_update(&in,dt,dt*.001f);
+        }
+        // Reference 200 ms of Windows movement at its native physics tick.
+        for (int tick=0;tick<40;++tick) {
+            velocity+=(in.strafe-velocity)/24;
+            distance+=velocity*16*.005f;
+        }
+        match_view(&v);
+        float actual=(v.py-start.py)*cosf(start.angle)-(v.px-start.px)*sinf(start.angle);
+        assert(fabsf(actual-distance)<.001f);
+    }
+}
+
 static void test_rifle_recoil(unsigned hz,int crouch) {
     MatchView v;
     MatchInput in={.start=1};
@@ -125,7 +147,7 @@ static void test_well_ladder(void) {
             match_view(&v);
             float dx=route[i][0]-v.px,dy=route[i][1]-v.py;
             if (hypotf(dx,dy)<.12f) break;
-            float scale=1/fmaxf(1.5f,hypotf(dx,dy));
+            float scale=1/fmaxf(4.f,hypotf(dx,dy));
             in=(MatchInput){.move=scale*(dx*cosf(v.angle)+dy*sinf(v.angle)),
                             .strafe=scale*(dy*cosf(v.angle)-dx*sinf(v.angle))};
             match_update(&in,16,.016f);
@@ -138,7 +160,9 @@ static void test_well_ladder(void) {
         in=(MatchInput){.turn=fmaxf(-.8f,fminf(.8f,-remainderf(v.angle,6.2831853f)/(.016f*150*.017453293f)))};
         match_update(&in,16,.016f);
     }
-    in=(MatchInput){.move=-1,.jump=1};
+    in=(MatchInput){.move=-1};
+    for (int i=0;i<8;++i) match_update(&in,16,.016f);
+    in.jump=1;
     for (int i=0;i<32;++i) match_update(&in,16,.016f);
     in=(MatchInput){0};
     int entered=0,exited=0;
@@ -168,6 +192,8 @@ static void test_well_ladder(void) {
     match_view(&v); assert(v.px>142 && v.eye>3);
 }
 int main(void) {
+    test_strafe_reversal(60);
+    test_strafe_reversal(50);
     test_rifle_recoil(60,0);
     test_rifle_recoil(60,1);
     test_rifle_recoil(50,0);

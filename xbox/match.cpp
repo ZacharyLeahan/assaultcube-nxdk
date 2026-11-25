@@ -337,20 +337,27 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             else movement_sound=PLAYER_JUMP;
         }
         held_jump=in->jump;
-        float speed=(stance<3.59f?6.4f:16.f)/fmaxf(1,hypotf(in->move,in->strafe));
+        float speed=stance<3.59f?6.4f:16.f;
         if (swimming) speed*=.5f;
         float c=cosf(player.yaw), s=sinf(player.yaw);
         float forward=climbing && !grounded && in->move<0 ? 0 : in->move;
         if (swimming) forward*=cosf(player.pitch);
-        float dx=(forward*c-in->strafe*s)*speed-player.velocity_x;
-        float dy=(forward*s+in->strafe*c)*speed-player.velocity_y;
-        float change=hypotf(dx,dy);
-        float acceleration=(in->move || in->strafe) ? 128.f : 240.f;
-        float fraction=swimming ? fminf(1,dt/.4f) : change>0 ? fminf(1,acceleration*dt/change) : 0;
-        player.velocity_x+=dx*fraction;
-        player.velocity_y+=dy*fraction;
+        float stick_length=fmaxf(1,hypotf(in->move,in->strafe));
+        float target_x=(forward*c-in->strafe*s)/stick_length;
+        float target_y=(forward*s+in->strafe*c)/stick_length;
+        // Sum the PC's 5 ms friction steps, including distance travelled
+        // during acceleration, over the current display interval.
+        float friction=swimming?20.f:grounded?6.f:climbing?1.5f:30.f;
+        float retain=1-.005f/(friction*.02f);
+        float fraction=1-powf(retain,dt/.005f);
+        float carry=(friction*.02f-.005f)*fraction;
+        float dx=player.velocity_x-target_x,dy=player.velocity_y-target_y;
+        float travel_x=(target_x*dt+dx*carry)*speed;
+        float travel_y=(target_y*dt+dy*carry)*speed;
+        player.velocity_x-=dx*fraction;
+        player.velocity_y-=dy*fraction;
         float old_x=player.x,old_y=player.y;
-        walk_body(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt,
+        walk_body(&player.x,&player.y,travel_x,travel_y,
                   feet_z,stance+.9f,grounded||climbing?1.5f:0.f);
         if (grounded && !swimming && !in->crouch) {
             step_distance+=distance(old_x,old_y,player.x,player.y);
