@@ -275,7 +275,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
     hands=model_skin(packages/"models/weapons/knife/skin_hands.jpg",(256,256))
-    for name in ("assault","pistol","knife"):
+    for name in ("assault","pistol","knife","subgun"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
         tex=model_skin(folder/"skin_weapon.jpg",(256,256))
@@ -295,9 +295,10 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
     mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
-    folder=packages/"models/weapons/knife/world"
-    mark("KNIFE_DEATH_BATCH",len(batches))
-    md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
+    for name in ("knife","subgun"):
+        folder=packages/"models/weapons"/name/"world"
+        mark(name.upper()+"_DEATH_BATCH",len(batches))
+        md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
     mark("GIB_BATCH",len(batches))
     for i in range(1,4):
         folder=packages/f"models/misc/gib0{i}"

@@ -73,7 +73,7 @@ PositionalSound air_sound,impact_sound;
 ShotLine bot_line;
 bool was_crouching;
 ItemView item_views[item_count];
-// Two MTP-57s can fire up to 168 rounds in the 10-second decal lifetime.
+// An SMG and rifle can fire at most 209 rounds in the 10-second decal lifetime.
 BulletMark marks[MARK_CAPACITY];
 unsigned first_mark, mark_count;
 SplashParticle sparks[64];
@@ -195,7 +195,7 @@ void spawn(Fighter &f, int index) {
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
         radar_action_until=0;
-        switch_end=0; previous_firearm=GUN_ASSAULT;
+        switch_end=0; previous_firearm=f.state.nextprimary;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
         feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
@@ -345,7 +345,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
     victim.state.health = 0;
     bool local_frag=&attacker==&player;
     const char *message;
-    if (local_frag) message=gun==GUN_KNIFE?"you slashed Bot":gun==GUN_PISTOL?"you busted Bot":"you shredded Bot";
+    if (local_frag) message=gun==GUN_KNIFE?"you slashed Bot":gun==GUN_PISTOL?"you busted Bot":gun==GUN_SUBGUN?"you sprayed Bot":"you shredded Bot";
     else message=gun==GUN_PISTOL?"you were busted by Bot":"you were shredded by Bot";
     frag_messages[2]=frag_messages[1];
     frag_messages[1]=frag_messages[0];
@@ -377,7 +377,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
         if (&f==&player) radar_action_until=clock_ms+500;
         f.reload_at=f.ready_at;
         f.reload_hud_until=clock_ms+reloadtime(gun);
-        return gun == GUN_PISTOL ? PISTOL_RELOAD : RIFLE_RELOAD;
+        return gun==GUN_PISTOL?PISTOL_RELOAD:gun==GUN_SUBGUN?SMG_RELOAD:RIFLE_RELOAD;
     }
     if (!fire || !mag) return SILENT;
     --mag;
@@ -390,7 +390,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
     if (&f==&player) radar_action_until=action+500;
     f.flash_until = action+90;
     f.light_until=clock_ms+100;
-    return gun == GUN_PISTOL ? PISTOL_SHOT : RIFLE_SHOT;
+    return gun==GUN_PISTOL?PISTOL_SHOT:gun==GUN_SUBGUN?SMG_SHOT:RIFLE_SHOT;
 }
 void collect(Fighter &f) {
     if (f.respawn_at) return;
@@ -540,6 +540,7 @@ void start_recoil(Fighter &fighter,int gun) {
 void apply_spread(const Fighter &fighter,int gun,float &dx,float &dy,float &dz) {
     int spread=guns[gun].spread;
     if (gun==GUN_ASSAULT) spread=fighter.shots>2?55:spread+(fighter.shots==1?5:15);
+    if (gun==GUN_SUBGUN) spread=fighter.shots>2?70:spread+(fighter.shots==1?5:10);
     auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
     dx+=jitter(); dy+=jitter(); dz+=jitter();
 }
@@ -644,7 +645,7 @@ void update_bot(float dt) {
 }
 }
 
-void match_prepare(void) { navigation_prepare(); begin(READY); }
+void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     gib_sound=false;
     if (gib_count) update_gibs(elapsed);
@@ -655,6 +656,13 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<frag_message_ms) intermission_age+=elapsed;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
+        if (in->swap) {
+            player.state.nextprimary=player.state.nextprimary==GUN_ASSAULT?GUN_SUBGUN:GUN_ASSAULT;
+            if (phase==READY) {
+                player.state.respawn();
+                player.state.spawnstate(GMODE_BOTDEATHMATCH);
+            }
+        }
         if (in->start) begin(PLAYING);
         return;
     }
@@ -801,7 +809,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             int current=player.state.gunselect;
             if (current==GUN_KNIFE) next_gun=previous_firearm;
             else if (in->knife_select) { previous_firearm=current; next_gun=GUN_KNIFE; }
-            else next_gun=current==GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
+            else next_gun=current==GUN_PISTOL ? player.state.primary : GUN_PISTOL;
             radar_action_until=clock_ms+500;
             switch_end=clock_ms+switch_ms;
             player.ready_at=0;
@@ -932,7 +940,7 @@ MatchSound match_attack(const MatchInput *in) {
         return KNIFE_SWING;
     }
     MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill) : SILENT;
-    if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
+    if (shot==RIFLE_SHOT || shot==SMG_SHOT || shot==PISTOL_SHOT) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
         if (!g.isauto) semi_trigger_used=true;
@@ -982,7 +990,7 @@ void match_view(MatchView *v) {
     v->air=air_sound; v->impact=impact_sound;
     v->sparks=sparks; v->spark_count=spark_count;
     v->blood=blood; v->blood_count=blood_count;
-    v->classic_assist=classic_assist;
+    v->classic_assist=classic_assist; v->selected_smg=player.state.nextprimary==GUN_SUBGUN;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
     v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
@@ -996,6 +1004,7 @@ void match_view(MatchView *v) {
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;
     v->magazine = player.state.mag[gun]; v->reserve = player.state.ammo[gun];
+    v->smg=gun==GUN_SUBGUN;
     v->pistol = gun == GUN_PISTOL; v->knife=gun==GUN_KNIFE;
     v->respawning = !!player.respawn_at; v->reload = player.reload_at > clock_ms;
     v->hide_crosshair=player.reload_hud_until>clock_ms;

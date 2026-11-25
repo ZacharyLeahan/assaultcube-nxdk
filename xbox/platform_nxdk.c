@@ -19,6 +19,7 @@ DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(pain1); DECLARE_CLIP(die1);
 DECLARE_CLIP(footsteps); DECLARE_CLIP(crouch); DECLARE_CLIP(watersteps); DECLARE_CLIP(watercrouch);
 DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
+DECLARE_CLIP(sub); DECLARE_CLIP(sub_reload);
 DECLARE_CLIP(step);
 DECLARE_CLIP(clip_empty);
 DECLARE_CLIP(ric1); DECLARE_CLIP(ric2); DECLARE_CLIP(ric3); DECLARE_CLIP(waterimpact);
@@ -29,6 +30,7 @@ DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup
 #define CLIP(n) {n,n##_end}
 static const Clip clips[] = {
     [RIFLE_SHOT]={shot_audio,shot_end}, [RIFLE_RELOAD]=CLIP(auto_reload),
+    [SMG_SHOT]=CLIP(sub), [SMG_RELOAD]=CLIP(sub_reload),
     [KNIFE_SWING]=CLIP(knife),
     [WEAPON_CHANGE]=CLIP(change_gun),
     [BULLET_AIR1]=CLIP(ric1), [BULLET_AIR2]=CLIP(ric2),
@@ -134,7 +136,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         const Clip *clip=&clips[effects[i]];
         int gain=volume[i];
         Voice *voice=&voices[i];
-        if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT) {
+        if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT || effects[i]==SMG_SHOT) {
             voice=weapon_voice(i==LOCAL_GUN?LOCAL_WEAPONS:BOT_WEAPONS);
             gain=SHOT_VOLUME;
         }
