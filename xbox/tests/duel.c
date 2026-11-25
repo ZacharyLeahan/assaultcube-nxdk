@@ -392,7 +392,12 @@ static void test_pistol_frag_message(void) {
     match_prepare();
     match_update(&in,0,0);
     for (unsigned frame=0;frame<300;++frame) {
+        match_view(&v);
+        float dx=v.tx-v.px,dy=v.ty-v.py;
+        float yaw=atan2f(dy,dx),pitch=atan2f(v.bot_floor+3-v.eye,hypotf(dx,dy));
         in=(MatchInput){.move=frame<120,.swap=frame==7,
+                        .turn=remainderf(yaw-v.angle,6.2831853f)/(150*.017453293f/60),
+                        .look=(pitch-v.pitch)/(105*.017453293f/60),
                         .fire=frame>=132 && (frame-132)%15<5};
         match_update(&in,(frame+1)*1000/60-frame*1000/60,1.f/60);
         match_attack(&in);
@@ -661,9 +666,11 @@ static void test_prop_depth(void) {
 }
 
 void test_easy_bot_perception(void);
+void test_easy_bot_spacing(void);
 
 int main(void) {
     test_easy_bot_perception();
+    test_easy_bot_spacing();
     test_prop_depth();
     test_heightfield_impact();
     test_shot_light();

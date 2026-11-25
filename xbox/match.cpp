@@ -49,6 +49,8 @@ unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
 float stride_phase,stride_rate;
+unsigned combat_move_until;
+float combat_forward,combat_side;
 struct BotClip {
     int first,count;
     unsigned action,sample_time;
@@ -219,7 +221,7 @@ void begin(MatchPhase initial) {
     clock_ms = frame_start_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0; idle_ms=0;
-    next_enemy_search = next_route = hurt_until = 0;
+    combat_move_until=next_enemy_search = next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
     // Open in the same courtyard at two official free-for-all player starts.
@@ -248,6 +250,7 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
     aim_at_opponent(f,opponent);
     next_enemy_search = next_route = 0; bot_attack_at = clock_ms+1200; burst = 0;
     bot_saw_player = false;
+    combat_move_until=0;
 }
 void impulse(Fighter &f,float x,float y,float z,float amount) {
     f.velocity_x+=amount*x;
@@ -436,18 +439,58 @@ float turn_bot_toward(float ideal,float dt) {
     bot.yaw+=fmaxf(-75*radians*dt,fminf(75*radians*dt,delta));
     return delta;
 }
+struct CombatRange { float near,far,max_fire; };
+// WeaponInfoTable in the Windows bot's ac_bot_ai.cpp.
+constexpr CombatRange rifle_range={20,80,150},pistol_range={3.5f,15,60};
+// Probe the forward or retreat arc in 45-degree steps, as in DoCombatNav.
+void choose_combat_move(float distance,const CombatRange &range) {
+    combat_forward=0;
+    if (distance<=range.near) combat_forward=-1;
+    if (distance>=range.far) combat_forward=1;
+    combat_side=0;
+    if (!combat_forward) return;
+    float best=-1;
+    for (int side=-1;side<=1;++side) {
+        float angle=bot.yaw+side*45*radians;
+        float dx=combat_forward*cosf(angle),dy=combat_forward*sinf(angle);
+        SurfaceHit hit;
+        trace_surface(bot.x,bot.y,eye(bot),bot.x+40*dx,bot.y+40*dy,eye(bot),&hit);
+        if (hit.fraction>best) { best=hit.fraction; combat_side=combat_forward*side; }
+    }
+    if (best*40<4) {
+        // At a wall the eye ray can fit through a gap narrower than the bot.
+        // Try a lateral step with the actual collision hull.
+        combat_forward=combat_side=0;
+        float best_travel=3.9f;
+        for (int side=-1;side<=1;side+=2) {
+            float dx=-side*sinf(bot.yaw),dy=side*cosf(bot.yaw),x=bot.x,y=bot.y;
+            walk(&x,&y,4*dx,4*dy);
+            float travel=(x-bot.x)*dx+(y-bot.y)*dy;
+            if (travel>best_travel) { best_travel=travel; combat_side=side; }
+        }
+    }
+    combat_move_until=clock_ms+500;
+}
+void advance_bot_velocity(float target_x,float target_y,float dt) {
+    if (target_x==0 && target_y==0 && fabsf(bot.velocity_x)+fabsf(bot.velocity_y)<.0001f) return;
+    float fraction=1-powf(23.f/24,dt/.005f),carry=.115f*fraction;
+    float dx=bot.velocity_x-target_x,dy=bot.velocity_y-target_y;
+    move_bot(16*(target_x*dt+dx*carry),16*(target_y*dt+dy*carry));
+    bot.velocity_x-=dx*fraction; bot.velocity_y-=dy*fraction;
+    bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+}
 void update_bot(float dt) {
     bot_pose = 0;
-    // Bot navigation supplies its own walk speed. Carry shot impulses through
-    // the same ground friction used by the player, including during a fall pose.
-    if (fabsf(bot.velocity_x)+fabsf(bot.velocity_y)>.0001f) {
-        float retain=powf(23.f/24,dt/.005f);
-        float travel=16*.115f*(1-retain);
-        move_bot(bot.velocity_x*travel,bot.velocity_y*travel);
-        bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
-        bot.velocity_x*=retain; bot.velocity_y*=retain;
+    if (bot.respawn_at || player.respawn_at || clock_ms < 1000) {
+        advance_bot_velocity(0,0,dt);
+        return;
     }
-    if (bot.respawn_at || player.respawn_at || clock_ms < 1000) return;
+    int gun=bot.state.gunselect;
+    if (gun!=GUN_PISTOL && !bot.state.mag[gun] && !bot.state.ammo[gun]) {
+        bot.state.gunselect=GUN_PISTOL;
+        combat_move_until=0;
+    }
+    const CombatRange &range=bot.state.gunselect==GUN_PISTOL?pistol_range:rifle_range;
     float dx = player.x-bot.x, dy = player.y-bot.y;
     float d = fmaxf(.01f,hypotf(dx,dy));
     // Windows FindEnemy retains a visible opponent outside the acquisition cone.
@@ -459,30 +502,38 @@ void update_bot(float dt) {
             sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player));
         if (!sees) next_enemy_search=clock_ms+300+random_number()%61;
     }
-    float mx = 0, my = 0;
-    if (!sees || d > 23) {
+    float old_x=bot.x,old_y=bot.y;
+    bool retreat=false;
+    if (sees) {
+        if (!bot_saw_player || clock_ms>=combat_move_until) choose_combat_move(d,range);
+        float c=cosf(bot.yaw),s=sinf(bot.yaw);
+        retreat=combat_forward<0;
+        if (dx*c+dy*s<0) advance_bot_velocity(0,0,dt);
+        else advance_bot_velocity(c*combat_forward-s*combat_side,s*combat_forward+c*combat_side,dt);
+    } else {
+        advance_bot_velocity(0,0,dt);
         if (clock_ms >= next_route) {
             route_to((int)player.x,(int)player.y);
             next_route = clock_ms+450;
         }
         float tx, ty;
         if (route_next(bot.x,bot.y,&tx,&ty)) {
-            mx = tx-bot.x; my = ty-bot.y;
+            float mx=tx-bot.x,my=ty-bot.y,length=hypotf(mx,my);
+            if (length>.001f) {
+                turn_bot_toward(atan2f(my,mx),dt);
+                float step=fminf(length,11*dt);
+                move_bot(mx/length*step,my/length*step);
+                bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+            }
         }
     }
-    float length = hypotf(mx,my), old_x = bot.x, old_y = bot.y;
-    if (length > .001f) {
-        if (!sees) turn_bot_toward(atan2f(my,mx),dt);
-        float step = fminf(length,(sees ? 4 : 11)*dt);
-        move_bot(mx/length*step,my/length*step);
-        bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
-        float traveled=distance(old_x,old_y,bot.x,bot.y);
-        if (traveled>.001f) {
-            // Advance the six original run poses by distance to avoid foot sliding.
-            stride_rate=traveled*1.5f/(dt*1000);
-            stride_phase=fmodf(stride_phase+traveled*1.5f,6.f);
-            bot_pose=1+(int)stride_phase;
-        }
+    float traveled=distance(old_x,old_y,bot.x,bot.y);
+    if (traveled>.001f && dt>0 && (!sees || combat_forward || combat_side)) {
+        float advance=traveled*(retreat?-1.5f:1.5f);
+        stride_rate=advance/(dt*1000);
+        stride_phase=fmodf(stride_phase+advance,6.f);
+        if (stride_phase<0) stride_phase+=6;
+        bot_pose=1+(int)stride_phase;
     }
     if (!sees) { bot_saw_player = false; burst = 0; return; }
     if (!bot_saw_player) {
@@ -490,12 +541,13 @@ void update_bot(float dt) {
         bot_attack_at = clock_ms+1500+random_number()%501;
         bot_saw_player = true;
     }
+    d=fmaxf(.01f,distance(player.x,player.y,bot.x,bot.y));
     bot.pitch=atan2f(eye(player)-.8f-eye(bot),d);
     float ideal = atan2f(player.y-bot.y,player.x-bot.x);
     float delta = turn_bot_toward(ideal,dt);
-    if (clock_ms < bot_attack_at || clock_ms<bot.ready_at || fabsf(delta)>.14f || d>80) return;
-    int gun = bot.state.gunselect;
-    if (!bot.state.mag[gun] && !bot.state.ammo[gun]) bot.state.gunselect = GUN_PISTOL;
+    float fire_distance=hypotf(d,eye(player)-eye(bot));
+    if (clock_ms < bot_attack_at || clock_ms<bot.ready_at || fabsf(delta)>.14f ||
+        fire_distance<3 || fire_distance>range.max_fire) return;
     if (!burst) burst = 1+random_number()%3;
     // Local bot bursts use the same magazine, reload, damage and armour path as the player.
     float error = ((int)(random_number()%201)-100)*.00055f;
@@ -714,6 +766,7 @@ static BotPose sample_clip(const BotClip &clip,unsigned now) {
     float frame=clip.phase+(now-clip.sample_time)*clip.frames_per_ms;
     bool loop=clip.first==0 || clip.first==40;
     frame=loop?fmodf(frame,clip.count):fminf(frame,clip.count-1);
+    if (loop && frame<0) frame+=clip.count;
     int i=(int)frame;
     int j=loop?(i+1)%clip.count:(i+1<clip.count?i+1:i);
     return {clip.first+i,clip.first+j,frame-i};
