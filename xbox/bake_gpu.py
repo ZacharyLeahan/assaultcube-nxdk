@@ -250,6 +250,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
             if name=="helmet": pos[:,2]-=15  # mdltrans in the bundled md3.cfg
             model_batch(tex,pos/16,uv,tri,tri)
     mark("PROP_START",len(batches))
+    prop_bounds=[]
     for slot,(offset,name) in enumerate(model_slots):
         folder=packages/"models/mapmodels"/name.decode()
         cfg=(folder/"md3.cfg").read_text()
@@ -269,9 +270,14 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 z=int(world[y,x,1].view(np.int8))+int(offset)+elevation/5
                 xyz+=[x,y,z]
                 rgb=lighting[y,x]
+                first=len(vertices)//vertex.size+len(points)
                 points.extend((xyz[v],uv[v],rgb) for face in tri for v in face)
+                bounds=(xyz.min(axis=0).astype(np.float32),xyz.max(axis=0).astype(np.float32))
+                limits=["{"+",".join(format(n,".9g") for n in side)+"}" for side in bounds]
+                prop_bounds.append("    {"+",".join([*limits,str(first),str(tri.size)])+"},\n")
         if points: add_batch(tex,points,3)
     mark("PROP_END",len(batches))
+    (out/"prop_bounds.h").write_text("static const PropMesh props[] = {\n"+"".join(prop_bounds)+"};\n")
     icons = Image.open(packages/"misc/items.png").convert("RGBA")
     # The PC renders a square overhead view of the occupied map bounds.
     ys,xs=np.nonzero(world[:,:,0])

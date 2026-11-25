@@ -1,4 +1,5 @@
 #include "match.h"
+#include "geometry.h"
 #include "navigation.h"
 #include <math.h>
 #include <string.h>
@@ -72,15 +73,14 @@ SplashParticle splash_particle(float x,float y,float z,unsigned max_lifetime) {
     } while (dx*dx+dy*dy+dz*dz>150*150);
     return {x,y,z,dx,dy,dz,clock_ms,effect_random(max_lifetime)};
 }
-void spark_splash(const SurfaceHit &hit) {
+void spark_splash(float x,float y,float z) {
     for (int i=0;i<5;++i) {
-        sparks[next_spark]=splash_particle(hit.x,hit.y,hit.z,750);
+        sparks[next_spark]=splash_particle(x,y,z,750);
         next_spark=(next_spark+1)%64;
         if (spark_count<64) ++spark_count;
     }
 }
 void mark_surface(const SurfaceHit &hit) {
-    spark_splash(hit);
     marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
     next_mark=(next_mark+1)%64;
     if (mark_count<64) ++mark_count;
@@ -180,10 +180,9 @@ void impulse(Fighter &f,float x,float y,float z,float amount) {
         jump_speed+=amount*z*speed;
     }
 }
-void firing_impulse(Fighter &f,int gun,float yaw,float pitch,bool crouched) {
+void firing_impulse(Fighter &f,int gun,float dx,float dy,float dz,bool crouched) {
     float recoil=guns[gun].recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
-    float cp=cosf(pitch);
-    impulse(f,cp*cosf(yaw),cp*sinf(yaw),sinf(pitch),-.01f*recoil*(crouched?.75f:1));
+    impulse(f,dx,dy,dz,-.01f*recoil*(crouched?.75f:1));
 }
 void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz) {
     float length=sqrtf(dx*dx+dy*dy+dz*dz);
@@ -274,6 +273,7 @@ void bot_shot_effects(float yaw,bool hit_player) {
         if (trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit)) {
             target={hit.x,hit.y,hit.z};
             mark_surface(hit);
+            spark_splash(hit.x,hit.y,hit.z);
             if (hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
                 impact_sound={target,hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
         }
@@ -348,7 +348,7 @@ void update_bot(float dt) {
     if (shot == RIFLE_SHOT || shot == PISTOL_SHOT) {
         int fired=bot.state.gunselect;
         float yaw=ideal-delta-error,pitch=atan2f(eye(player)-.8f-eye(bot),d);
-        firing_impulse(bot,fired,yaw,pitch,false);
+        firing_impulse(bot,fired,cosf(pitch)*cosf(yaw),cosf(pitch)*sinf(yaw),sinf(pitch),false);
         if (on_target) damage(player,bot,fired,player.x-bot.x,player.y-bot.y,eye(player)-.8f-eye(bot));
         bot_shot_effects(yaw,on_target);
         if (--burst == 0) bot_attack_at = clock_ms+1500+random_number()%501;
@@ -529,6 +529,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         }
     }
 }
+static int target_contact(const MatchView *v,float range,bool check_geometry);
 MatchSound match_attack(const MatchInput *in) {
     empty_click=false;
     if (!in->fire) pistol_trigger_used=false;
@@ -546,20 +547,37 @@ MatchSound match_attack(const MatchInput *in) {
         player.shot_until=player.ready_at;
         float ramp=(float)player.shots/g.recoilincrease;
         player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
-        // PC attackphysics applies the impulse along the aim direction before spread.
-        firing_impulse(player,gun,player.yaw,player.pitch,in->crouch);
+        // Windows aims at the world under the crosshair, from 0.2 units below
+        // the eye. Resolve that depth without stalling the GPU for a readback.
+        float dx=cosf(player.pitch)*cosf(player.yaw),dy=cosf(player.pitch)*sinf(player.yaw);
+        float dz=sinf(player.pitch),eye_z=eye(player),z=eye_z-.2f;
+        SurfaceHit hit;
+        trace_surface(player.x,player.y,eye_z,player.x+512*dx,player.y+512*dy,eye_z+512*dz,&hit);
+        float depth=prop_depth({player.x,player.y,eye_z},{dx,dy,dz},512*hit.fraction);
+        dx*=depth; dy*=depth; dz=dz*depth+.2f;
+        float length=fmaxf(.00001f,sqrtf(dx*dx+dy*dy+dz*dz));
+        dx/=length; dy/=length; dz/=length;
+        firing_impulse(player,gun,dx,dy,dz,in->crouch);
         int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;
         auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
-        float dx=cosf(player.pitch)*cosf(player.yaw)+jitter();
-        float dy=cosf(player.pitch)*sinf(player.yaw)+jitter();
-        float dz=sinf(player.pitch)+jitter(), z=eye(player);
+        dx+=jitter(); dy+=jitter(); dz+=jitter();
         MatchView ray={};
         ray.px=player.x; ray.py=player.y; ray.eye=z;
         ray.angle=atan2f(dy,dx); ray.pitch=atan2f(dz,hypotf(dx,dy));
         ray.tx=bot.x; ray.ty=bot.y; ray.bot_alive=!bot.respawn_at;
-        if (match_targeted(&ray)) { damage(bot,player,gun,dx,dy,dz); return shot; }
-        SurfaceHit hit;
-        if (trace_surface(player.x,player.y,z,player.x+512*dx,player.y+512*dy,z+512*dz,&hit)) {
+        float magnitude=sqrtf(dx*dx+dy*dy+dz*dz);
+        if (target_contact(&ray,length*hypotf(dx,dy),false)) {
+            damage(bot,player,gun,dx,dy,dz);
+            // PC raydamage shortens the effects endpoint to the struck actor.
+            length=hypotf(distance(player.x,player.y,bot.x,bot.y),eye(player)-eye(bot))/magnitude;
+        }
+        spark_splash(player.x+length*dx,player.y+length*dy,z+length*dz);
+        // Only leave a decal when the struck surface is within one map unit
+        // of the endpoint. This also covers an opponent backed against a wall.
+        float reach=length+1/magnitude;
+        if (length*length*magnitude*magnitude>.07f &&
+            trace_surface(player.x,player.y,z,player.x+reach*dx,player.y+reach*dy,z+reach*dz,&hit) &&
+            fabsf(reach*hit.fraction-length)*magnitude<=1.f) {
             mark_surface(hit);
         }
     }
@@ -652,18 +670,24 @@ void match_view(MatchView *v) {
 }
 
 // Intersect the crosshair ray with the upright player cylinder, independently of output resolution.
-int match_targeted(const MatchView *v) {
+static int target_contact(const MatchView *v,float range,bool check_geometry) {
     if (!v->bot_alive || v->respawning) return 0;
     float c=cosf(v->angle), s=sinf(v->angle), dx=v->tx-v->px, dy=v->ty-v->py;
     float along=dx*c+dy*s, across=dy*c-dx*s;
     const float radius=1.0f;
     if (fabsf(across)>radius) return 0;
     float half=sqrtf(fmaxf(0,radius*radius-across*across));
-    float enter=fmaxf(.01f,along-half), exit=along+half;
+    float enter=fmaxf(.01f,along-half), exit=fminf(range,along+half);
     float base=ground(v->tx,v->ty), slope=tanf(v->pitch);
     if (fabsf(slope)>.00001f) {
         float a=(base-v->eye)/slope,b=(base+4.6f-v->eye)/slope;
         enter=fmaxf(enter,fminf(a,b)); exit=fminf(exit,fmaxf(a,b));
     } else if (v->eye<base || v->eye>base+4.6f) return 0;
-    return enter<=exit && visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter);
+    if (enter>exit) return 0;
+    if (!check_geometry) return 1;
+    return visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter) &&
+           prop_depth({v->px,v->py,v->eye},{c,s,slope},enter)>=enter;
+}
+int match_targeted(const MatchView *v) {
+    return target_contact(v,512,true);
 }

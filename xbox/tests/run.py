@@ -18,12 +18,12 @@ with TemporaryDirectory() as directory:
     asm = tmp / "assets.S"
     text = ["#define JOIN_(a,b) a##b", "#define JOIN(a,b) JOIN_(a,b)",
             "#define NAME(n) JOIN(__USER_LABEL_PREFIX__,n)", ".data"]
-    for name in ("world","deltas","ambience"):
+    for name in ("world","deltas","ambience","gpu_vertices"):
         text += [".balign 16", f".globl NAME({name})", f"NAME({name}):",
                  f'.incbin "generated/{name}.bin"']
     asm.write_text("\n".join(text) + "\n")
     objects = []
-    for source in (asm, Path("navigation.c"), Path("ambience.c"), Path("match.cpp"), Path("tests/duel.c")):
+    for source in (asm, Path("navigation.c"), Path("prop_depth.c"), Path("ambience.c"), Path("match.cpp"), Path("tests/duel.c")):
         obj = tmp / (source.stem + ".o")
         run(cxx if source.suffix == ".cpp" else cc, "-O2", "-c", source, "-o", obj)
         objects.append(obj)
