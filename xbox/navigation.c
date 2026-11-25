@@ -32,6 +32,27 @@ void walk(float *x, float *y, float dx, float dy) {
         if (passable(*x,ny,map_cube((int)*x,(int)*y)->floor)) *y = ny;
     }
 }
+void body_space(float x,float y,float *floor,float *ceiling) {
+    *floor=-128; *ceiling=127;
+    for (int i=0;i<4;++i) {
+        const Cube *c=map_cube((int)(x+((i&1)?.32f:-.32f)),(int)(y+((i&2)?.32f:-.32f)));
+        if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return; }
+        *floor=fmaxf(*floor,c->floor); *ceiling=fminf(*ceiling,c->ceil);
+    }
+}
+static int body_fits(float x,float y,float feet,float height,float step) {
+    float floor,ceiling;
+    body_space(x,y,&floor,&ceiling);
+    return floor<=feet+step && fmaxf(floor,feet)+height<=ceiling;
+}
+void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float step) {
+    int steps=1+(int)(fmaxf(fabsf(dx),fabsf(dy))*3);
+    for (int i=0;i<steps;++i) {
+        float nx=*x+dx/steps, ny=*y+dy/steps;
+        if (body_fits(nx,*y,feet,height,step)) *x=nx;
+        if (body_fits(*x,ny,feet,height,step)) *y=ny;
+    }
+}
 int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit *hit) {
     float dx = tx-x, dy = ty-y;
     // Visit each boundary so thin pillars and raised ledges occlude gunfire.

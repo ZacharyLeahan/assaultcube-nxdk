@@ -22,7 +22,28 @@ static void test_tracking_breakaway(void) {
     }
 }
 
+static void test_stance(void) {
+    MatchView v;
+    MatchInput input={.start=1};
+    match_prepare(); match_update(&input,16,1.f/60); match_view(&v);
+    float standing=v.eye, peak=standing;
+    input=(MatchInput){.jump=1};
+    for (int i=0;i<90;++i) {
+        match_update(&input,16,1.f/60); match_view(&v);
+        peak=fmaxf(peak,v.eye);
+        if (i>60) assert(fabsf(v.eye-standing)<.001f);
+    }
+    assert(peak>standing+2 && peak<standing+5);
+    input=(MatchInput){.crouch=1};
+    for (int i=0;i<15;++i) match_update(&input,16,1.f/60);
+    match_view(&v); assert(fabsf(v.eye-standing+.9f)<.001f);
+    input.crouch=0;
+    for (int i=0;i<15;++i) match_update(&input,16,1.f/60);
+    match_view(&v); assert(fabsf(v.eye-standing)<.001f);
+}
+
 int main(void) {
+    test_stance();
     test_tracking_breakaway();
     MatchView view;
     MatchInput input = {0};

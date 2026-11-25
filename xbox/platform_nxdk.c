@@ -91,6 +91,7 @@ int main(void) {
         }
         float move = 0, strafe = 0, turn = 0, look = 0;
         int classic=0, tuned=0;
+        int jump=0, crouch=0;
         int swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
             Pad *pad = &pads[i];
@@ -98,6 +99,8 @@ int main(void) {
             ++connected;
             move -= axis(p,SDL_CONTROLLER_AXIS_LEFTY); strafe += axis(p,SDL_CONTROLLER_AXIS_LEFTX);
             read_aim(p,&turn,&look);
+            jump |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_A);
+            crouch |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_B);
             int rt = axis(p,SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > .25f;
             fire |= rt; refill |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_X);
             int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
@@ -116,7 +119,8 @@ int main(void) {
         }
         MatchInput input = {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
-            .fire = fire, .refill = refill, .swap = swap, .start = start, .assist_choice=tuned-classic
+            .fire = fire, .refill = refill, .swap = swap, .start = start,
+            .assist_choice=tuned-classic, .jump=jump, .crouch=crouch
         };
         match_update(&input, elapsed, refreshes*refresh_period);
         match_view(&view);

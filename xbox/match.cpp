@@ -28,6 +28,8 @@ struct Fighter {
     unsigned respawn_at, ready_at, reload_at, flash_until;
 };
 Fighter player, bot;
+float feet_z, stance, jump_speed, air_seconds;
+bool grounded, held_jump;
 unsigned clock_ms, next_route, bot_attack_at, hit_until, hurt_until;
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
@@ -50,6 +52,10 @@ void spawn(Fighter &f, int index) {
     f.x = starts[index][0]+.5f; f.y = starts[index][1]+.5f;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=ground(f.x,f.y)+3.6f;
+    if (&f==&player) {
+        feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=air_seconds=0;
+        grounded=true; held_jump=false;
+    }
     f.velocity_x=f.velocity_y=f.turn_boost=0;
     f.sway_x=f.sway_y=0;
     f.pitch_velocity=0; f.shots=f.shot_until=0;
@@ -129,8 +135,10 @@ void collect(Fighter &f) {
     if (f.respawn_at) return;
     for (int i = 0; i < item_count; ++i) {
         const ItemLocation &p = locations[i];
-        if (unavailable_until[i] > clock_ms || distance(f.x,f.y,p.x,p.y)>1.6f ||
-            fabsf(ground(f.x,f.y)-ground(p.x,p.y)-p.height_tenths*.1f)>2 || !f.state.canpickup(p.kind)) continue;
+        float dz=(&f==&player?feet_z:ground(f.x,f.y))-ground(p.x,p.y)-p.height_tenths*.1f;
+        float dx=f.x-p.x, dy=f.y-p.y;
+        if (unavailable_until[i] > clock_ms || dx*dx+dy*dy+dz*dz>=6.25f ||
+            !f.state.canpickup(p.kind)) continue;
         f.state.pickup(p.kind);
         unsigned delay = p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
         unavailable_until[i] = clock_ms+delay;
@@ -219,7 +227,15 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (player.pitch_velocity>.001f && player.pitch_velocity<.05f)
             player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
 
-        float speed=16/fmaxf(1,hypotf(in->move,in->strafe));
+        float floor,ceiling;
+        body_space(player.x,player.y,&floor,&ceiling);
+        float target=fminf(in->crouch?2.7f:3.6f,ceiling-feet_z-.9f);
+        stance+=fmaxf(-8*dt,fminf(8*dt,target-stance));
+        if (grounded && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
+            grounded=false; jump_speed=32; air_seconds=0;
+        }
+        held_jump=in->jump;
+        float speed=(stance<3.59f?6.4f:16.f)/fmaxf(1,hypotf(in->move,in->strafe));
         float c=cosf(player.yaw), s=sinf(player.yaw);
         float dx=(in->move*c-in->strafe*s)*speed-player.velocity_x;
         float dy=(in->move*s+in->strafe*c)*speed-player.velocity_y;
@@ -229,17 +245,26 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         player.velocity_x+=dx*fraction;
         player.velocity_y+=dy*fraction;
         float old_x=player.x,old_y=player.y;
-        walk(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt);
+        walk_body(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt,
+                  feet_z,stance+.9f,grounded?1.5f:0.f);
         if (dt>0) {
             float gain=1-powf(.7f,100*dt);
             player.sway_x+=gain*((player.x-old_x)/(16*dt)-player.sway_x);
             player.sway_y+=gain*((player.y-old_y)/(16*dt)-player.sway_y);
         }
-        // Ease eye height over grid steps. Keep the sight origin inside the new cell.
-        const Cube *cell=map_cube((int)player.x,(int)player.y);
-        float delta=cell->floor+3.6f-player.eye_height;
-        player.eye_height+=fmaxf(-12*dt,fminf(12*dt,delta));
-        player.eye_height=fmaxf(cell->floor+.1f,fminf(cell->ceil-.1f,player.eye_height));
+        body_space(player.x,player.y,&floor,&ceiling);
+        if (feet_z>floor+.01f) grounded=false;
+        if (!grounded) {
+            // PC air friction and its time-in-air-dependent downward step.
+            air_seconds+=dt;
+            jump_speed*=expf(-dt/.60f);
+            feet_z+=(jump_speed-9.5f-air_seconds*(100.f/3))*dt;
+            if (feet_z+stance+.9f>=ceiling) { feet_z=ceiling-stance-.9f; jump_speed=0; }
+        }
+        if (feet_z<=floor) { feet_z=floor; grounded=true; jump_speed=air_seconds=0; }
+        float delta=feet_z+stance-player.eye_height;
+        player.eye_height+=grounded?fmaxf(-12*dt,fminf(12*dt,delta)):delta;
+        player.eye_height=fmaxf(floor+.1f,fminf(ceiling-.1f,player.eye_height));
         if (in->swap && player.ready_at <= clock_ms) {
             player.state.gunselect = player.state.gunselect == GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
             player.ready_at = clock_ms+250;
