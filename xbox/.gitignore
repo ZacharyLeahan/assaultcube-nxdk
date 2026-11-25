@@ -1,0 +1,9 @@
+.deps/
+generated/
+.local/
+bin/
+*.obj
+*.d
+*.iso
+main.exe
+__pycache__/

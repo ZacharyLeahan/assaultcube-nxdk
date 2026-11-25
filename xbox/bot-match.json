@@ -1,0 +1,9 @@
+{
+  "name": "ac-desert-bot-deathmatch",
+  "start_state": "Bot DM title or intermission screen, controller released",
+  "steps": [
+    {"name":"opening-burst","buttons":["start","rt"],"hold_ms":1000,"wait_ms":180,"screenshot":true},
+    {"name":"reload","buttons":["x"],"hold_ms":140,"wait_ms":2200,"screenshot":true},
+    {"name":"sidearm","buttons":["y"],"hold_ms":180,"wait_ms":250,"screenshot":true}
+  ]
+}
