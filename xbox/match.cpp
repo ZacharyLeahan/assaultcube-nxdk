@@ -56,7 +56,8 @@ unsigned bot_scope_since;
 unsigned bot_switch_after,bot_akimbo_until;
 struct BotSkill {
     int pitch_min,pitch_max,yaw_min,yaw_max,pitch_error_min,pitch_error_max,yaw_error_min,yaw_error_max;
-    int attack_min,attack_max,search_min,search_max,detect_radius;
+    int attack_min,attack_max,search_min,search_max,detect_radius,circle_strafe;
+    float view_cosine;
 };
 #include "generated/bot_skill.h"
 #include "generated/bot_names.h"
@@ -861,13 +862,29 @@ int preferred_bot_weapon(float dist) {
     }
     return best;
 }
+float bot_clearance(float yaw,float length) {
+    MatchPoint from={bot.x,bot.y,eye(bot)},dir={cosf(yaw),sinf(yaw),0};
+    SurfaceHit hit;
+    trace_surface(from.x,from.y,from.z,from.x+length*dir.x,from.y+length*dir.y,from.z,&hit);
+    return prop_depth(from,dir,length*hit.fraction);
+}
 // Probe the forward or retreat arc in 45-degree steps, as in DoCombatNav.
 void choose_combat_move(float distance,const CombatRange &range) {
     combat_forward=0;
     if (distance<=range.near) combat_forward=-1;
     if (distance>=range.far) combat_forward=1;
     combat_side=0;
-    if (!combat_forward) return;
+    if (!combat_forward) {
+        if(skills[stock_round].circle_strafe) {
+            int left=(int)bot_clearance(bot.yaw-75*radians,15);
+            int right=(int)bot_clearance(bot.yaw+75*radians,15);
+            if(left+right) {
+                combat_side=(int)(random_number()%(left+right))<left?-1:1;
+                combat_move_until=clock_ms+1500+random_number()%1501;
+            }
+        }
+        return;
+    }
     float best=-1;
     for (int side=-1;side<=1;++side) {
         float angle=bot.yaw+side*45*radians;
@@ -1113,8 +1130,8 @@ void update_bot(float dt) {
     bool sees=false;
     if (!player.respawn_at && (bot_saw_player || clock_ms>=next_enemy_search)) {
         float dz=eye(player)-eye(bot);
-        bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*.57357644f; // cos(110� / 2)
         const BotSkill &skill=skills[stock_round];
+        bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*skill.view_cosine;
         if (bot_saw_player || in_view || dx*dx+dy*dy+dz*dz<skill.detect_radius*skill.detect_radius)
             sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)) &&
                  prop_depth({bot.x,bot.y,eye(bot)},{dx,dy,dz},1)>=1;
@@ -1164,7 +1181,7 @@ void update_bot(float dt) {
         if (!bot_saw_player || clock_ms>=combat_move_until) choose_combat_move(d,range);
         float c=cosf(bot.yaw),s=sinf(bot.yaw);
         retreat=combat_forward<0;
-        if (dx*c+dy*s<0) advance_bot_velocity(0,0,dt);
+        if (!stock_round && dx*c+dy*s<0) advance_bot_velocity(0,0,dt);
         else advance_bot_velocity(c*combat_forward-s*combat_side,s*combat_forward+c*combat_side,dt);
     } else {
         advance_bot_velocity(0,0,dt);

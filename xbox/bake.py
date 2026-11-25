@@ -1,6 +1,7 @@
 """Bake ac_desert and the bundled MD2 meshes into Xbox-ready data."""
 import gzip
 import json
+import math
 import re
 import struct
 import sys
@@ -93,6 +94,8 @@ def bake():
                            ("y_aim_offset",1),("attack_delay",1000),("enemy_search_delay",1000)):
             fields.extend(round(float(values[prefix+"_"+name])*scale) for prefix in ("min","max"))
         fields.append(int(values["max_always_detect_distance"]))
+        fields.append(values["can_circle_strafe"])
+        fields.append(f'{math.cos(math.radians(float(values["field_of_view"])/2)):.9f}f')
         profiles.append("{"+",".join(map(str,fields))+"}")
     (OUT/"bot_skill.h").write_text("static const BotSkill skills[]={"+",".join(profiles)+"};\n")
     data = gzip.decompress((PKG / "maps/official/ac_desert.cgz").read_bytes())

@@ -576,6 +576,12 @@ extern "C" void test_stock_bot_round(void) {
 
 extern "C" void test_stock_bot_primaries(void) {
     start_perception_test();stock_round=true;
+    place_target(75,10.1f);
+    update_bot(0);
+    assert(bot_saw_player);
+    choose_combat_move(30,rifle_range);
+    assert(combat_forward==0 && fabsf(combat_side)==1);
+    assert(combat_move_until>=clock_ms+1500 && combat_move_until<=clock_ms+3000);
     unsigned drawn=0;
     for(int i=0;i<60;++i) {
         spawn(bot,3,0);
