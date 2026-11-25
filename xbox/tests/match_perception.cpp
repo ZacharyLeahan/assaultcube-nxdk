@@ -546,16 +546,32 @@ extern "C" void test_stock_bot_primaries(void) {
         drawn|=1u<<(bot.state.primary-GUN_CARBINE);
     }
     assert(drawn==31);
+    bot.state.primary=GUN_SNIPER;bot.state.gunselect=GUN_SNIPER;
+    bot.state.mag[GUN_SNIPER]=5;bot.state.mag[GUN_PISTOL]=10;
+    assert(preferred_bot_weapon(2)==GUN_KNIFE);
+    assert(preferred_bot_weapon(9)==GUN_PISTOL);
+    assert(preferred_bot_weapon(80)==GUN_SNIPER);
+    bot.state.mag[GUN_GRENADE]=1;
+    assert(preferred_bot_weapon(16)==GUN_GRENADE);
     for(int gun=GUN_CARBINE;gun<=GUN_ASSAULT;++gun) {
         start_perception_test();stock_round=true;
         place_target(0,4);feet_z=eye(player)-PLAYER_EYE_HEIGHT;
         player.yaw=player.pitch=0;bot_saw_player=true;
         bot.state.primary=bot.state.gunselect=gun;bot.state.mag[gun]=magsize(gun);
-        bot_attack_at=0;bot.ready_at=0;
+        bot_attack_at=0;bot.ready_at=0;bot_switch_after=clock_ms+1000;
         update_bot(0);
         assert(bot_sound==feedback[view_weapon(gun)].shot && bot.state.mag[gun]==magsize(gun)-1);
         assert(player.state.health<100);
     }
+    start_perception_test();stock_round=true;
+    place_target(0,8);feet_z=eye(player)-PLAYER_EYE_HEIGHT;
+    bot.state.mag[GUN_GRENADE]=1;bot_saw_player=true;
+    bot_attack_at=0;bot.ready_at=0;
+    update_bot(0);assert(bot.state.gunselect==GUN_GRENADE);
+    clock_ms=bot.ready_at;update_bot(0);
+    assert(bot_primed_at && !bot.state.mag[GUN_GRENADE]);
+    clock_ms+=attackdelay(GUN_GRENADE);update_bot(0);
+    assert(!bot_primed_at && active_grenade_count==1 && !active_grenades[0].local);
     match_prepare();
 }
 

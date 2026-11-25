@@ -52,6 +52,7 @@ constexpr unsigned bot_match_duration=15*60*1000;
 bool stock_round,respawn_trigger;
 int last_bot_gun;
 unsigned bot_scope_since;
+unsigned bot_switch_after,bot_akimbo_until;
 struct BotSkill {
     int pitch_min,pitch_max,yaw_min,yaw_max,pitch_error_min,pitch_error_max,yaw_error_min,yaw_error_max;
     int attack_min,attack_max,search_min,search_max,detect_radius;
@@ -227,6 +228,7 @@ struct ActiveGrenade {
 enum GrenadeState { GRENADE_IDLE,GRENADE_HELD,GRENADE_RELEASING };
 GrenadeState grenade_state;
 unsigned primed_at,thrown_at;
+unsigned bot_primed_at;
 GrenadeEvent grenade_events[16];
 int event_count;
 ActiveGrenade active_grenades[8];
@@ -266,7 +268,7 @@ void update_grenades(unsigned previous) {
             next_spark=(next_spark+1)%64;
             if(spark_count<64) ++spark_count;
         }
-        if(g.local) resolve_blast(g);
+        if(g.local || !lan_match) resolve_blast(g);
         active_grenades[i]=active_grenades[--active_grenade_count];
     }
 }
@@ -308,6 +310,8 @@ void spawn(Fighter &f, int index, float offset=.5f) {
         f.state.nextprimary=stock_round && !lan_match ? GUN_CARBINE+random_number()%5 : GUN_ASSAULT;
         last_bot_gun=f.state.nextprimary;
         bot_scope_since=0;
+        bot_switch_after=bot_akimbo_until=0;
+        bot_primed_at=0;
     }
     f.x = starts[index][0]+offset; f.y = starts[index][1]+offset;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
@@ -546,27 +550,33 @@ void resolve_blast(const ActiveGrenade &g) {
         if(dist>.00001f) {dir.x/=dist;dir.y/=dist;dir.z/=dist;}
         event.hits[event.hit_count++]={own,dist,dir};
         int amount=(int)(guns[GUN_GRENADE].damage*(1-dist/EXPDAMRAD));
-        if(!lan_match) damage(*victim,player,GUN_GRENADE,dir.x,dir.y,dir.z,false,amount,true);
+        if(!lan_match) damage(*victim,g.local?player:bot,GUN_GRENADE,dir.x,dir.y,dir.z,false,amount,true);
         else if(own) impulse(player,dir.x,dir.y,dir.z,amount*.01f*guns[GUN_GRENADE].pushfactor);
     }
     queue_grenade(event);
 }
-void release_grenade(bool drop) {
+void launch_grenade(Fighter &owner,unsigned primed,bool drop) {
+    bool local=&owner==&player;
     MatchPoint velocity={};
     if(!drop) {
-        float speed=1.5f*cosf(player.pitch);
-        velocity={truncf(speed*cosf(player.yaw)*DNF)/DNF,truncf(speed*sinf(player.yaw)*DNF)/DNF,
-                  truncf(1.5f*sinf(player.pitch)*DNF)/DNF};
+        float speed=1.5f*cosf(owner.pitch);
+        velocity={truncf(speed*cosf(owner.yaw)*DNF)/DNF,truncf(speed*sinf(owner.yaw)*DNF)/DNF,
+                  truncf(1.5f*sinf(owner.pitch)*DNF)/DNF};
     }
     // moveoutsidebbox advances ten 10 ms steps, with ten collision probes each.
-    GrenadeFlight start={{player.x,player.y,eye(player)},velocity};
-    ActorBounds other={bot.x,bot.y,eye(bot)-(lan_match?remote_stance:PLAYER_EYE_HEIGHT),eye(bot)+PLAYER_ABOVE_EYE};
-    for(int i=0;i<10;++i) grenade_step(start,&other,!hide_bot && !bot.respawn_at,10,10);
+    GrenadeFlight start={{owner.x,owner.y,eye(owner)},velocity};
+    const Fighter &opponent=local?bot:player;
+    float height=local?(lan_match?remote_stance:PLAYER_EYE_HEIGHT):stance;
+    ActorBounds other={opponent.x,opponent.y,eye(opponent)-height,eye(opponent)+PLAYER_ABOVE_EYE};
+    for(int i=0;i<10;++i) grenade_step(start,&other,!opponent.respawn_at && (!local || !hide_bot),10,10);
     MatchPoint p=start.position;
     p={truncf(p.x*DNF)/DNF,truncf(p.y*DNF)/DNF,truncf(p.z*DNF)/DNF};
-    unsigned cooked=clock_ms-primed_at;
-    throw_grenade(p,velocity,cooked,true);
-    queue_grenade({NADE_RELEASE,primed_at,cooked,p,velocity});
+    unsigned cooked=clock_ms-primed;
+    throw_grenade(p,velocity,cooked,local);
+    if(local) queue_grenade({NADE_RELEASE,primed,cooked,p,velocity});
+}
+void release_grenade(bool drop) {
+    launch_grenade(player,primed_at,drop);
     thrown_at=clock_ms; grenade_state=GRENADE_RELEASING;
 }
 MatchSound use_grenade(bool fire) {
@@ -639,6 +649,7 @@ void pickup(Fighter &f,int kind) {
         akimbo_expires=clock_ms+30000;
         draw_akimbo=true;akimbo_left=true;
     }
+    if(&f==&bot && kind==I_AKIMBO) bot_akimbo_until=clock_ms+30000;
 }
 int collect(Fighter &f) {
     if (f.respawn_at) return -1;
@@ -694,11 +705,15 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     float wall_depth=512*hit.fraction;
     float reach=prop_depth(from,{dx,dy,dz},wall_depth);
     MatchView ray={};
-    if(gun==GUN_SHOTGUN || gun==GUN_SNIPER) {
+    if(gun==GUN_SHOTGUN || gun==GUN_SNIPER || gun==GUN_KNIFE) {
         ray.px=from.x;ray.py=from.y;ray.eye=from.z;ray.angle=yaw;ray.pitch=pitch;
         ray.tx=player.x;ray.ty=player.y;ray.bot_floor=feet_z;ray.bot_height=stance;
         ray.bot_alive=!player.respawn_at;ray.bot_yaw=player.yaw;ray.bot_tilt=player.pitch*.25f;
         ray.bot_head=bot_model_point(&ray,head_poses[was_crouching?135:0]);
+    }
+    if(gun==GUN_KNIFE) {
+        if(target_contact(&ray,3*cosf(pitch),true)) damage(player,bot,gun,dx,dy,dz);
+        return;
     }
     if(gun==GUN_SHOTGUN) {
         float norm=hypotf(1,dz);
@@ -751,6 +766,30 @@ struct CombatRange { float near,far,max_fire; };
 constexpr CombatRange rifle_range={20,80,150},pistol_range={3.5f,15,60};
 constexpr CombatRange bot_ranges[NUMGUNS]={{0,5,3.5f},pistol_range,{15,80,180},{0,15,50},
     {0,25,60},{10,125,200},rifle_range,{5,30,50},{0,50,50}};
+int preferred_bot_weapon(float dist) {
+    // CACBot::ChoosePreferredWeapon rates loaded guns on distance and reserves.
+    static const int wanted_ammo[]={0,6,2,3,10,3,6,1,0};
+    int best=bot.state.gunselect,best_score=0;
+    for(int gun=0;gun<NUMGUNS;++gun) {
+        if((gun==GUN_AKIMBO && !bot.state.akimbo) ||
+           (gun!=GUN_KNIFE && !bot.state.mag[gun])) continue;
+        const CombatRange &r=bot_ranges[gun];
+        int score=gun>GUN_PISTOL?10:5;
+        if(dist>=r.near && dist<=r.far) {
+            score+=5;
+            if((gun==GUN_PISTOL || gun==GUN_KNIFE) &&
+               (bot.state.primary==GUN_CARBINE || bot.state.primary==GUN_SNIPER)) score+=10;
+            if(gun==GUN_KNIFE && bot.state.primary==GUN_SHOTGUN) score-=2;
+        } else if(dist>(float)r.max_fire || (gun!=GUN_KNIFE && gun!=GUN_SHOTGUN && dist<3)) continue;
+        float difference=fabsf(dist-(r.near+r.far)*.5f);
+        if(gun==GUN_GRENADE) score+=30;
+        score+=difference<.5f?4:difference<=1?2:0;
+        int want=wanted_ammo[gun],ammo=bot.state.ammo[gun];
+        score+=!want?10:ammo>=4*want?4:ammo>=2*want?3:ammo>=want?1:0;
+        if(score>best_score) {best=gun;best_score=score;}
+    }
+    return best;
+}
 // Probe the forward or retreat arc in 45-degree steps, as in DoCombatNav.
 void choose_combat_move(float distance,const CombatRange &range) {
     combat_forward=0;
@@ -842,20 +881,26 @@ int find_ammunition(bool sees,bool empty) {
     int gun=bot.state.gunselect;
     bool wants_primary=bot.state.ammo[bot.state.primary]<=6;
     bool wants_clips=gun==GUN_PISTOL && bot.state.ammo[GUN_PISTOL]<=6;
-    if (!wants_primary && !wants_clips) return -1;
+    if (!stock_round && !wants_primary && !wants_clips) return -1;
+    if (stock_round && sees && distance(bot.x,bot.y,player.x,player.y)<8) return -1;
     float scores[item_count]={};
     for (int i=0;i<item_count;++i) {
         const ItemLocation &p=locations[i];
         if (unavailable_until[i]>clock_ms) continue;
-        if (!(p.kind==I_AMMO && wants_primary) && !(p.kind==I_CLIPS && wants_clips)) continue;
+        if(stock_round) {
+            if(!bot.state.canpickup(p.kind)) continue;
+        } else if (!(p.kind==I_AMMO && wants_primary) && !(p.kind==I_CLIPS && wants_clips)) continue;
         float z=ground(p.x,p.y)+p.height_tenths*.1f+PLAYER_EYE_HEIGHT;
         float dist=hypotf(distance(bot.x,bot.y,p.x,p.y),eye(bot)-z);
         bool clear=visible(bot.x,bot.y,eye(bot),p.x,p.y,z);
         // Windows combat item searches use a 25-unit radius and one-unit height limit.
-        if (!empty && (dist>25 || (sees && (fabsf(eye(bot)-z)>1 || !clear)))) continue;
+        if ((stock_round?sees:!empty) && (dist>25 || (sees && (fabsf(eye(bot)-z)>1 || !clear)))) continue;
         int weapon=p.kind==I_AMMO?bot.state.primary:GUN_PISTOL;
         int percent=100*bot.state.ammo[weapon]/ammostats[weapon].max;
-        scores[i]=(100-percent)/2+(100-(int)fminf(dist,100))/2+(clear?30:15);
+        if(p.kind==I_HEALTH) percent=100*bot.state.health/powerupstats[0].max;
+        if(p.kind==I_HELMET || p.kind==I_ARMOUR) percent=100*bot.state.armour/powerupstats[I_ARMOUR-I_HEALTH].max;
+        int need=p.kind==I_AKIMBO || p.kind==I_GRENADE?75:(100-percent)/2;
+        scores[i]=need+(100-(int)fminf(dist,100))/2+(clear?30:15);
     }
     for (;;) {
         int best=-1;
@@ -871,19 +916,30 @@ int find_ammunition(bool sees,bool empty) {
 }
 void update_bot(float dt) {
     bot_pose = 0;
+    if(bot_primed_at && clock_ms-bot_primed_at>=(unsigned)attackdelay(GUN_GRENADE)) {
+        bool drop=bot.respawn_at || clock_ms-bot_primed_at>=2000;
+        if(drop || bot.state.gunselect!=GUN_GRENADE || !bot.state.mag[GUN_GRENADE]) {
+            launch_grenade(bot,bot_primed_at,drop);
+            bot_primed_at=0;bot_sound=GRENADE_THROW;
+            bot.ready_at=clock_ms+325;
+        }
+    }
     if (bot.respawn_at || player.respawn_at || clock_ms < 1000) {
         advance_bot_velocity(0,0,dt);
         return;
     }
     int gun=bot.state.gunselect;
-    if (gun==GUN_PISTOL && has_rounds(bot.state.primary) && clock_ms>=bot.ready_at) {
+    if (bot.state.akimbo && clock_ms>=bot_akimbo_until) {
+        bot.state.akimbo=false;
+        if(gun==GUN_AKIMBO) bot.state.gunselect=bot.state.primary;
+    }
+    if (!stock_round && gun==GUN_PISTOL && has_rounds(bot.state.primary) && clock_ms>=bot.ready_at) {
         bot.state.gunselect=bot.state.primary;
         bot.shots=0; combat_move_until=0;
     } else if (gun!=GUN_PISTOL && !has_rounds(gun)) {
         bot.state.gunselect=GUN_PISTOL;
         combat_move_until=0;
     }
-    const CombatRange &range=bot_ranges[bot.state.gunselect];
     float dx = player.x-bot.x, dy = player.y-bot.y;
     float d = fmaxf(.01f,hypotf(dx,dy));
     // Windows FindEnemy retains a visible opponent outside the acquisition cone.
@@ -897,6 +953,15 @@ void update_bot(float dt) {
                  prop_depth({bot.x,bot.y,eye(bot)},{dx,dy,dz},1)>=1;
         if (!sees) next_enemy_search=clock_ms+skill.search_min+random_number()%(skill.search_max-skill.search_min+1);
     }
+    if(stock_round && sees && clock_ms>=bot_switch_after && clock_ms>=bot.reload_at) {
+        int wanted=preferred_bot_weapon(hypotf(d,eye(player)-eye(bot)));
+        if(wanted!=bot.state.gunselect) {
+            bot.state.gunselect=wanted;bot.shots=0;
+            combat_move_until=0;bot_scope_since=0;
+            bot.ready_at=clock_ms+switch_ms;bot_switch_after=clock_ms+1000;
+        }
+    }
+    const CombatRange &range=bot_ranges[bot.state.gunselect];
     if (clock_ms>=next_supply_check || (supply_index>=0 && unavailable_until[supply_index]>clock_ms)) {
         int previous=supply_index;
         supply_index=find_ammunition(sees,!has_rounds(bot.state.gunselect));
@@ -973,11 +1038,24 @@ void update_bot(float dt) {
     bot.yaw=bot_aim_step(bot.yaw,target_yaw,false,dt);
     bot.pitch=bot_aim_step(bot.pitch,target_pitch,true,dt);
     bot.pitch=fmaxf(-75*radians,fminf(75*radians,bot.pitch+recoil_degrees(bot,false)*radians));
-    float min_fire=bot.state.gunselect==GUN_SHOTGUN?0:3;
+    float min_fire=bot.state.gunselect==GUN_SHOTGUN || bot.state.gunselect==GUN_KNIFE?0:3;
     if (clock_ms<bot_attack_at || clock_ms<bot.ready_at || fire_distance<min_fire || fire_distance>range.max_fire) return;
+    if(bot.state.gunselect==GUN_GRENADE) {
+        if(!bot_primed_at && bot.state.mag[GUN_GRENADE]) {
+            --bot.state.mag[GUN_GRENADE];bot_primed_at=clock_ms;
+            bot.ready_at=clock_ms+attackdelay(GUN_GRENADE);
+        }
+        return;
+    }
     if ((bot.state.gunselect==GUN_CARBINE || bot.state.gunselect==GUN_SNIPER) &&
         (fabsf(remainderf(bot.yaw-target_yaw,2*3.14159265f))>5*radians ||
          fabsf(bot.pitch-target_pitch)>15*radians)) return;
+    if(bot.state.gunselect==GUN_KNIFE) {
+        bot_sound=KNIFE_SWING;last_bot_gun=GUN_KNIFE;
+        bot.shot_until=bot.ready_at=clock_ms+attackdelay(GUN_KNIFE);
+        bot_fire_ray(bot.yaw,bot.pitch,GUN_KNIFE);
+        return;
+    }
     MatchSound shot=trigger(bot,true,false);
     if (shot==feedback[view_weapon(bot.state.gunselect)].shot) {
         int fired=bot.state.gunselect;
