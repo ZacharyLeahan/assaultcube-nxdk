@@ -9,7 +9,7 @@ typedef unsigned char uchar;
 #include "../source/src/weaponstats.inc"
 
 namespace {
-struct ItemLocation { int x, y, kind; };
+struct ItemLocation { int x, y, height_tenths, kind; };
 #include "generated/starts.h"
 #include "generated/items.h"
 constexpr int start_count = sizeof(starts)/sizeof(starts[0]);
@@ -129,8 +129,8 @@ void collect(Fighter &f) {
     if (f.respawn_at) return;
     for (int i = 0; i < item_count; ++i) {
         const ItemLocation &p = locations[i];
-        if (unavailable_until[i] > clock_ms || distance(f.x,f.y,p.x+.5f,p.y+.5f)>1.6f ||
-            fabsf(ground(f.x,f.y)-ground(p.x,p.y))>2 || !f.state.canpickup(p.kind)) continue;
+        if (unavailable_until[i] > clock_ms || distance(f.x,f.y,p.x,p.y)>1.6f ||
+            fabsf(ground(f.x,f.y)-ground(p.x,p.y)-p.height_tenths*.1f)>2 || !f.state.canpickup(p.kind)) continue;
         f.state.pickup(p.kind);
         unsigned delay = p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
         unavailable_until[i] = clock_ms+delay;
@@ -351,7 +351,7 @@ void match_view(MatchView *v) {
     for (int i = 0; i < item_count; ++i) if (clock_ms >= unavailable_until[i]) {
         const ItemLocation &p = locations[i];
         int icon = p.kind >= I_HEALTH ? 2+p.kind-I_HEALTH : p.kind-I_CLIPS;
-        item_views[v->item_count++] = {p.x,p.y,icon};
+        item_views[v->item_count++] = {p.x,p.y,icon,ground(p.x,p.y)+p.height_tenths*.1f};
     }
 }
 

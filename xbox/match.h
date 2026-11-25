@@ -15,7 +15,7 @@ typedef struct {
 typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice; } MatchInput;
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD } MatchSound;
-typedef struct { int x, y, icon; } ItemView;
+typedef struct { int x, y, icon; float base; } ItemView;
 typedef struct { float x,y,z; int axis; unsigned expires; } BulletMark;
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_yaw;

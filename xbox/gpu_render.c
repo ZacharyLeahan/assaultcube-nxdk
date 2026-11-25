@@ -225,21 +225,17 @@ static void level(const MatchView *v) {
         animated_batch(BOT_GUN_BATCH+v->bot_pose,BOT_GUN_BATCH+next,v->stride_blend);
         glPopMatrix();
     }
-    bind_vertices(stream);
-    glBindTexture(GL_TEXTURE_2D,textures[ITEM_TEX]);
-    glEnable(GL_ALPHA_TEST); glAlphaFunc(GL_GREATER,.35f);
-    begin_quads();
+    bind_vertices(geometry);
     for (int i=0;i<v->item_count;++i) {
         const ItemView *p=v->items+i;
-        float x=p->x+.5f,y=p->y+.5f,z=map_cube(p->x,p->y)->floor;
-        for (int j=0;j<4;++j) {
-            int right=j==1||j==2,bottom=j>=2;
-            float offset=right?.65f:-.65f;
-
-            vertex(x-s*offset,y+c*offset,z+(bottom?0:1.3f),right,(p->icon+(bottom?.99f:.01f))/8);
-        }
+        if ((p->x-v->px)*c+(p->y-v->py)*s < -3) continue;
+        glPushMatrix();
+        glTranslatef(p->x,p->y,p->base+1+.05f*sinf(v->elapsed_ms*.01f+p->x+p->y));
+        glRotatef(v->elapsed_ms*.1f,0,0,1);
+        batch(PICKUP_BATCH+p->icon);
+        glPopMatrix();
     }
-    end_quads(); glDisable(GL_ALPHA_TEST);
+    bind_vertices(stream);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);

@@ -30,7 +30,7 @@ def bake():
         if kind == 2 and team == 100:
             starts.append((x, y, yaw))
         elif kind in item_kinds:
-            pickups.append((x, y, item_kinds[kind]))
+            pickups.append((x, y, yaw, item_kinds[kind]))
     pos = offset + 16*count
     cells = bytearray()
     while len(cells) < (1 << (2*factor))*8:
@@ -58,7 +58,7 @@ def bake():
     (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
-        "".join(f"    {{{x}, {y}, {kind}}},\n" for x, y, kind in pickups) + "};\n")
+        "".join(f"    {{{x}, {y}, {height}, {kind}}},\n" for x, y, height, kind in pickups) + "};\n")
     from bake_gpu import bake_gpu
     entities = [struct.unpack_from("<4h4B", data, offset+16*i) for i in range(count)]
     bake_gpu(OUT, PKG, names, cells, entities)

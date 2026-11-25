@@ -114,6 +114,16 @@ def bake_gpu(out, packages, names, cells, entities):
             for v,k in zip(idx,t): pts.append((pos[v],uv[k],(shade,)*3))
         add_batch(tex,pts,3)
 
+    def md3_surfaces(data, header, pose):
+        off=header[-2]
+        for _ in range(header[6]):
+            _,label,_,_,_,nv,nt,tr,_,st,xyz,end=struct.unpack_from("<4s64s10i",data,off)
+            pos=np.frombuffer(data,"<i2",nv*4,off+xyz+pose*nv*8).reshape(-1,4)[:,:3]/64
+            uv=np.frombuffer(data,"<f4",nv*2,off+st).reshape(-1,2)
+            tri=np.frombuffer(data,"<i4",nt*3,off+tr).reshape(-1,3)
+            yield label.rstrip(b"\0"),pos,uv,tri
+            off+=end
+
     mark("BODY_BATCH",len(batches))
     player=packages/"models/playermodels"
     md2(player,player/"CLA/01_redvest.jpg",(256,256))
@@ -133,26 +143,25 @@ def bake_gpu(out, packages, names, cells, entities):
             for tag in range(header[5]):
                 label,*origin=struct.unpack_from("<64s3f",d,header[-3]+112*(pose*header[5]+tag))
                 if label.rstrip(b"\0")==b"tag_muzzle": muzzle.append(tuple(origin))
-            off=header[-2]
-            for _ in range(header[6]):
-                _,label,_,_,_,nv,nt,tr,_,st,xyz,end=struct.unpack_from("<4s64s10i",d,off)
-                pos=np.frombuffer(d,"<i2",nv*4,off+xyz+pose*nv*8).reshape(-1,4)[:,:3]/64
-                uv=np.frombuffer(d,"<f4",nv*2,off+st).reshape(-1,2)
-                tri=np.frombuffer(d,"<i4",nt*3,off+tr).reshape(-1,3)
+            for label,pos,uv,tri in md3_surfaces(d,header,pose):
                 # MD3 weapon assets point down +Y, with Z up and the grip on camera right.
-                model_batch(hands if label.rstrip(b"\0")==b"hands" else tex,pos,uv,tri,tri)
-                off+=end
+                model_batch(hands if label==b"hands" else tex,pos,uv,tri,tri)
         if len(muzzle)!=9: raise ValueError(f"Missing muzzle tag for {name}")
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
-    mark("ITEM_TEX",len(textures))
+    mark("PICKUP_BATCH",len(batches))
+    for name in ("pistolclips","ammobox","health","helmet","kevlar"):
+        folder=packages/"models/pickups"/name
+        d=(folder/(name+".md3")).read_bytes()
+        header=struct.unpack_from("<4si64s9i",d)
+        if header[6]!=1: raise ValueError(f"Expected one pickup mesh for {name}")
+        tex=model_skin(folder/"skin.jpg",(128,128))
+        for _,pos,uv,tri in md3_surfaces(d,header,0):
+            pos=pos[:,[1,0,2]]
+            if name=="helmet": pos[:,2]-=15  # mdltrans in the bundled md3.cfg
+            model_batch(tex,pos/16,uv,tri,tri)
     icons = Image.open(packages/"misc/items.png").convert("RGBA")
-    atlas = Image.new("RGBA",(32,256))
-    for index,(x,y) in enumerate(((1,0),(2,1),(2,3),(0,2),(3,2))):
-        tile=icons.crop((64*x,64*y,64*x+64,64*y+64)).resize((32,32))
-        atlas.paste(tile,(0,index*32))
-    texture(atlas,(32,256),False)
     # Top-down floor material and elevation, in the same XY coordinates as the duel.
     tiles=np.array([np.asarray(Image.open(packages/"textures"/n.decode()).convert("RGB").resize((16,16)))
                     for n in names])
