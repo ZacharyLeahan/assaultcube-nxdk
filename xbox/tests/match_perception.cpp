@@ -608,3 +608,25 @@ extern "C" void test_lan_stance(void) {
     match_view(&v);assert(v.current_pose.first==68);
     match_lan_stop();
 }
+
+extern "C" void test_grenade_pickups(void) {
+    match_prepare();begin(PLAYING);
+    int index=0;
+    while(index<item_count && locations[index].kind!=I_GRENADE) ++index;
+    assert(index<item_count);
+    const ItemLocation &p=locations[index];
+    player.x=p.x;player.y=p.y;feet_z=ground(p.x,p.y)+p.height_tenths*.1f;
+    player.state.mag[GUN_GRENADE]=0;
+    collect(player);assert(player.state.mag[GUN_GRENADE]==1 && unavailable_until[index]==9000);
+    clock_ms=8999;collect(player);assert(player.state.mag[GUN_GRENADE]==1);
+    clock_ms=9000;collect(player);assert(player.state.mag[GUN_GRENADE]==2);
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    match_lan_item(p.entity,true,false);
+    player.x=p.x;player.y=p.y;feet_z=ground(p.x,p.y)+p.height_tenths*.1f;
+    assert(match_lan_touch_item()==p.entity && !player.state.mag[GUN_GRENADE]);
+    match_lan_item(p.entity,false,true);
+    match_lan_item(p.entity,false,true);
+    assert(player.state.mag[GUN_GRENADE]==1);
+    match_lan_stop();
+}

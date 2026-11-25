@@ -494,7 +494,7 @@ int collect(Fighter &f) {
         if (&f==&player) {
             pickup_sound=pickup_effect(p.kind);
         }
-        unsigned delay = p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
+        unsigned delay = p.kind == I_GRENADE ? 9000 : p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
         unavailable_until[i] = clock_ms+delay;
     }
     return -1;
@@ -1479,7 +1479,7 @@ void match_view(MatchView *v) {
     v->items = item_views; v->item_count = 0;
     for (int i = 0; i < item_count; ++i) if (lan_match ? lan_item_visible[i] : clock_ms >= unavailable_until[i]) {
         const ItemLocation &p = locations[i];
-        int icon = p.kind >= I_HEALTH ? 2+p.kind-I_HEALTH : p.kind-I_CLIPS;
+        int icon = p.kind-I_CLIPS;
         item_views[v->item_count++] = {p.x,p.y,icon,ground(p.x,p.y)+p.height_tenths*.1f};
     }
 }

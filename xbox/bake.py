@@ -58,7 +58,7 @@ def bake():
     pickups = []
     ladders = []
     clips = []
-    item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
+    item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 5: "I_GRENADE", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
     for i in range(count):
         x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
         if kind == 2 and team == 100:

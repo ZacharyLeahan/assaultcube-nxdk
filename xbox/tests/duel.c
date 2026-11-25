@@ -671,6 +671,7 @@ static void test_prop_depth(void) {
 void test_lan_sidearm(void);
 void test_lan_knife(void);
 void test_lan_hitpush(void);
+void test_grenade_pickups(void);
 void test_lan_stance(void);
 void test_lan_prediction(void);
 void test_lan_jump_report(void);
@@ -692,6 +693,7 @@ int main(void) {
     test_lan_sidearm();
     test_lan_knife();
     test_lan_hitpush();
+    test_grenade_pickups();
     test_lan_stance();
     test_lan_prediction();
     test_lan_jump_report();

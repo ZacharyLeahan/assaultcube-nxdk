@@ -340,12 +340,12 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         folder=packages/f"models/misc/gib0{i}"
         md2(folder,folder/"skin.jpg",(64,64),None)
     mark("PICKUP_BATCH",len(batches))
-    for name in ("pistolclips","ammobox","health","helmet","kevlar"):
+    for name in ("pistolclips","ammobox","nade","health","helmet","kevlar"):
         folder=packages/"models/pickups"/name
         d=(folder/(name+".md3")).read_bytes()
         header=struct.unpack_from("<4si64s9i",d)
         if header[6]!=1: raise ValueError(f"Expected one pickup mesh for {name}")
-        tex=model_skin(folder/"skin.jpg",(128,128))
+        tex=model_skin(folder/("nade.jpg" if name=="nade" else "skin.jpg"),(128,128))
         for _,pos,uv,tri in md3_surfaces(d,header,0):
             pos=pos[:,[1,0,2]]
             if name=="helmet": pos[:,2]-=15  # mdltrans in the bundled md3.cfg
