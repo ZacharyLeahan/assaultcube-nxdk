@@ -16,6 +16,7 @@ int visible(float x, float y, float z, float tx, float ty, float tz);
 typedef struct { float x,y,z; int axis, can_mark; float fraction; } SurfaceHit;
 int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit *hit);
 void navigation_prepare(void);
+int route_recovery(float x,float y,float *tx,float *ty);
 void route_to(int x, int y);
 void route_to_pickup(int x,int y,float z);
 int route_next(float x, float y, float *tx, float *ty);

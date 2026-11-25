@@ -3,6 +3,7 @@
 #include "geometry.h"
 #include "grenade.h"
 #include "navigation.h"
+#include "bot_route.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -94,6 +95,31 @@ unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned radar_action_until;
+BotRoute bot_route;
+float bot_vertical;
+unsigned bot_air_ms;
+bool bot_airborne,bot_jump_request;
+struct MovementHistory {
+    MatchPoint samples[7];
+    int size,next;
+    unsigned update_after;
+    void record(MatchPoint p,unsigned now) {
+        if(now<update_after) return;
+        update_after=now+100;
+        // poshist::update compares to slot zero in the original client.
+        float dx=p.x-samples[0].x,dy=p.y-samples[0].y,dz=p.z-samples[0].z;
+        if(size && dx*dx+dy*dy+dz*dz<16) return;
+        samples[next]=p;next=(next+1)%7;
+        if(size<7) ++size;
+    }
+};
+MovementHistory player_trail,bot_trail;
+MatchPoint hunt_spot;
+bool hunting;
+unsigned hunt_after,patrol_retry,check_progress,recover_until;
+float progress_x,progress_y,recover_x,recover_y;
+int progress_item;
+unsigned skip_supply_until[item_count];
 int supply_index=-1;
 unsigned next_supply_check;
 bool lan_item_visible[item_count];
@@ -313,13 +339,19 @@ void spawn(Fighter &f, int index, float offset=.5f) {
     if(&f==&bot) {
         f.state.nextprimary=stock_round && !lan_match ? GUN_CARBINE+random_number()%5 : GUN_ASSAULT;
         last_bot_gun=f.state.nextprimary;
-        bot_scope_since=0;
+        bot_scope_since=0;bot_air_ms=0;bot_vertical=0;bot_airborne=bot_jump_request=false;
         bot_switch_after=bot_akimbo_until=0;
         bot_primed_at=0;
     }
     f.x = starts[index][0]+offset; f.y = starts[index][1]+offset;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
+    if(!lan_match && stock_round) {
+        (&f==&player?player_trail:bot_trail)={};
+        hunt_after=0;hunting=false;
+        bot_route.reset();patrol_retry=0;check_progress=recover_until=0;
+        memset(skip_supply_until,0,sizeof(skip_supply_until));
+    }
     if (&f==&player) {
         scoped=false; grenade_state=GRENADE_IDLE;
         akimbo_expires=0;draw_akimbo=akimbo_left=false;
@@ -760,7 +792,15 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
 }
 void move_bot(float dx,float dy) {
     ActorBounds opponent={player.x,player.y,feet_z,feet_z+stance+PLAYER_ABOVE_EYE};
-    walk_past_actor(&bot.x,&bot.y,dx,dy,body_floor(bot.x,bot.y),PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE,1.5f,
+    float floor=stock_round?eye(bot)-PLAYER_EYE_HEIGHT:body_floor(bot.x,bot.y);
+    float step=bot_airborne?0.f:1.5f;
+    if(stock_round && !bot_airborne && (dx || dy)) {
+        float next,ceiling;
+        body_space(bot.x+dx,bot.y+dy,floor,&next,&ceiling);
+        if(next>floor+step && next<=floor+3.f && ceiling-next>PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE)
+            bot_jump_request=true;
+    }
+    walk_past_actor(&bot.x,&bot.y,dx,dy,floor,PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE,step,
                     bot.respawn_at || player.respawn_at ? nullptr : &opponent);
 }
 // Return the remaining signed angle before the turn, used by the firing gate.
@@ -833,9 +873,29 @@ void advance_bot_velocity(float target_x,float target_y,float dt) {
     float dx=bot.velocity_x-target_x,dy=bot.velocity_y-target_y;
     move_bot(16*(target_x*dt+dx*carry),16*(target_y*dt+dy*carry));
     bot.velocity_x-=dx*fraction; bot.velocity_y-=dy*fraction;
-    bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+    if(!stock_round) bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
 }
 unsigned physics_steps() { return (clock_ms+4)/5-(frame_start_ms+4)/5; }
+void update_bot_height() {
+    if(!stock_round || lan_match || bot.respawn_at) return;
+    float feet=eye(bot)-PLAYER_EYE_HEIGHT,floor,ceiling;
+    body_space(bot.x,bot.y,feet,&floor,&ceiling);
+    if(!bot_airborne) {
+        if(bot_jump_request) {bot_airborne=true;bot_vertical=32*23.f/24;bot_air_ms=0;}
+        else if(feet>floor+.1f) {bot_airborne=true;bot_vertical=0;bot_air_ms=0;}
+        else feet=floor;
+    }
+    bot_jump_request=false;
+    for(unsigned i=0,steps=physics_steps();bot_airborne && i<steps && i<20;++i) {
+        bot_air_ms+=5;bot_vertical*=119.f/120;
+        feet+=(bot_vertical-9.5f-bot_air_ms/30.f)*.005f;
+        if(feet+PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE>=ceiling) {
+            feet=ceiling-PLAYER_EYE_HEIGHT-PLAYER_ABOVE_EYE;bot_vertical=fminf(bot_vertical,0);
+        }
+        if(feet<=floor) {feet=floor;bot_airborne=false;bot_vertical=0;bot_air_ms=0;}
+    }
+    bot.eye_height=feet+PLAYER_EYE_HEIGHT;
+}
 float recoil_degrees(Fighter &fighter,bool crouch) {
     float pitch_change=0;
     unsigned steps=physics_steps();
@@ -896,7 +956,7 @@ int find_ammunition(bool sees,bool empty) {
         const ItemLocation &p=locations[i];
         if (unavailable_until[i]>clock_ms) continue;
         if(stock_round) {
-            if(!bot.state.canpickup(p.kind)) continue;
+            if(!bot.state.canpickup(p.kind) || clock_ms<skip_supply_until[i]) continue;
         } else if (!(p.kind==I_AMMO && wants_primary) && !(p.kind==I_CLIPS && wants_clips)) continue;
         float z=ground(p.x,p.y)+p.height_tenths*.1f+PLAYER_EYE_HEIGHT;
         float dist=hypotf(distance(bot.x,bot.y,p.x,p.y),eye(bot)-z);
@@ -922,6 +982,79 @@ int find_ammunition(bool sees,bool empty) {
         scores[best]=0;
     }
 }
+bool reachable_trail(MatchPoint p) {
+    float dx=p.x-bot.x,dy=p.y-bot.y,length=hypotf(dx,dy);
+    if(length<3 || length>250) return false;
+    float side_x=-dy/length,side_y=dx/length;
+    for(int side=-1;side<=1;++side)
+        if(!visible(bot.x+side*side_x,bot.y+side*side_y,eye(bot),p.x,p.y,p.z)) return false;
+    float previous=body_floor(bot.x,bot.y);
+    for(float t=2;t<length+2;t+=2) {
+        float k=fminf(t/length,1.f);
+        float floor=body_floor(bot.x+dx*k,bot.y+dy*k);
+        if(floor-previous>1.5f) return false;
+        previous=floor;
+    }
+    return true;
+}
+bool hunt_player(bool sees) {
+    if(sees || player.respawn_at) {hunting=false;return false;}
+    if(hunting && distance(bot.x,bot.y,hunt_spot.x,hunt_spot.y)<3) hunting=false;
+    if(clock_ms<hunt_after) return hunting;
+    hunting=false;
+    // CheckHunt prefers a reachable point on the opponent's trail. Failing
+    // that, return to a reachable point on our own trail overlooking them.
+    for(int owner=0;owner<2 && !hunting;++owner) {
+        const MovementHistory &trail=owner?bot_trail:player_trail;
+        float best=1e9f;
+        for(int i=0;i<trail.size;++i) {
+            const MatchPoint &p=trail.samples[i];
+            const Fighter &reference=owner?bot:player;
+            float dx=p.x-reference.x,dy=p.y-reference.y,dz=p.z-eye(reference);
+            float d=dx*dx+dy*dy+dz*dz;
+            if(d>=best || (owner && !visible(player.x,player.y,eye(player),p.x,p.y,p.z))) continue;
+            if(reachable_trail(p)) {best=d;hunt_spot=p;hunting=true;}
+        }
+    }
+    hunt_after=clock_ms+(hunting?1250:1500);
+    return hunting;
+}
+bool stock_nav_target(bool pursuing,float &tx,float &ty) {
+    if(pursuing) {
+        tx=hunt_spot.x;ty=hunt_spot.y;bot_route.reset();
+        return true;
+    }
+    bool collecting=supply_index>=0,steering=false;
+    MatchPoint target;
+    if(!collecting && bot_route.fallback && clock_ms>=patrol_retry) {
+        bot_route.reset();patrol_retry=clock_ms+1500;
+    }
+    if(collecting && bot_route.fallback && progress_item==supply_index &&
+       clock_ms<recover_until && distance(bot.x,bot.y,recover_x,recover_y)>.15f) {
+        tx=recover_x;ty=recover_y;steering=true;
+    } else if(bot_route.target({bot.x,bot.y,eye(bot)},supply_index,clock_ms,random_number,target)) {
+        tx=target.x;ty=target.y;steering=true;bot_jump_request|=bot_route.jump;
+    } else if(collecting) {
+        const ItemLocation &item=locations[supply_index];
+        route_to_pickup(item.x,item.y,ground(item.x,item.y)+item.height_tenths*.1f);
+        steering=route_next(bot.x,bot.y,&tx,&ty);
+        if(!check_progress || clock_ms>=check_progress || progress_item!=supply_index) {
+            if(check_progress && progress_item==supply_index &&
+               distance(bot.x,bot.y,progress_x,progress_y)<.5f) {
+                if(!recover_until && route_recovery(bot.x,bot.y,&recover_x,&recover_y))
+                    recover_until=clock_ms+700;
+                else {
+                    skip_supply_until[supply_index]=clock_ms+5000;
+                    supply_index=-1;bot_route.reset();
+                    next_supply_check=clock_ms+1000+random_number()%1001;
+                }
+            } else recover_until=0;
+            progress_x=bot.x;progress_y=bot.y;progress_item=supply_index;
+            check_progress=clock_ms+1000;
+        }
+    }
+    return steering;
+}
 void update_bot(float dt) {
     bot_pose = 0;
     if(bot_primed_at && clock_ms-bot_primed_at>=(unsigned)attackdelay(GUN_GRENADE)) {
@@ -932,7 +1065,7 @@ void update_bot(float dt) {
             bot.ready_at=clock_ms+325;
         }
     }
-    if (bot.respawn_at || player.respawn_at || clock_ms < 1000) {
+    if (bot.respawn_at || (!stock_round && player.respawn_at) || clock_ms < 1000) {
         advance_bot_velocity(0,0,dt);
         return;
     }
@@ -944,7 +1077,7 @@ void update_bot(float dt) {
     if (!stock_round && gun==GUN_PISTOL && has_rounds(bot.state.primary) && clock_ms>=bot.ready_at) {
         bot.state.gunselect=bot.state.primary;
         bot.shots=0; combat_move_until=0;
-    } else if (gun!=GUN_PISTOL && !has_rounds(gun)) {
+    } else if (!stock_round && gun!=GUN_PISTOL && !has_rounds(gun)) {
         bot.state.gunselect=GUN_PISTOL;
         combat_move_until=0;
     }
@@ -952,7 +1085,7 @@ void update_bot(float dt) {
     float d = fmaxf(.01f,hypotf(dx,dy));
     // Windows FindEnemy retains a visible opponent outside the acquisition cone.
     bool sees=false;
-    if (bot_saw_player || clock_ms>=next_enemy_search) {
+    if (!player.respawn_at && (bot_saw_player || clock_ms>=next_enemy_search)) {
         float dz=eye(player)-eye(bot);
         bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*.57357644f; // cos(110� / 2)
         const BotSkill &skill=skills[stock_round];
@@ -970,7 +1103,24 @@ void update_bot(float dt) {
         }
     }
     const CombatRange &range=bot_ranges[bot.state.gunselect];
-    if (clock_ms>=next_supply_check || (supply_index>=0 && unavailable_until[supply_index]>clock_ms)) {
+    bool pursuing=false;
+    if(stock_round) {
+        if(!player.respawn_at) player_trail.record({player.x,player.y,eye(player)},clock_ms);
+        bot_trail.record({bot.x,bot.y,eye(bot)},clock_ms);
+        pursuing=hunt_player(sees);
+        if(supply_index>=0) {
+            const ItemLocation &item=locations[supply_index];
+            if(unavailable_until[supply_index]>clock_ms || !bot.state.canpickup(item.kind) || pursuing ||
+               (sees && (distance(bot.x,bot.y,item.x,item.y)>25 ||
+                         !visible(bot.x,bot.y,eye(bot),item.x,item.y,ground(item.x,item.y)+PLAYER_EYE_HEIGHT))))
+                supply_index=-1;
+        }
+        if(!sees && !pursuing && supply_index<0 && clock_ms>=next_supply_check) {
+            supply_index=find_ammunition(false,!has_rounds(bot.state.gunselect));
+            next_supply_check=clock_ms+2500+random_number()%2501;
+            bot_route.reset();
+        }
+    } else if (clock_ms>=next_supply_check || (supply_index>=0 && unavailable_until[supply_index]>clock_ms)) {
         int previous=supply_index;
         supply_index=find_ammunition(sees,!has_rounds(bot.state.gunselect));
         if (previous!=supply_index || supply_index<0) next_route=0;
@@ -992,18 +1142,24 @@ void update_bot(float dt) {
         else advance_bot_velocity(c*combat_forward-s*combat_side,s*combat_forward+c*combat_side,dt);
     } else {
         advance_bot_velocity(0,0,dt);
-        if (!collecting && clock_ms >= next_route) {
-            route_to((int)player.x,(int)player.y);
-            next_route = clock_ms+450;
+        float tx=0,ty=0;
+        bool steering=false;
+        if(stock_round) {
+            steering=stock_nav_target(pursuing,tx,ty);
+        } else {
+            if (!collecting && clock_ms >= next_route) {
+                route_to((int)player.x,(int)player.y);
+                next_route = clock_ms+450;
+            }
+            steering=route_next(bot.x,bot.y,&tx,&ty);
         }
-        float tx, ty;
-        if (route_next(bot.x,bot.y,&tx,&ty)) {
+        if (steering) {
             float mx=tx-bot.x,my=ty-bot.y,length=hypotf(mx,my);
             if (length>.001f) {
                 if (!sees) turn_bot_toward(atan2f(my,mx),dt);
-                float step=fminf(length,11*dt);
+                float step=fminf(length,(stock_round?16:11)*dt);
                 move_bot(mx/length*step,my/length*step);
-                bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+                if(!stock_round) bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
             }
         }
     }
@@ -1522,7 +1678,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if(bot_pose) stride_phase=fmodf(stride_phase+elapsed*stride_rate,6);
         return;
     }
-    collect(player); update_bot(dt); collect(bot);
+    collect(player); update_bot(dt); update_bot_height(); collect(bot);
     // During fine two-stick tracking, share a fraction of the target's angular
     // motion. An existing aiming error never pulls the crosshair to center.
     if (!player.respawn_at && !bot.respawn_at && fabsf(in->strafe)>.05f &&
@@ -1585,7 +1741,7 @@ static void bot_view(MatchView *v) {
         clip={crouch?169:54,4,bot.pain_until,now,(now+300-bot.pain_until)/75.f,1/75.f};
     else if (bot.flash_until && clock_ms<bot.flash_until+210)
         clip={crouch?160:46,crouch?9:8,bot.flash_until,now,(now+90-bot.flash_until)/37.5f,1/37.5f};
-    else if(lan_match && remote_air_ms>50)
+    else if((lan_match && remote_air_ms>50) || (!lan_match && stock_round && bot_air_ms>50))
         clip={crouch?159:68,1,0,now,0,0};
     else if (bot_pose)
         clip={crouch?154:40,6,0,now,stride_phase,stride_rate};

@@ -361,3 +361,23 @@ int route_next(float x, float y, float *tx, float *ty) {
     }
     return 1;
 }
+
+// When a diagonal waypoint brushes a crate, the actor can stand outside the
+// walkable grid centers. Walk back to a reachable center along a tested path.
+int route_recovery(float x,float y,float *tx,float *ty) {
+    float best=1e9f;
+    for(int dy=-3;dy<=3;++dy) for(int dx=-3;dx<=3;++dx) {
+        int cx=(int)x+dx,cy=(int)y+dy;
+        if((unsigned)cx>=MAP || (unsigned)cy>=MAP || next_step[cy*MAP+cx]==255) continue;
+        float gx=cx+.5f,gy=cy+.5f,len=hypotf(gx-x,gy-y);
+        if(len<.8f || len>=best) continue;
+        int steps=(int)ceilf(len*4);
+        float sx=x,sy=y;
+        for(int i=0;i<steps;++i)
+            walk_body(&sx,&sy,(gx-x)/steps,(gy-y)/steps,body_floor(sx,sy),
+                      PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE,1.5f);
+        if(hypotf(gx-sx,gy-sy)>.08f) continue;
+        best=len;*tx=gx;*ty=gy;
+    }
+    return best<1e9f;
+}

@@ -4,7 +4,7 @@ NXDK_SDL = y
 NXDK_CXX = y
 NXDK_CXXFLAGS += -O2 -Wall -fno-rtti
 NXDK_DIR ?= $(CURDIR)/../../nxdk
-SRCS = $(addprefix $(CURDIR)/,platform_nxdk.c ambience.c controllers.c match.cpp grenade.cpp navigation.c shot_light.c prop_depth.c gpu_render.c assets.s)
+SRCS = $(addprefix $(CURDIR)/,platform_nxdk.c ambience.c controllers.c match.cpp bot_route.cpp grenade.cpp navigation.c shot_light.c prop_depth.c gpu_render.c assets.s)
 NXDK_CFLAGS += -O2 -Wall
 SDL_AUDIO_DIR := $(NXDK_DIR)/lib/sdl/SDL2/src/audio/xbox
 SDL_AUDIO_SOURCE := $(SDL_AUDIO_DIR)/SDL_xboxaudio.c
@@ -39,6 +39,8 @@ $(CURDIR)/navigation.obj: generated/ladders.h generated/clips.h generated/corner
 $(CURDIR)/prop_depth.obj: generated/prop_bounds.h
 $(addprefix $(CURDIR)/,prop_depth.obj gpu_render.obj match.obj): geometry.h
 $(addprefix $(CURDIR)/,match.obj grenade.obj): grenade.h
+$(CURDIR)/bot_route.obj: generated/waypoints.h bot_route.h navigation.h match.h
+$(CURDIR)/match.obj: bot_route.h
 $(CURDIR)/grenade.obj: generated/water.h navigation.h geometry.h match.h
 $(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h generated/bot_head.h generated/bot_skill.h generated/bot_names.h
 $(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj shot_light.obj prop_depth.obj lan/lan.obj): match.h

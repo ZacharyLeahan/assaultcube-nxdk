@@ -536,6 +536,27 @@ extern "C" void test_stock_bot_round(void) {
     match_update(&in,1,.001f);assert(phase==INTERMISSION);
     match_view(&v);assert(v.bot_deaths==1 && v.player_deaths==1);
     begin(PLAYING);match_view(&v);assert(!v.player_deaths && !v.bot_deaths);
+    // A surviving bot keeps traversing the map while the player waits to respawn.
+    float start_x=bot.x,start_y=bot.y;
+    player.respawn_at=2000;in={};
+    float farthest=0;bool used_waypoint=false;
+    for(int i=0;i<1000;++i) {
+        match_update(&in,16,.016f);
+        farthest=fmaxf(farthest,distance(bot.x,bot.y,start_x,start_y));
+        used_waypoint|=bot_route.waypoint>=0;
+    }
+    assert(farthest>20 && used_waypoint && !bot_saw_player && !bot.frags);
+    // A two-cube ledge blocks normal walking but is within a stock jump.
+    bot.x=158.2f;bot.y=127.70f;
+    bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+    bot_airborne=bot_jump_request=false;
+    float before=eye(bot);float high=before;
+    for(int i=0;i<80;++i) {
+        frame_start_ms=clock_ms;clock_ms+=5;
+        move_bot(0,.08f);update_bot_height();
+        high=fmaxf(high,eye(bot));
+    }
+    assert(high>before+1.5f && bot.y>128.5f);
     match_prepare();
 }
 

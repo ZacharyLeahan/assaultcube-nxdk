@@ -164,6 +164,8 @@ def bake():
         "static const short vantage[] = {"+", ".join(map(str,map_vantage(config)))+"};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
         "".join(f"    {{{x}, {y}, {height}, {kind}, {entity}}},\n" for x, y, height, kind, entity in pickups) + "};\n")
+    from bake_waypoints import bake_waypoints
+    bake_waypoints(ROOT.parent / "bot/waypoints/ac_desert.wpt", OUT / "waypoints.h", pickups, cells)
     from bake_corners import map_corners
     corners = map_corners(cells,deltas)
     records = []
