@@ -254,6 +254,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     texture(Image.open(packages/"misc/damage.png"),(256,256),False)
     mark("EQUIPMENT_TEX",len(textures))
     texture(icons,(256,256),False)
+    mark("CROSSHAIR_TEX",len(textures))
+    texture(Image.open(packages/"crosshairs/default.png"),(32,32),False)
     mark("DIGITS_TEX",len(textures))
     digits=Image.new("RGBA",(512,64))
     digits.paste(Image.open(packages/"misc/huddigits.png").convert("RGBA"))

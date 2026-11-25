@@ -76,6 +76,7 @@ int main(void) {
     input.start = 0;
 
     int saw_bot_death = 0, saw_bot_respawn = 0, saw_player_death = 0, saw_player_respawn = 0;
+    unsigned burst_shots=0;
     for (unsigned tick = 0; tick < 3000; ++tick) {
         match_view(&view);
         input.fire = !view.player_frags;
@@ -86,8 +87,10 @@ int main(void) {
         input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);
         match_view(&view);
-        match_attack(&input);
+        if (!input.fire) burst_shots=0;
+        if (match_attack(&input)==RIFLE_SHOT) ++burst_shots;
         match_view(&view);
+        assert(view.wide_crosshair == (burst_shots>3));
         if (view.player_frags && !view.bot_alive) saw_bot_death = 1;
         if (saw_bot_death && view.bot_alive) saw_bot_respawn = 1;
         if (view.respawning) saw_player_death = 1;

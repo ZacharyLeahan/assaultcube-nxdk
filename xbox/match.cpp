@@ -30,7 +30,7 @@ struct Fighter {
 Fighter player, bot;
 float feet_z, stance, jump_speed, air_seconds;
 bool grounded, held_jump;
-unsigned clock_ms, next_route, bot_attack_at, hit_until, hurt_until;
+unsigned clock_ms, next_route, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
@@ -79,7 +79,7 @@ void begin(MatchPhase initial) {
     clock_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0;
-    next_route = hit_until = hurt_until = 0;
+    next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = was_firing = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
     // Open in the same courtyard at two official free-for-all player starts.
@@ -118,7 +118,6 @@ void damage(Fighter &victim, Fighter &attacker, int gun) {
         damage_directions[(unsigned)sector%8]=clock_ms+1000;
         pain_sound=victim.state.health>0 ? PLAYER_PAIN : PLAYER_DEATH;
     }
-    else hit_until = clock_ms+160;
     if (victim.state.health > 0) return;
     victim.state.health = 0;
     victim.respawn_at = clock_ms+2000;
@@ -394,7 +393,7 @@ void match_view(MatchView *v) {
         v->gun_rotation=guns[gun].mdl_kick_rot*kick;
         v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
-    v->hitflash = hit_until > clock_ms;
+    v->wide_crosshair = !v->pistol && player.shots>3;
     v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
     v->bot_shot_pending=phase==PLAYING && bot_saw_player && !bot.respawn_at &&
                         bot_attack_at<=clock_ms+40 && bot.ready_at<=clock_ms+40;

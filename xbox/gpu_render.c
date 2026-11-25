@@ -322,7 +322,7 @@ static void overview(const MatchView *v) {
     begin_quads(); quad(-12,-12,24,24,v->respawning?.25f:v->flash?.5f:0,.5f,.25f,.25f); end_quads();
     glPopMatrix();
 }
-static void hud(const MatchView *v,int aimed,unsigned fps10,int connected,int showmap) {
+static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
@@ -333,16 +333,18 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected,int sh
         begin_quads(); quad(0,0,hud_width,720,0,0,1,1); end_quads();
         glDisable(GL_BLEND);
     }
-    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    glEnable(GL_BLEND);
     if (!v->respawning) {
-        float x=hud_width*.5f,y=360;
-        color(1,v->hitflash?.3f:.9f,aimed?.2f:.9f,1);
+        float half=v->wide_crosshair?8.4f:6.f;
+        glBlendFunc(GL_ONE,GL_ONE);
+        glBindTexture(GL_TEXTURE_2D,textures[CROSSHAIR_TEX]);
+        color(1,v->health<=25?0:v->health<=50?.5f:1,v->health<=50?0:1,1);
         begin_quads();
-        quad(x-13,y-1,8,2,0,0,0,0); quad(x+5,y-1,8,2,0,0,0,0);
-        quad(x-1,y-13,2,8,0,0,0,0); quad(x-1,y+5,2,8,0,0,0,0);
+        quad(hud_width*.5f-half,360-half,2*half,2*half,0,0,1,1);
         end_quads();
     }
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     if (v->phase==PLAYING) {
         color(.5f,0,0,.5f);
         begin_quads();
@@ -462,7 +464,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glDepthRange(.04,1);
     level(v);
     glDepthRange(0,1);
-    hud(v,aimed,fps10,connected,input->showmap);
+    hud(v,fps10,connected,input->showmap);
     // Show the completed surface at vblank. The default pbkit queue can expose
     // an in-progress frame on this console when rendering the full 720p scene.
     glFinish();
