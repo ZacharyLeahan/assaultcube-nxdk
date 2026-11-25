@@ -76,7 +76,7 @@ enum { SHADOW_CAPACITY=3*(2*(sizeof(body_indices)+WORLD_GUN_INDEX_BYTES))/sizeof
 static Position *shadow_positions, shadow_tip;
 static unsigned shadow_count;
 static unsigned pose_cursor;
-enum { STREAM_CAPACITY = 2048 + 4*MARK_CAPACITY };
+enum { STREAM_CAPACITY = 2048 + 4*(MARK_CAPACITY+SCORCH_CAPACITY) };
 static Vertex *stream;
 static unsigned cursor, first;
 static unsigned char tint[4] = {255,255,255,255};
@@ -659,6 +659,24 @@ static void level(const MatchView *v) {
             float right=u?radius:-radius,up=w?-radius:radius;
             float r=right*ca-up*sa,h=right*sa+up*ca;
             vertex(x-s*r-c*sp*h,y+c*r-s*sp*h,z+cp*h,u,1-w);
+        }
+        end_quads();
+    }
+    if(v->scorch_count) {
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        glBindTexture(GL_TEXTURE_2D,textures[SCORCH_TEX]);
+        begin_quads();
+        for(unsigned i=0;i<v->scorch_count;++i) {
+            const ExplosionView *mark=&v->scorches[i];
+            MatchPoint p=mark->pos;
+            const uint8_t *rgb=lit_cell((int)p.x,(int)p.y);
+            color(fminf(1,rgb[0]/127.5f),fminf(1,rgb[1]/127.5f),fminf(1,rgb[2]/127.5f),
+                  fminf(.7f,(mark->end_ms-v->elapsed_ms)/1000.f));
+            for(int j=0;j<4;++j) {
+                unsigned k=(j+mark->end_ms)%4;
+                vertex(p.x+(j==0 || j==3?1.5f:-1.5f),p.y+(j<2?1.5f:-1.5f),
+                       p.z,k==1 || k==2,k<2);
+            }
         }
         end_quads();
     }

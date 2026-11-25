@@ -286,6 +286,17 @@ ActiveGrenade active_grenades[8];
 unsigned active_grenade_count;
 ExplosionView explosions[8];
 unsigned explosion_count;
+ExplosionView scorches[SCORCH_CAPACITY];
+unsigned scorch_count;
+void scorch_floor(MatchPoint pos,unsigned time) {
+    const Cube *cell=map_cube((int)pos.x,(int)pos.y);
+    if(cell->kind!=4 || pos.z-cell->floor>7) return; // Stock SPACE cells only.
+    if(scorch_count==SCORCH_CAPACITY) {
+        memmove(scorches,scorches+1,(--scorch_count)*sizeof(*scorches));
+    }
+    pos.z=cell->floor+.02f;
+    scorches[scorch_count++]={pos,time+10000};
+}
 void queue_grenade(const GrenadeEvent &event) {
     if(lan_match && event_count<16) grenade_events[event_count++]=event;
 }
@@ -300,6 +311,12 @@ void update_grenades(unsigned previous) {
         if(clock_ms>=explosions[i].end_ms) explosions[i]=explosions[--explosion_count];
         else ++i;
     }
+    unsigned expired=0;
+    while(expired<scorch_count && clock_ms>=scorches[expired].end_ms) ++expired;
+    if(expired) {
+        scorch_count-=expired;
+        memmove(scorches,scorches+expired,scorch_count*sizeof(*scorches));
+    }
     ActorBounds actors[2];
     int count=0;
     if(!player.respawn_at) actors[count++]={player.x,player.y,feet_z,feet_z+stance+PLAYER_ABOVE_EYE};
@@ -313,6 +330,7 @@ void update_grenades(unsigned previous) {
         if(clock_ms<g.expires) {++i;continue;}
         MatchPoint p=g.flight.position;
         if(explosion_count<8) explosions[explosion_count++]={p,g.expires+600};
+        scorch_floor(p,clock_ms);
         impact_sound={p,GRENADE_EXPLODE};
         for(int j=0;j<50;++j) {
             sparks[next_spark]=splash_particle(p.x,p.y,p.z,300);
@@ -407,7 +425,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
 }
 int next_ffa_start(int visits,const Fighter *opponent);
 void begin(MatchPhase initial) {
-    active_grenade_count=explosion_count=0; grenade_state=GRENADE_IDLE;event_count=0;
+    active_grenade_count=explosion_count=scorch_count=0; grenade_state=GRENADE_IDLE;event_count=0;
     first_mark=mark_count=0;
     bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
     intermission_age=0;actor_sounds.count=network_sounds.count=0;
@@ -2158,6 +2176,7 @@ void match_view(MatchView *v) {
     for (unsigned i=0;i<gib_count;++i) gib_views[i]=gibs[i].view;
     v->grenade_count=active_grenade_count;
     for(unsigned i=0;i<active_grenade_count;++i) v->grenades[i]={active_grenades[i].flight.position,active_grenades[i].flight.rotation};
+    v->scorches=scorches;v->scorch_count=scorch_count;
     v->explosions=explosions;v->explosion_count=explosion_count;
     v->gibs=gib_views; v->gib_count=gib_count;
     unsigned end_ms=lan_match?lan_end_ms:stock_round?bot_match_duration:duration;

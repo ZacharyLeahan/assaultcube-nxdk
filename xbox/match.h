@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 224 };
+enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 224, SCORCH_CAPACITY = 24 };
 #define PLAYER_EYE_HEIGHT 4.5f
 #define PLAYER_ABOVE_EYE .7f
 // tan(50 degrees / 2) relative to the normal 90-degree horizontal FOV.
@@ -58,6 +58,7 @@ typedef struct {
     MatchWeapon bot_weapon;
     GrenadeView grenades[8]; unsigned grenade_count;
     const ExplosionView *explosions; unsigned explosion_count;
+    const ExplosionView *scorches; unsigned scorch_count;
     const GibView *gibs; unsigned gib_count; int hide_bot,hide_player_body,gib_sound; MatchPoint gib_origin;
     BotPose current_pose,previous_pose;
     float pose_transition,gun_pose_blend,flash_angle;

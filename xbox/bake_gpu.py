@@ -509,6 +509,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     decal=np.stack([np.asarray(Image.fromarray(ch).resize((64,64),Image.Resampling.BILINEAR))
                     for ch in decal.transpose(2,0,1)],axis=2)
     texture(Image.fromarray(decal),(64,64))
+    mark("SCORCH_TEX",len(textures))
+    texture(Image.open(packages/"misc/scorch.png"),(256,256))
     mark("SPARK_TEX",len(textures))
     texture(Image.open(packages/"misc/base.png"),(32,32),False)
     mark("BLOOD_TEX",len(textures))

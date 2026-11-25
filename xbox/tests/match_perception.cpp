@@ -837,9 +837,17 @@ extern "C" void test_remote_grenade(void) {
     match_update(&in,16,.016f);match_view(&view);
     assert(!view.grenade_count && view.explosion_count==1 && view.spark_count==50);
     assert(view.impact.sound==GRENADE_EXPLODE && player.state.health==100);
+    assert(view.scorch_count==1 && fabsf(view.scorches[0].pos.z+1.98f)<.001f);
+    unsigned scorch_end=view.scorches[0].end_ms;
+    scorch_floor({120,117,5.01f},clock_ms);
+    scorch_floor({0,0,0},clock_ms);
+    assert(scorch_count==1);
+    assert(scorch_end==clock_ms+10000);
     // Stock Windows throw on ac_desert. The server's 10-damage hit and
     // quantized push vector put the explosion near (120.4,117.0).
     assert(hypotf(view.explosions[0].pos.x-120.4f,view.explosions[0].pos.y-117.f)<.2f);
+    clock_ms=scorch_end-1;update_grenades(clock_ms);assert(scorch_count==1);
+    ++clock_ms;update_grenades(clock_ms);assert(!scorch_count);
     match_lan_stop();
 }
 
