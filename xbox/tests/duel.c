@@ -147,6 +147,19 @@ int main(void) {
     // This floor has opposite high corners. The body uses the cell mean,
     // while a vertical shot at the center lands on its rendered diagonal.
     SurfaceHit slope;
+    // The low rotated obstacle at (164,156) stops walking but can be jumped.
+    float x=160.5f,y=156.5f,floor,ceiling;
+    walk_body(&x,&y,5,0,0,4.5f,1.5f);
+    assert(x>161 && x<163);
+    walk_body(&x,&y,2,0,2,4.5f,0);
+    body_space(x,y,2,&floor,&ceiling);
+    assert(x>163 && fabsf(floor-1.8f)<.001f);
+    x=160.5f;
+    walk(&x,&y,5,0);
+    assert(x>161 && x<163);
+    // Opposite corners of the clip's bounding box remain walkable.
+    body_space(162.4f,154.4f,0,&floor,&ceiling);
+    assert(floor==0 && ceiling==16);
     assert(map_floor(map_cube(91,72))==2.375f);
     assert(trace_surface(91.5f,72.5f,4,91.5f,72.5f,1,&slope));
     assert(slope.axis==2 && fabsf(slope.z-2.515f)<.001f);

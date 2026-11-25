@@ -25,6 +25,7 @@ def bake():
     starts = []
     pickups = []
     ladders = []
+    clips = []
     item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
     for i in range(count):
         x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
@@ -34,6 +35,11 @@ def bake():
             pickups.append((x, y, yaw, item_kinds[kind]))
         elif kind == 12:
             ladders.append((x,y,yaw))  # attr1 is height above the cell floor
+        elif kind == 15:
+            half_x,half_y,height,_,tilt,shape=struct.unpack_from("<BBBh bB",data,offset+16*i+9)
+            if tilt or shape not in (0,3):
+                raise ValueError("Unsupported ac_desert clip shape")
+            clips.append((x,y,yaw,half_x,half_y,height,shape))
     pos = offset + 16*count
     cells = bytearray()
     deltas = bytearray()
@@ -73,6 +79,8 @@ def bake():
         ",".join(f"{{{x},{y}}}" for x,y in patches)+"};\n")
     (OUT / "ladders.h").write_text("static const short ladders[][3] = {\n"+
         "".join(f"    {{{x}, {y}, {height}}},\n" for x,y,height in ladders)+"};\n")
+    (OUT / "clips.h").write_text("static const MapClip clips[] = {\n"+
+        "".join("    {"+", ".join(map(str,c))+"},\n" for c in clips)+"};\n")
     (OUT / "deltas.bin").write_bytes(deltas)
     (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")

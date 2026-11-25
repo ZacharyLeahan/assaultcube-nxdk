@@ -279,7 +279,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
 
         float floor,ceiling;
-        body_space(player.x,player.y,&floor,&ceiling);
+        body_space(player.x,player.y,feet_z,&floor,&ceiling);
         float ladder_top=0;
         bool climbing=!in->crouch && ladder_space(player.x,player.y,feet_z,&ladder_top);
         float target=fminf(in->crouch?2.7f:3.6f,ceiling-feet_z-.9f);
@@ -316,7 +316,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             player.sway_x+=gain*((player.x-old_x)/(16*dt)-player.sway_x);
             player.sway_y+=gain*((player.y-old_y)/(16*dt)-player.sway_y);
         }
-        body_space(player.x,player.y,&floor,&ceiling);
+        body_space(player.x,player.y,feet_z,&floor,&ceiling);
         float old_feet=feet_z;
         if (feet_z>floor+.01f) grounded=false;
         if (climbing) {
