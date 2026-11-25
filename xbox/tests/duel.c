@@ -3,7 +3,27 @@
 #include <math.h>
 #include <stdio.h>
 
+static void test_tracking_breakaway(void) {
+    MatchView view;
+    MatchInput input = {.start=1};
+    match_prepare();
+    match_update(&input,16,1.f/60);
+    input = (MatchInput){.strafe=.6f,.turn=-.108f};
+    for (int i=0; i<20; ++i) match_update(&input,16,1.f/60);
+    match_view(&view);
+    assert(match_targeted(&view));
+    for (int direction=1; direction>=-1; direction-=2) {
+        float before=view.angle;
+        input.turn=(float)direction;
+        match_update(&input,17,1.f/60);
+        match_view(&view);
+        float degrees=direction*remainderf(view.angle-before,6.2831853f)/.017453293f;
+        assert(degrees>2.5f && degrees<2.6f);
+    }
+}
+
 int main(void) {
+    test_tracking_breakaway();
     MatchView view;
     MatchInput input = {0};
     match_prepare();

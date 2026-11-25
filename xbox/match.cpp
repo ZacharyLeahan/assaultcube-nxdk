@@ -239,11 +239,14 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float side=dy*cosf(player.yaw)-dx*sinf(player.yaw);
         float chest=eye(bot)-1;
         float offset=hypotf(side,chest-eye(player)-forward*tanf(player.pitch))/forward;
-        float proximity=fmaxf(0,1-offset/.14f);
+        // Keep the gain steady across the torso. Fade smoothly through the
+        // surrounding cone so crossing its inner edge doesn't change turn speed.
+        float edge=fmaxf(0,fminf(1,(.14f-offset)/.10f));
+        float proximity=edge*edge*(3-2*edge);
         if (proximity>0 && visible(player.x,player.y,eye(player),bot.x,bot.y,chest)) {
             float bearing_change=atan2f(old_dx*dy-old_dy*dx,old_dx*dx+old_dy*dy);
             float cap=32*radians*dt;
-            float strength=.65f*proximity*fminf(1,(.45f-fabsf(in->turn))/.20f)
+            float strength=.86f*proximity*fminf(1,(.45f-fabsf(in->turn))/.20f)
                            *fminf(1,fabsf(in->strafe)/.25f);
             player.yaw+=strength*fmaxf(-cap,fminf(cap,bearing_change-manual_yaw));
         }
