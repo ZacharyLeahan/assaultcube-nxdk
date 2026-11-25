@@ -5,11 +5,13 @@ import re
 import struct
 import zlib
 
+from bake_radar import draw_models, sample_floors
+
 import numpy as np
 from PIL import Image
 
 
-def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lighting, corners):
+def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lighting, corners, water_surface, water_rgba):
     blob = bytearray()
     textures, batches, symbols = [], [], []
     vertices = bytearray()
@@ -312,6 +314,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
             if name=="helmet": pos[:,2]-=15  # mdltrans in the bundled md3.cfg
             model_batch(tex,pos/16,uv,tri,tri)
     mark("PROP_START",len(batches))
+    radar_meshes=[]
     prop_bounds=[]
     prop_lights=[]
     for slot,(offset,name) in enumerate(model_slots):
@@ -320,7 +323,9 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         mesh=re.search(r"^md3load (\S+)",cfg,re.M)
         skin=re.search(r"^md3skin \S+ (\S+)",cfg,re.M)
         d=(folder/(mesh[1] if mesh else "tris.md3")).read_bytes()
-        tex=texture(Image.open(folder/(skin[1] if skin else "skin.jpg")),(128,128))
+        with Image.open(folder/(skin[1] if skin else "skin.jpg")) as material:
+            tex=texture(material,(128,128))
+            radar_skin=np.asarray(material.convert("RGB").resize((64,64),Image.Resampling.BOX))
         header=struct.unpack_from("<4si64s9i",d)
         points=[]
         for _,pos,uv,tri in md3_surfaces(d,header,0):
@@ -333,6 +338,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 z=int(world[y,x,1].view(np.int8))+int(offset)+elevation/5
                 xyz+=[x,y,z]
                 rgb=lighting[y,x]
+                radar_meshes.append((xyz,uv,tri,radar_skin,rgb))
                 first=len(vertices)//vertex.size+len(points)
                 points.extend((xyz[v],uv[v],rgb) for face in tri for v in face)
                 prop_lights.append((x,y,first,tri.size))
@@ -354,26 +360,37 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("MAP_SPAN",span)
     mark("MAP_LEFT",left)
     mark("MAP_TOP",top)
-    tiles=np.array([np.asarray(Image.open(packages/"textures"/n.decode()).convert("RGB").resize((16,16)))
-                    for n in names])
     yy,xx=np.indices((512,512))
     px=left+(xx+.5)*span/512
     py=top+(yy+.5)*span/512
     x,y=px.astype(int),py.astype(int)
     slot=world[y,x,4]
     solid=world[y,x,0]==0
+    depth=world[y,x,1].view(np.int8).astype(float)
+    # Both floor triangles share the northwest-to-southeast diagonal.
+    dx,dy=px-x,py-y
+    delta=np.frombuffer(deltas,np.uint8).reshape(256,256)
+    slope=(1-np.maximum(dx,dy))*delta[y,x]+np.minimum(dx,dy)*delta[y+1,x+1]
+    slope+=np.maximum(dx-dy,0)*delta[y,x+1]+np.maximum(dy-dx,0)*delta[y+1,x]
+    depth-=np.where(world[y,x,0]==2,.25*slope,0)
     for row,col in zip(*np.nonzero(world[y,x,0]==1)):
         profile=corner_profile(x[row,col],y[row,col],px[row,col],py[row,col])
         solid[row,col]=not profile[0]
         slot[row,col]=profile[4]
-    scale=np.asarray(world_uv)[slot]
-    u=(px*16*scale[:,:,0]).astype(int)%16
-    v=(py*16*scale[:,:,1]).astype(int)%16
+        depth[row,col]=profile[1]
+    floors=sample_floors(packages/"textures",names,slot,px,py,span)
     fx,fy=(px-x)[:,:,None],(py-y)[:,:,None]
     light=((1-fy)*((1-fx)*lighting[y,x]+fx*lighting[y,x+1])
             + fy*((1-fx)*lighting[y+1,x]+fx*lighting[y+1,x+1]))
-    terrain=np.minimum(255,tiles[slot,v,u]*light*(2/255))
+    terrain=np.minimum(255,floors*light*(2/255))
+    depth[solid]=np.inf
+    draw_models(terrain,depth,radar_meshes,left,top,span)
+    wet=depth<water_surface
+    alpha=water_rgba[3]/255
+    terrain[wet]=terrain[wet]*(1-alpha)+np.array(water_rgba[:3])*alpha
     terrain[solid]=0
+    terrain[[0,-1],:]=0
+    terrain[:,[0,-1]]=0
     mark("RADAR_TEX",len(textures))
     texture(Image.fromarray(terrain.astype(np.uint8)),(512,512),False)
     mark("RADAR_ICONS",len(textures))
