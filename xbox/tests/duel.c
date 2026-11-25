@@ -270,12 +270,10 @@ static void test_well_ladder(void) {
     MatchInput in={.start=1};
     match_prepare(); match_update(&in,16,.016f);
     // Walk from the opening spawn around the west side of the courtyard.
-    const float route[][2]={{117.5f,132.5f},{117.5f,142.5f},{123.5f,142.5f},
-        {123.5f,143.5f},{127.5f,143.5f},{127.5f,147.5f},{128.5f,147.5f},
-        {128.5f,148.5f},{129.5f,148.5f},{129.5f,149.5f},{145.5f,149.5f},{145.5f,161.5f}};
+    const float route[][2]={{115.5f,132.5f},{115.5f,154.5f},{145.5f,154.5f},{145.5f,161.5f}};
     for (unsigned i=0;i<sizeof(route)/sizeof(route[0]);++i) {
         int n;
-        for (n=0;n<150;++n) {
+        for (n=0;n<250;++n) {
             match_view(&v);
             float dx=route[i][0]-v.px,dy=route[i][1]-v.py;
             if (hypotf(dx,dy)<.12f) break;
@@ -284,7 +282,7 @@ static void test_well_ladder(void) {
                             .strafe=scale*(dy*cosf(v.angle)-dx*sinf(v.angle))};
             match_update(&in,16,.016f);
         }
-        assert(n<150);
+        assert(n<250);
     }
     // Face east and jump backward over the rim.
     for (int i=0;i<100;++i) {
@@ -504,22 +502,25 @@ int main(void) {
     assert(!trace_surface(179,156.5f,12,190,156.5f,12,&slope));
     // The low rotated obstacle at (164,156) stops walking but can be jumped.
     float x=160.5f,y=156.5f,floor,ceiling;
+    // Only the middle of the southern edge overlaps the solid cell (159,160).
+    body_space(159.5f,159.5f,0,&floor,&ceiling);
+    assert(floor>ceiling);
     // The southeast half of the corner near spawn is solid. Both endpoints
     // of this shot lie inside the same cell, on opposite sides of its seam.
-    body_space(131.10f,134.10f,-2,&floor,&ceiling);
+    body_space(130.32f,133.32f,-2,&floor,&ceiling);
     assert(floor==-2 && ceiling==16);
-    body_space(131.35f,134.35f,-2,&floor,&ceiling);
+    body_space(130.57f,133.57f,-2,&floor,&ceiling);
     assert(floor>ceiling);
     assert(visible(131.1f,134.1f,3,131.2f,134.2f,3));
     assert(trace_surface(131.1f,134.1f,3,131.9f,134.9f,3,&slope));
     assert(fabsf(slope.fraction-.5f)<.001f);
     assert(slope.axis==3 && fabsf(slope.x-131.489f)<.001f && fabsf(slope.y-134.489f)<.001f);
-    float slide_x=131.17f,slide_y=134.17f;
+    float slide_x=130.39f,slide_y=133.39f;
     walk_body(&slide_x,&slide_y,.1f,0,-2,4.5f,1.5f);
-    assert(fabsf(slide_x-131.2176f)<.001f && fabsf(slide_y-134.12f)<.001f);
+    assert(fabsf(slide_x-130.4376f)<.001f && fabsf(slide_y-133.34f)<.001f);
     // A two-cell-wide corner has a four-unit platform on one side. Rays
     // above the platform can cross the entire diagonal in either direction.
-    body_space(168.5f,120.5f,0,&floor,&ceiling);
+    body_space(167.72f,119.72f,0,&floor,&ceiling);
     assert(floor==0 && ceiling==16);
     body_space(169.5f,121.5f,4,&floor,&ceiling);
     assert(floor==4 && ceiling==16);
@@ -534,8 +535,10 @@ int main(void) {
     x=160.5f;
     walk(&x,&y,5,0);
     assert(x>161 && x<163);
-    // Opposite corners of the clip's bounding box remain walkable.
+    // The wider hull overlaps the rotated clip here, then clears its west edge.
     body_space(162.4f,154.4f,0,&floor,&ceiling);
+    assert(fabsf(floor-1.8f)<.001f);
+    body_space(161.6f,154.4f,0,&floor,&ceiling);
     assert(floor==0 && ceiling==16);
     assert(map_floor(map_cube(91,72))==2.375f);
     assert(trace_surface(91.5f,72.5f,4,91.5f,72.5f,1,&slope));

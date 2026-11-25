@@ -40,8 +40,7 @@ static float map_ceiling(const Cube *c) { return c->kind==3 ? c->ceil+height_del
 typedef struct { short x,y,offset,half_x,half_y,height,shape; } MapClip;
 #include "generated/clips.h"
 
-static void clip_space(float x,float y,float feet,float *floor,float *ceiling) {
-    const float radius=.32f;
+static void clip_space(float x,float y,float feet,float radius,float *floor,float *ceiling) {
     for (unsigned i=0;i<sizeof(clips)/sizeof(clips[0]);++i) {
         const MapClip *clip=&clips[i];
         float dx=x-clip->x,dy=y-clip->y;
@@ -61,7 +60,7 @@ static void clip_space(float x,float y,float feet,float *floor,float *ceiling) {
 // The bot walks at terrain height and takes routes around raised obstacles.
 static int bot_clip_clear(float x,float y,float feet) {
     float floor=feet,ceiling=127;
-    clip_space(x,y,feet,&floor,&ceiling);
+    clip_space(x,y,feet,.32f,&floor,&ceiling);
     return floor<=feet && ceiling>=feet+4.5f;
 }
 
@@ -100,17 +99,19 @@ int ladder_space(float x,float y,float feet,float *top) {
 static const MapCorner *body_bounds(float x,float y,float feet,float *floor,float *ceiling) {
     const MapCorner *surface=NULL;
     *floor=-128; *ceiling=127;
-    for (int i=0;i<4;++i) {
-        float u=x+((i&1)?.32f:-.32f),v=y+((i&2)?.32f:-.32f);
-        int ix=(int)u,iy=(int)v;
+    float left=x-PLAYER_RADIUS,right=x+PLAYER_RADIUS,top=y-PLAYER_RADIUS,bottom=y+PLAYER_RADIUS;
+    for (int iy=(int)top;iy<=(int)bottom;++iy) for (int ix=(int)left;ix<=(int)right;++ix) {
         const Cube *c=map_cube(ix,iy);
         if (c->kind==1) {
             const MapCorner *k=corner_at(ix,iy);
+            float u=k->nx>0?right:left,v=k->ny>0?bottom:top;
+            int match=ix==(int)u && iy==(int)v;
             int inner=k->nx*u+k->ny*v>=k->plane;
-            if (inner) surface=k;
-            if ((inner && k->solid) || ((inner || k->solid) && (c->tag&192))) {
-                *floor=127; *ceiling=-128; return inner?k:NULL;
+            if (match && inner) surface=k;
+            if ((match && inner && k->solid) || ((k->solid || (match && inner)) && (c->tag&192))) {
+                *floor=127; *ceiling=-128; return match && inner?k:NULL;
             }
+            if (k->solid) inner=0;
             *floor=fmaxf(*floor,inner?k->inner_floor:k->outer_floor);
             *ceiling=fminf(*ceiling,inner?k->inner_ceil:k->outer_ceil);
             continue;
@@ -118,7 +119,7 @@ static const MapCorner *body_bounds(float x,float y,float feet,float *floor,floa
         if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return NULL; }
         *floor=fmaxf(*floor,map_floor(c)); *ceiling=fminf(*ceiling,map_ceiling(c));
     }
-    clip_space(x,y,feet,floor,ceiling);
+    clip_space(x,y,feet,PLAYER_RADIUS,floor,ceiling);
     return surface;
 }
 void body_space(float x,float y,float feet,float *floor,float *ceiling) {
