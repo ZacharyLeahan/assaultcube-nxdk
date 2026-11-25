@@ -339,15 +339,17 @@ static void level(const MatchView *v) {
         }
         end_quads();
     }
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND); glBlendFunc(GL_DST_COLOR,GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();
     for (unsigned i=0;i<v->mark_count;++i) {
         const BulletMark *m=v->marks+i;
         if (m->expires<=v->elapsed_ms) continue;
+        float fade=fminf(1,(m->expires-v->elapsed_ms)/1000.f);
+        color(fade,fade,fade,fade);
         for (int j=0;j<4;++j) {
             int u=j==1||j==2, w=j>=2;
-            float a=u?.30f:-.30f, b=w?.30f:-.30f;
+            float a=.6f*(u?HOLE_RIGHT:HOLE_LEFT), b=.6f*(w?HOLE_BOTTOM:HOLE_TOP);
             vertex(m->x+(m->axis==0?0:a),m->y+(m->axis==0?a:m->axis==2?b:0),
                    m->z+(m->axis==2?0:b),u,w);
         }
@@ -461,7 +463,7 @@ static void overview(const MatchView *v) {
     glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);
     glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR);
     begin_quads();
-    quad(x,y,size,size,MAP_LEFT/MAP,MAP_TOP/MAP,(float)MAP_SPAN/MAP,(float)MAP_SPAN/MAP);
+    quad(x,y,size,size,0,0,1,1);
     end_quads();
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D,textures[RADAR_ICONS]);
@@ -516,28 +518,30 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     }
     if (v->phase==PLAYING && showmap) overview(v);
     else if (v->phase==PLAYING) {
-        const float cx=hud_width-84, cy=112, radius=60, span=29;
+        const float cx=hud_width-100.8f, cy=97.6f, radius=72, span=75;
+        float u=(v->px-MAP_LEFT)/MAP_SPAN, t=(v->py-MAP_TOP)/MAP_SPAN;
         float c=cosf(v->angle), s=sinf(v->angle);
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);
         color(1,1,1,1);
         begin_quads();
         for (int i=0;i<32;++i) {
-            vertex(cx,cy,0,v->px/MAP,v->py/MAP);
+            vertex(cx,cy,0,u,t);
             for (int j=i;j<=i+1;++j) {
                 float a=j*(6.2831853f/32), x=cosf(a), y=sinf(a);
-                vertex(cx+radius*x,cy+radius*y,0,(v->px-span*(s*x+c*y))/MAP,
-                       (v->py+span*(c*x-s*y))/MAP);
+                vertex(cx+radius*x,cy+radius*y,0,u-span*(s*x+c*y)/MAP_SPAN,
+                       t+span*(c*x-s*y)/MAP_SPAN);
             }
-            vertex(cx,cy,0,v->px/MAP,v->py/MAP);
+            vertex(cx,cy,0,u,t);
         }
         end_quads();
+        glBindTexture(GL_TEXTURE_2D,textures[RADAR_ICONS]);
+        begin_quads(); quad(cx-6,cy-6,12,12,v->respawning?.25f:v->flash?.5f:0,.5f,.25f,.25f); end_quads();
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_RING]);
-        begin_quads(); quad(cx-70,cy-70,140,140,0,0,1,1); end_quads();
-        glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
-        color(.4f,1,.45f,1); begin_quads();
-        vertex(cx,cy-5,0,0,0); vertex(cx+4,cy+4,0,0,0);
-        vertex(cx,cy+2,0,0,0); vertex(cx-4,cy+4,0,0,0);
-        end_quads();
+        begin_quads(); quad(cx-78.4f,cy-78.4f,156.8f,156.8f,0,0,1,1); end_quads();
+        glBindTexture(GL_TEXTURE_2D,textures[RADAR_COMPASS]);
+        glPushMatrix(); glTranslatef(cx,cy,0); glRotatef(-90-v->angle*57.29578f,0,0,1);
+        begin_quads(); quad(-75.2f,-75.2f,150.4f,150.4f,0,0,1,1); end_quads();
+        glPopMatrix();
     }
     if(v->phase!=PLAYING) {
         color(.03f,.04f,.05f,.78f); begin_quads();
@@ -558,7 +562,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
         snprintf(line,sizeof(line),"YOU %d    BOT %d",v->player_frags,v->bot_frags);
         text(42,28,22,line);
         snprintf(line,sizeof(line),"%u:%02u",v->seconds/60,v->seconds%60);
-        text(hud_width-106,20,22,line);
+        text(hud_width-122,2,20,line);
         if(v->phase==INTERMISSION)
             text(42,59,23,v->player_frags>v->bot_frags?"You win   /   START for rematch":v->player_frags<v->bot_frags?"Bot wins   /   START for rematch":"Draw   /   START for rematch");
         else if(v->respawning) text(42,58,22,"Fragged   /   Respawning");
