@@ -328,7 +328,7 @@ int main(void) {
         MatchInput input = {
             .move = fmaxf(-1,fminf(1,move)), .strafe = fmaxf(-1,fminf(1,strafe)), .turn = turn, .look = look,
             .scope = scope, .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .grenade_select=grenade_select, .start = start,
-            .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
+            .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap, .scores=classic
         };
         int aimed=0;
         MatchSound effect=SILENT;

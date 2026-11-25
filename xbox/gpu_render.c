@@ -841,7 +841,27 @@ static void system_overlay(const SystemMenu *menu) {
     glDisable(GL_BLEND);
 }
 
-static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,const SystemMenu *menu) {
+static void scoreboard(const MatchView *v) {
+    LanScore rows[2];
+    int count=lan_scores(rows,v);
+    float x=(hud_width-600)*.5f;
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    color(.025f,.035f,.045f,.86f);
+    begin_quads(); quad(x,220,600,104+32*count,0,0,1,1); end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
+    color(1,1,1,1);
+    text(x+20,235,25,v->phase==INTERMISSION?"ac_desert  /  Game over":"ac_desert  /  Deathmatch");
+    text(x+20,278,19,"Player");text(x+298,278,19,"Frags");
+    text(x+393,278,19,"Deaths");text(x+508,278,19,"Ping");
+    for(int i=0;i<count;++i) {
+        char value[16];float y=309+32*i;
+        text(x+20,y,21,rows[i].name);
+        snprintf(value,sizeof(value),"%d",rows[i].frags);text(x+298,y,21,value);
+        snprintf(value,sizeof(value),"%d",rows[i].deaths);text(x+393,y,21,value);
+        snprintf(value,sizeof(value),"%d",rows[i].ping);text(x+508,y,21,value);
+    }
+}
+static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int scores,const SystemMenu *menu) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
@@ -947,7 +967,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
         text(42,28,22,line);
         snprintf(line,sizeof(line),"%u:%02u",v->seconds/60,v->seconds%60);
         text(hud_width-122,2,20,line);
-        if(v->phase==INTERMISSION)
+        if(v->phase==INTERMISSION && !lan_connected())
             text(42,59,23,v->player_frags>v->bot_frags?"You win   /   START for rematch":v->player_frags<v->bot_frags?"Bot wins   /   START for rematch":"Draw   /   START for rematch");
         else if(v->respawning) text(42,58,22,"Fragged   /   Respawning");
         else if(v->reload) text(hud_width*.33f,620,18,"Reloading");
@@ -961,7 +981,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
         text((hud_width-width)*.5f,540+i*size+180*t*t*t*t,size,message);
     }
     color(.95f,.94f,.87f,1);
-    if(v->phase!=PLAYING) {
+    if(v->phase!=PLAYING && !lan_connected()) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
         text(42,164,19,lan_status()?lan_status():"D-pad Up   System menu");
@@ -970,6 +990,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);
     text(hud_width-128,v->phase==READY?29:676,19,line);
+    if(lan_connected() && (scores || v->phase==INTERMISSION)) scoreboard(v);
     glDisable(GL_BLEND);
 }
 // An opt-in 12-second capture. Defer disk I/O until the sample is complete.
@@ -1039,7 +1060,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glDepthRange(0,.04);
     if (!v->scoped) muzzle_flash(v);
     glDepthRange(0,1);
-    hud(v,fps10,connected,input->showmap,menu);
+    hud(v,fps10,connected,input->showmap,input->scores,menu);
     // Show the completed surface at vblank. The default pbkit queue can expose
     // an in-progress frame on this console when rendering the full 720p scene.
     glFinish();

@@ -906,7 +906,7 @@ void update_bot(float dt) {
 void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
 void match_lan_map(unsigned seed) {
     spawn_cycle=-1; initial_spawn_cycles=2; spawn_seed=seed;
-    if(!lan_match) { begin(PLAYING); lan_match=true; }
+    begin(PLAYING); lan_match=true; lan_end_ms=0;
     hide_bot=true; lan_pain_sound=lan_actor_voice=SILENT;
     match_lan_reset_items();
 }
@@ -1052,7 +1052,10 @@ void match_lan_frag(int local_victim,int suicide,int gun,int gib,const char *opp
     record_frag(local_victim,suicide,gun,gib,opponent);
     (local_victim?lan_pain_sound:lan_actor_voice)=effect_random(2)?ALT_DEATH:PLAYER_DEATH;
 }
-void match_lan_time(unsigned remaining_ms) { lan_end_ms=clock_ms+remaining_ms; }
+void match_lan_time(unsigned remaining_ms) {
+    lan_end_ms=clock_ms+remaining_ms;
+    if(!remaining_ms) phase=INTERMISSION;
+}
 void match_lan_score(int local,int frags) { (local?player:bot).frags=frags; }
 void match_lan_reset_items(void) {
     memset(lan_item_visible,0,sizeof(lan_item_visible));
@@ -1084,6 +1087,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     air_sound.sound=impact_sound.sound=SILENT;
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<frag_message_ms) intermission_age+=elapsed;
+        if(lan_match) return;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->swap) {
             switch (player.state.nextprimary) {

@@ -30,6 +30,8 @@ In a V-19 shotgun duel on `ac_desert`, the stock server registered a miss, a par
 
 Press D-pad Right to equip a collected grenade. Hold RT to pull the pin and release to throw. In a courtyard exchange, the stock server credited the Xbox throw with 36 damage to Windows and 39 to the thrower. A cooked Windows throw dealt 10 damage to Xbox and killed the thrower.
 
+Hold D-pad Left to see each player's frags, deaths and ping. The scoreboard opens at intermission and clears when the server starts the next match.
+
 Ammo and health pickups use the stock server's item list. If the other player takes a box first, the Xbox hides it and keeps its current inventory until the server awards another pickup.
 
 Click the right stick to draw the knife or return to your previous firearm. Tap RT once per swing. The stock knife deals 50 damage to an unarmoured player and takes 500 ms to recover.

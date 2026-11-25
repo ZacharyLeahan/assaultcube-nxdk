@@ -17,12 +17,14 @@ ENetPeer *peer;
 ENetAddress address;
 int own=-1,life,remote=-1,remote_life;
 bool ready,alive,remote_alive;
+bool intermission;
 struct GrenadeId { unsigned game,wire; };
 GrenadeId grenade_ids[8];
 unsigned next_grenade_id;
 unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
 char player_names[MAXCLIENTS][16];
+int deaths[MAXCLIENTS],pings[MAXCLIENTS];
 struct PrimaryChoice { int gun; const char *config,*label; };
 constexpr PrimaryChoice primaries[]={
     {GUN_ASSAULT,"assault","Next spawn: MTP-57 rifle"},
@@ -160,7 +162,10 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             char map[48];r.string(map,sizeof(map));
             int mode=r.integer();r.skip(3);
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
-            memset(grenade_ids,0,sizeof(grenade_ids));memset(player_names,0,sizeof(player_names));ready=true;alive=false;remote_alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
+            memset(grenade_ids,0,sizeof(grenade_ids));
+            memset(deaths,0,sizeof(deaths));
+            ready=true;alive=remote_alive=intermission=false;
+            remote_weapon=GUN_ASSAULT;match_lan_map(now);
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
             next_spawn=now+1200;
@@ -192,8 +197,9 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             while(r.valid) {
                 int cn=r.integer();if(cn<0) break;
                 int state=r.integer(),seq=r.integer();r.integer();int gun=r.integer();
-                r.integer();int frags=r.integer();r.skip(4+2*NUMGUNS);
+                r.integer();int frags=r.integer(),lost=r.integer();r.skip(3+2*NUMGUNS);
                 if(!r.valid || cn>=MAXCLIENTS) return;
+                deaths[cn]=lost;
                 match_lan_score(cn==own,frags);
                 if(cn!=own) {
                     remote=cn;remote_life=seq;remote_weapon=gun;
@@ -220,6 +226,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         case SV_GIBDIED:case SV_DIED:{
             int victim=r.integer(),actor=r.integer(),frags=r.integer(),gun=r.integer();
             if(!r.valid) return;
+            if(victim>=0 && victim<MAXCLIENTS) ++deaths[victim];
             if((victim==own || victim==remote) && (actor==own || actor==remote) && gun>=0 && gun<NUMGUNS) {
                 const char *name=remote>=0 && player_names[remote][0]?player_names[remote]:"PC";
                 match_lan_frag(victim==own,victim==actor,gun,type==SV_GIBDIED,name);
@@ -229,7 +236,12 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(victim==remote) {remote_alive=false;match_lan_remote_death(type==SV_GIBDIED);}
             break;
         }
-        case SV_CDIS: if(r.integer()==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");} break;
+        case SV_CDIS: {
+            int cn=r.integer();
+            if(cn>=0 && cn<MAXCLIENTS) {deaths[cn]=pings[cn]=0;player_names[cn][0]=0;}
+            if(cn==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");}
+            break;
+        }
         case SV_FORCEDEATH: {
             int cn=r.integer();
             if(cn==own) alive=false;
@@ -268,13 +280,19 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         }
         case SV_TIMEUP:{
             int elapsed=r.integer(),limit=r.integer();
-            if(r.valid && elapsed>=0 && limit>=elapsed) match_lan_time(limit-elapsed);
+            if(r.valid && elapsed>=0 && limit>0) {
+                intermission=elapsed>=limit;
+                match_lan_time(intermission?0:limit-elapsed);
+            }
             break;
         }
         case SV_SETTEAM:r.skip(2);break;
         case SV_PONG:{
             unsigned sent=r.integer(),latency=now-sent;
-            if(r.valid && latency<=10000) {m.word(SV_CLIENTPING);m.word(latency);m.transmit();}
+            if(r.valid && latency<=10000) {
+                if(own>=0 && own<MAXCLIENTS) pings[own]=latency;
+                m.word(SV_CLIENTPING);m.word(latency);m.transmit();
+            }
             break;
         }
         case SV_SHOTFX:{
@@ -311,7 +329,12 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             break;
         }
         case SV_SERVMSG:case SV_SERVMSGVERB:r.string(nullptr,0);break;
-        case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:case SV_CLIENTPING:r.skip(1);break;
+        case SV_CLIENTPING:{
+            int ping=r.integer();
+            if(r.valid && sender>=0 && sender<MAXCLIENTS) pings[sender]=ping;
+            break;
+        }
+        case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:r.skip(1);break;
         default:return; // Unknown message may have variable length; discard this packet's remainder.
         }
     }
@@ -342,6 +365,16 @@ const char *lan_status(void) {
     return status[0]?status:nullptr;
 }
 int lan_connected(void) {return ready;}
+int lan_scores(LanScore rows[2],const MatchView *v) {
+    if(!ready || own<0 || own>=MAXCLIENTS) return 0;
+    rows[0]={"Xbox",v->player_frags,deaths[own],pings[own]};
+    if(remote<0 || remote>=MAXCLIENTS) return 1;
+    rows[1]={player_names[remote][0]?player_names[remote]:"PC",v->bot_frags,deaths[remote],pings[remote]};
+    if(rows[1].frags>rows[0].frags || (rows[1].frags==rows[0].frags && rows[1].deaths<rows[0].deaths)) {
+        LanScore first=rows[0];rows[0]=rows[1];rows[1]=first;
+    }
+    return 2;
+}
 void lan_toggle_primary(unsigned now) {
     if (!ready || !peer) return;
     primary_choice=(primary_choice+1)%primary_count;
@@ -369,7 +402,7 @@ void lan_poll(unsigned now) {
     }
     if(!peer)return;
     if(!ready && now-connect_start>18000) {stop("server timed out");return;}
-    if(ready && !alive && (int)(now-next_spawn)>=0) {command(SV_TRYSPAWN);next_spawn=now+1500;}
+    if(ready && !intermission && !alive && (int)(now-next_spawn)>=0) {command(SV_TRYSPAWN);next_spawn=now+1500;}
     if(ready && now-last_ping>=500){Message m;m.word(SV_PING);m.word(now);m.transmit();last_ping=now;}
 }
 
@@ -405,7 +438,7 @@ static void send_grenades(unsigned now) {
     }
 }
 void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsigned now) {
-    if(!peer || !ready)return;
+    if(!peer || !ready || intermission)return;
     send_grenades(now);
     if(!alive)return;
     if(now-last_pos>=40) {

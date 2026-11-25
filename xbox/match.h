@@ -17,7 +17,7 @@ typedef struct {
     int8_t floor, ceil;
     uint8_t wall, ground, roof, upper, tag;
 } Cube;
-typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select, scope, grenade_select; } MatchInput;
+typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select, scope, grenade_select, scores; } MatchInput;
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
 typedef enum { VIEW_RIFLE,VIEW_SMG,VIEW_CARBINE,VIEW_PISTOL,VIEW_KNIFE,VIEW_SNIPER,VIEW_SHOTGUN,VIEW_GRENADE } MatchWeapon;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,

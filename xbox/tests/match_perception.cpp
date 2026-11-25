@@ -529,6 +529,13 @@ extern "C" void test_lan_ffa_starts(void) {
     match_lan_hide();
     spawn_cycle=start_count-2;
     assert(next_lan_start(4)==2);
+    match_lan_score(1,4);
+    match_lan_time(0);
+    MatchInput restart={};restart.start=1;
+    match_update(&restart,16,.016f);
+    assert(phase==INTERMISSION && player.frags==4);
+    match_lan_map(92);
+    assert(phase==PLAYING && player.frags==0 && hide_bot && spawn_cycle==-1);
     match_lan_stop();
 }
 
