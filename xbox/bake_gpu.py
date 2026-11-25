@@ -171,11 +171,12 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         with Image.open(path) as skin:
             return texture(skin,size)
 
-    bot_frames=(0,*range(40,58),*range(178,184))
+    bot_frames=(*range(58),*range(178,184))
+    bot_positions=bytearray()
     symbols.append("static const unsigned char bot_frame_batch[198] = {"+
                    ",".join(f"[{pose}]={i}" for i,pose in enumerate(bot_frames))+"};\n")
 
-    def md2(path, skin, size, muzzle=None):
+    def md2(path, skin, size, name, muzzle=None):
         d=(path/"tris.md2").read_bytes()
         _,_,sw,sh,stride,_,nv,nt,nf,_,_,_,st,tr,frame,commands,_=struct.unpack_from("<17i",d)
         cfg=(path/"md2.cfg").read_text()
@@ -199,6 +200,10 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         uv=np.frombuffer(d,"<i2",nt*2,st).reshape(-1,2)/[sw,sh]
         faces=np.frombuffer(d,"<u2",nf*6,tr).reshape(-1,6)
         tex=model_skin(skin,size)
+        mark(name+"_VERTICES",nv)
+        mark(name+"_POSE_BASE",len(bot_positions)//12)
+        symbols.append("static const unsigned short "+name.lower()+"_indices[] = {"+
+                       ",".join(map(str,faces[:,:3].flatten()))+"};\n")
         for pose in bot_frames:
             off=frame+pose*stride
             scale=np.array(struct.unpack_from("<3f",d,off))
@@ -211,7 +216,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 # the first maximum-X vertex in frame zero, then track it.
                 if pose==0: muzzle_vertex=vertices[np.argmax(pos[vertices,0])]
                 muzzle.append(pos[muzzle_vertex])
-            model_batch(tex,pos,uv,faces[:,:3],faces[:,3:])
+            bot_positions.extend(pos.astype("<f4").tobytes())
+            if pose==0: model_batch(tex,pos,uv,faces[:,:3],faces[:,3:])
         if heads:
             tags=dict(heads)
             (out/"bot_head.h").write_text("static const MatchPoint head_poses[] = {\n"+
@@ -236,11 +242,12 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
 
     mark("BODY_BATCH",len(batches))
     player=packages/"models/playermodels"
-    md2(player,player/"CLA/01_redvest.jpg",(256,256))
+    md2(player,player/"CLA/01_redvest.jpg",(256,256),"BODY")
     mark("BOT_GUN_BATCH",len(batches))
     gun=packages/"models/weapons/assault/world"
     bot_muzzle=[]
-    md2(gun,gun/"skin.jpg",(128,64),bot_muzzle)
+    md2(gun,gun/"skin.jpg",(128,64),"BOT_GUN",bot_muzzle)
+    (out/"bot_poses.bin").write_bytes(bot_positions)
     symbols.append("static const float bot_muzzle[][3] = {"+
                    ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in bot_muzzle)+"};\n")
 

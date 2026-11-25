@@ -354,6 +354,19 @@ static void test_bot_hitpush(void) {
     assert(fabsf(forward-travel)<.002f);
 }
 
+static void test_idle_animation(void) {
+    MatchView v;
+    MatchInput in={0};
+    match_prepare();
+    for (int ms=0;ms<=4000;ms+=25) {
+        if (ms) match_update(&in,25,.025f);
+        match_view(&v);
+        assert(v.phase==READY && v.bot_pose==(ms/100)%40);
+        assert(v.next_bot_pose==(v.bot_pose+1)%40);
+        assert(fabsf(v.bot_pose_blend-(ms%100)/100.f)<.0001f);
+    }
+}
+
 static void test_bot_hit_volumes(void) {
     MatchView v;
     MatchInput in={.start=1};
@@ -405,6 +418,7 @@ int main(void) {
     test_wind_playback();
     test_bot_hitpush();
     test_bot_hit_volumes();
+    test_idle_animation();
     test_incoming_fire(0);
     test_incoming_fire(1);
     test_strafe_reversal(60);

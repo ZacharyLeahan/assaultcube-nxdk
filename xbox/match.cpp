@@ -42,6 +42,7 @@ unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
 float stride_phase;
+unsigned idle_ms;
 bool pistol_trigger_used,empty_click,bot_saw_player;
 unsigned switch_end;
 unsigned intermission_age;
@@ -143,7 +144,7 @@ void begin(MatchPhase initial) {
     next_blood=blood_count=0;
     clock_ms = frame_start_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
-    stride_phase=0;
+    stride_phase=0; idle_ms=0;
     next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = pistol_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
@@ -362,6 +363,7 @@ void update_bot(float dt) {
 
 void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
+    if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
     bot_sound=movement_sound=pickup_sound=pain_sound=bot_voice=SILENT;
     step_sound=stance_sound=SILENT;
     air_sound.sound=impact_sound.sound=SILENT;
@@ -553,10 +555,12 @@ static void bot_view(MatchView *v) {
         first=46; count=8; pose=(clock_ms+90-bot.flash_until)/37.5f;
     } else if (bot_pose) {
         first=40; count=6; pose=stride_phase;
+    } else {
+        count=40; pose=idle_ms/100.f;
     }
     int frame=(int)fminf(pose,count-1);
     v->bot_pose=first+frame;
-    v->next_bot_pose=first+(first==40 ? (frame+1)%count : (frame+1<count ? frame+1 : frame));
+    v->next_bot_pose=first+(first==0 || first==40 ? (frame+1)%count : (frame+1<count ? frame+1 : frame));
     v->bot_pose_blend=v->bot_pose==v->next_bot_pose ? 0 : pose-floorf(pose);
     v->bot_tilt=bot.pitch*.25f;
     const MatchPoint &a=head_poses[v->bot_pose],&b=head_poses[v->next_bot_pose];
