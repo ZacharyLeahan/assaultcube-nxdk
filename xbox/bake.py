@@ -118,6 +118,18 @@ def bake():
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
         "".join(f"    {{{x}, {y}, {height}, {kind}}},\n" for x, y, height, kind in pickups) + "};\n")
+    from bake_corners import map_corners
+    corners = map_corners(cells,deltas)
+    records = []
+    for (x,y),(size,q,inside,outside) in corners.items():
+        nx,ny = ((1,1),(1,-1),(-1,-1),(-1,1))[q]
+        plane = nx*x+ny*y+(nx+ny)*size//2
+        for dy in range(size):
+            for dx in range(size):
+                records.append(((y+dy)*256+x+dx,plane,nx,ny,int(inside[0]==0),
+                                inside[1],inside[2],outside[1],outside[2],inside[3],inside[5],outside[5]))
+    (OUT/"corners.h").write_text("static const MapCorner corners[] = {\n"+
+        "".join("    {"+",".join(map(str,r))+"},\n" for r in sorted(records))+"};\n")
     from bake_gpu import bake_gpu
     entities = [struct.unpack_from("<4h4B", data, offset+16*i) for i in range(count)]
     bake_ambience(config, entities)
@@ -125,7 +137,7 @@ def bake():
     lighting = model_lighting(cells, entities, *struct.unpack_from("<ii", data, 924))
     (OUT / "cell_light.bin").write_bytes(lighting.tobytes())
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
-    bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting)
+    bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting, corners)
     sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
             "weapon/ric1","weapon/ric2","weapon/ric3","weapon/waterimpact",
             "player/jump","player/land","player/step","player/footsteps","player/crouch","player/watersteps",
