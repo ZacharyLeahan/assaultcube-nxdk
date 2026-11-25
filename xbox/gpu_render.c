@@ -308,6 +308,13 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    if (v->damage_alpha>0) {
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
+        glBindTexture(GL_TEXTURE_2D,textures[DAMAGE_TEX]);
+        color(v->damage_alpha,v->damage_alpha,v->damage_alpha,v->damage_alpha);
+        begin_quads(); quad(0,0,hud_width,720,0,0,1,1); end_quads();
+        glDisable(GL_BLEND);
+    }
     glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
     if (!v->respawning) {
         float x=hud_width*.5f,y=360;
@@ -319,6 +326,18 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
     }
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     if (v->phase==PLAYING) {
+        color(.5f,0,0,.5f);
+        begin_quads();
+        for (int i=0;i<8;++i) {
+            unsigned until=v->damage_directions[i];
+            if (until<=v->elapsed_ms+200) continue;
+            float size=40*(1-200.f/(until-v->elapsed_ms));
+            float a=i*.78539816f, s=sinf(a), c=cosf(a);
+            float x=hud_width*.5f+200*s,y=360-200*c;
+            vertex(x,y,0,0,0); vertex(x+size*(c-s),y+size*(s+c),0,0,0);
+            vertex(x-size*(c+s),y+size*(c-s),0,0,0); vertex(x,y,0,0,0);
+        }
+        end_quads();
         const float cx=hud_width-84, cy=112, radius=60, span=29;
         float c=cosf(v->angle), s=sinf(v->angle);
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);

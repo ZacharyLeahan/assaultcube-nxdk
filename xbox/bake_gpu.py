@@ -206,6 +206,8 @@ def bake_gpu(out, packages, names, cells, entities, model_slots):
     texture(Image.fromarray(decal),(64,64))
     mark("FLASH_TEX",len(textures))
     texture(Image.open(packages/"misc/muzzleflash.jpg"),(128,128),False)
+    mark("DAMAGE_TEX",len(textures))
+    texture(Image.open(packages/"misc/damage.png"),(256,256),False)
     mark("EQUIPMENT_TEX",len(textures))
     texture(icons,(256,256),False)
     mark("DIGITS_TEX",len(textures))

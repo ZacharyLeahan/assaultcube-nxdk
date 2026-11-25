@@ -31,6 +31,7 @@ Fighter player, bot;
 float feet_z, stance, jump_speed, air_seconds;
 bool grounded, held_jump;
 unsigned clock_ms, next_route, bot_attack_at, hit_until, hurt_until;
+unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
 float stride_phase;
@@ -55,6 +56,8 @@ void spawn(Fighter &f, int index) {
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=ground(f.x,f.y)+3.6f;
     if (&f==&player) {
+        memset(damage_directions,0,sizeof(damage_directions));
+        hurt_until=0;
         feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=air_seconds=0;
         grounded=true; held_jump=false;
         step_distance=0;
@@ -106,9 +109,13 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
     bot_saw_player = false;
 }
 void damage(Fighter &victim, Fighter &attacker, int gun) {
-    victim.state.dodamage(guns[gun].damage,gun);
+    int dealt=victim.state.dodamage(guns[gun].damage,gun);
     if (&victim == &player) {
-        hurt_until=clock_ms+180;
+        unsigned remaining=hurt_until>clock_ms?hurt_until-clock_ms:0;
+        hurt_until=clock_ms+fminf(3999,remaining+7*dealt);
+        float relative=atan2f(attacker.y-player.y,attacker.x-player.x)-player.yaw;
+        int sector=(int)floorf(relative/(45*radians)+.5f);
+        damage_directions[(unsigned)sector%8]=clock_ms+1000;
         pain_sound=victim.state.health>0 ? PLAYER_PAIN : PLAYER_DEATH;
     }
     else hit_until = clock_ms+160;
@@ -388,7 +395,9 @@ void match_view(MatchView *v) {
         v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
     v->hitflash = hit_until > clock_ms;
-    v->hurt = hurt_until > clock_ms; v->phase = phase; v->bot_sound = bot_sound;
+    v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
+    v->damage_directions=damage_directions;
+    v->phase = phase; v->bot_sound = bot_sound;
     v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;
     v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
