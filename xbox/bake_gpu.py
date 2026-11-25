@@ -291,7 +291,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
     hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
-    for name in ("assault","pistol","knife","subgun","carbine"):
+    for name in ("assault","pistol","knife","subgun","carbine","sniper"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
         tex=weapon_skin(folder/"skin_weapon.jpg")
@@ -323,7 +323,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
     mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
-    for name in ("knife","subgun","carbine"):
+    for name in ("knife","subgun","carbine","sniper"):
         folder=packages/"models/weapons"/name/"world"
         mark(name.upper()+"_DEATH_BATCH",len(batches))
         md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
@@ -463,6 +463,10 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     texture(icons,(256,256),False)
     mark("CROSSHAIR_TEX",len(textures))
     texture(Image.open(packages/"crosshairs/default.png"),(32,32),False)
+    mark("SCOPE_TEX",len(textures))
+    texture(Image.open(packages/"misc/scope.png"),(512,512),False)
+    mark("SCOPE_DOT_TEX",len(textures))
+    texture(Image.open(packages/"crosshairs/red_dot.png"),(32,32),False)
     mark("DIGITS_TEX",len(textures))
     digits=Image.new("RGBA",(512,64))
     digits.paste(Image.open(packages/"misc/huddigits.png").convert("RGBA"))

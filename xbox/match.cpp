@@ -17,18 +17,20 @@ const WeaponFeedback feedback[]={
     {SMG_SHOT,SMG_RELOAD,"you sprayed Bot"},
     {CARBINE_SHOT,CARBINE_RELOAD,"you picked off Bot"},
     {PISTOL_SHOT,PISTOL_RELOAD,"you busted Bot"},
-    {KNIFE_SWING,SILENT,"you slashed Bot"}
+    {KNIFE_SWING,SILENT,"you slashed Bot"},
+    {SNIPER_SHOT,SNIPER_RELOAD,"you sniped Bot"}
 };
 MatchWeapon view_weapon(int gun) {
     switch (gun) {
     case GUN_PISTOL: return VIEW_PISTOL;
     case GUN_KNIFE: return VIEW_KNIFE;
     case GUN_SUBGUN: return VIEW_SMG;
+    case GUN_SNIPER: return VIEW_SNIPER;
     case GUN_CARBINE: return VIEW_CARBINE;
     default: return VIEW_RIFLE;
     }
 }
-struct ItemLocation { int x, y, height_tenths, kind; };
+struct ItemLocation { int x, y, height_tenths, kind, entity; };
 #include "generated/starts.h"
 #include "generated/items.h"
 #include "generated/water.h"
@@ -67,6 +69,9 @@ unsigned damage_directions[8];
 unsigned radar_action_until;
 int supply_index=-1;
 unsigned next_supply_check;
+bool lan_item_visible[item_count];
+unsigned lan_retry_at[item_count];
+MatchSound lan_pickup_sound;
 unsigned unavailable_until[item_count], random_state, aim_state;
 int bot_pose;
 float stride_phase,stride_rate;
@@ -80,7 +85,7 @@ struct BotClip {
 BotClip current_clip,previous_clip;
 unsigned clip_switch;
 unsigned idle_ms;
-bool semi_trigger_used,empty_click,bot_saw_player;
+bool release_after_switch,semi_trigger_used,empty_click,bot_saw_player;
 unsigned switch_end;
 unsigned intermission_age;
 int next_gun, previous_firearm;
@@ -109,8 +114,12 @@ Gib gibs[12]; // Two knife frags reach the three-point duel limit.
 GibView gib_views[12];
 unsigned gib_count,gib_remainder;
 bool hide_bot,gib_sound,lan_match;
-unsigned lan_end_ms;
+unsigned lan_end_ms,scope_since;
+bool scoped;
 MatchSound lan_shot_sound;
+unsigned player_shot_delay_ms;
+MatchPoint shot_end,shot_direction;
+int shot_contact;
 unsigned next_spark,spark_count,effect_seed;
 unsigned effect_random(unsigned limit) {
     effect_seed=1664525u*effect_seed+1013904223u;
@@ -216,8 +225,9 @@ void spawn(Fighter &f, int index) {
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
+        scoped=false;
         radar_action_until=0;
-        switch_end=0; previous_firearm=f.state.nextprimary;
+        release_after_switch=false;switch_end=0; previous_firearm=f.state.nextprimary;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
         feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
@@ -292,6 +302,7 @@ void impulse(Fighter &f,float x,float y,float z,float amount) {
 }
 void firing_impulse(Fighter &f,int gun,float dx,float dy,float dz,bool crouched) {
     float recoil=guns[gun].recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
+    if (&f==&player && gun==GUN_SNIPER && scoped && clock_ms-scope_since>180) recoil/=3;
     impulse(f,dx,dy,dz,-.01f*recoil*(crouched?.75f:1));
 }
 static MatchPoint retreat_camera(float yaw) {
@@ -340,10 +351,10 @@ void place_death_camera() {
     death_yaw=d>.01f?atan2f(player.y-death_camera.y,player.x-death_camera.x):player.yaw;
     death_pitch=atan2f(feet_z+stance*.5f-death_camera.z,fmaxf(1,d));
 }
-void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz) {
+void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz,bool headshot=false) {
     float length=sqrtf(dx*dx+dy*dy+dz*dz);
     if (length>0) impulse(victim,dx/length,dy/length,dz/length,guns[gun].damage*.01f*guns[gun].pushfactor);
-    int dealt=victim.state.dodamage(guns[gun].damage,gun);
+    int dealt=victim.state.dodamage(guns[gun].damage*(headshot?3:1),gun);
     victim.pain_until=clock_ms+300;
     bool dead=victim.state.health<=0;
     MatchSound death=dead && effect_random(2) ? ALT_DEATH : PLAYER_DEATH;
@@ -410,27 +421,37 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
     if (f.ready_at && f.ready_at>=frame_start_ms && clock_ms-f.ready_at<delay)
         action=f.ready_at;
     f.ready_at = action+delay;
+    if (&f==&player) player_shot_delay_ms=clock_ms-action;
     if (&f==&player) radar_action_until=action+500;
     f.flash_until = action+90;
     f.light_until=clock_ms+100;
     return feedback[view_weapon(gun)].shot;
 }
-void collect(Fighter &f) {
-    if (f.respawn_at) return;
+MatchSound pickup_effect(int kind) {
+    return kind==I_HEALTH?PICKUP_HEALTH:kind==I_HELMET?PICKUP_HELMET:
+           kind==I_ARMOUR?PICKUP_ARMOUR:PICKUP_AMMO;
+}
+int collect(Fighter &f) {
+    if (f.respawn_at) return -1;
     for (int i = 0; i < item_count; ++i) {
         const ItemLocation &p = locations[i];
         float dz=(&f==&player?feet_z:f.eye_height-PLAYER_EYE_HEIGHT)-ground(p.x,p.y)-p.height_tenths*.1f;
         float dx=f.x-p.x, dy=f.y-p.y;
-        if (unavailable_until[i] > clock_ms || dx*dx+dy*dy+dz*dz>=6.25f ||
+        if ((lan_match ? !lan_item_visible[i] || clock_ms<lan_retry_at[i] : unavailable_until[i]>clock_ms) || dx*dx+dy*dy+dz*dz>=6.25f ||
             !f.state.canpickup(p.kind)) continue;
+        if (lan_match) {
+            // Rejected requests have no reply. Retry only while still in range.
+            lan_retry_at[i]=clock_ms+500;
+            return p.entity;
+        }
         f.state.pickup(p.kind);
         if (&f==&player) {
-            pickup_sound=p.kind==I_HEALTH?PICKUP_HEALTH:p.kind==I_HELMET?PICKUP_HELMET:
-                         p.kind==I_ARMOUR?PICKUP_ARMOUR:PICKUP_AMMO;
+            pickup_sound=pickup_effect(p.kind);
         }
         unsigned delay = p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
         unavailable_until[i] = clock_ms+delay;
     }
+    return -1;
 }
 // Both volumes use horizontal ray distance as their parameter. Rotating into
 // actor-local space makes the pitched torso an upright finite cylinder.
@@ -564,6 +585,10 @@ void start_recoil(Fighter &fighter,int gun) {
 }
 void apply_spread(const Fighter &fighter,int gun,float &dx,float &dy,float &dz) {
     int spread=guns[gun].spread;
+    if (&fighter==&player && gun==GUN_SNIPER && scoped) {
+        unsigned age=clock_ms-scope_since;
+        spread=age>=180?1:(int)fmaxf(1,spread*(180-(int)age)/180);
+    }
     if (gun==GUN_ASSAULT) spread=fighter.shots>2?55:spread+(fighter.shots==1?5:15);
     if (gun==GUN_SUBGUN) spread=fighter.shots>2?70:spread+(fighter.shots==1?5:10);
     auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
@@ -721,11 +746,22 @@ void update_bot(float dt) {
 }
 
 void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
-void match_lan_spawn(int hp,int armour) {
+void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const int *mag) {
     if (!lan_match) { begin(PLAYING); hide_bot=true; lan_match=true; }
-    player.state.nextprimary=GUN_ASSAULT;
+    player.state.nextprimary=primary;
     spawn(player,17);
+    player.state.gunselect=gun;
+    memcpy(player.state.ammo,ammo,sizeof(player.state.ammo));
+    memcpy(player.state.mag,mag,sizeof(player.state.mag));
     player.state.health=hp; player.state.armour=armour;
+}
+int match_lan_selected_weapon(void) { return switch_end ? -1 : player.state.gunselect; }
+unsigned match_lan_shot_time(unsigned now) { return now-player_shot_delay_ms; }
+void match_lan_remote_weapon(int gun) {
+    if(gun>=0 && gun<NUMGUNS) bot.state.gunselect=gun;
+}
+void match_lan_remote_reload(int gun) {
+    if(lan_match && !hide_bot) lan_shot_sound=feedback[view_weapon(gun)].reload;
 }
 void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int moving) {
     bot.x=x;bot.y=y;bot.eye_height=floor+PLAYER_EYE_HEIGHT;
@@ -753,13 +789,31 @@ void match_lan_health(int hp,int armour) {
 }
 void match_lan_time(unsigned remaining_ms) { lan_end_ms=clock_ms+remaining_ms; }
 void match_lan_score(int local,int frags) { (local?player:bot).frags=frags; }
+void match_lan_reset_items(void) {
+    memset(lan_item_visible,0,sizeof(lan_item_visible));
+    memset(lan_retry_at,0,sizeof(lan_retry_at));
+    lan_pickup_sound=SILENT;
+}
+void match_lan_item(int entity,int visible,int picked_by_us) {
+    for (int i=0;i<item_count;++i) if (locations[i].entity==entity) {
+        if (lan_item_visible[i] && picked_by_us && lan_match && !player.respawn_at) {
+            player.state.pickup(locations[i].kind);
+            lan_pickup_sound=pickup_effect(locations[i].kind);
+        }
+        lan_item_visible[i]=visible;
+        lan_retry_at[i]=0;
+        return;
+    }
+}
+int match_lan_touch_item(void) { return lan_match ? collect(player) : -1; }
 void match_lan_stop(void) { lan_shot_sound=SILENT; if(lan_match) {lan_match=false;begin(READY);} }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     gib_sound=false;
     if (gib_count) update_gibs(elapsed);
     if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
     bot_sound=lan_shot_sound; lan_shot_sound=SILENT;
-    movement_sound=pickup_sound=pain_sound=bot_voice=SILENT;
+    movement_sound=pain_sound=bot_voice=SILENT;
+    pickup_sound=lan_match?lan_pickup_sound:SILENT;lan_pickup_sound=SILENT;
     step_sound=stance_sound=SILENT;
     air_sound.sound=impact_sound.sound=SILENT;
     if (phase != PLAYING) {
@@ -769,6 +823,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             switch (player.state.nextprimary) {
             case GUN_ASSAULT: player.state.nextprimary=GUN_SUBGUN; break;
             case GUN_SUBGUN: player.state.nextprimary=GUN_CARBINE; break;
+            case GUN_CARBINE: player.state.nextprimary=GUN_SNIPER; break;
             default: player.state.nextprimary=GUN_ASSAULT; break;
             }
             if (phase==READY) {
@@ -801,6 +856,11 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         in=&neutral;
     }
     {
+        bool want_scope=in->scope && player.state.gunselect==GUN_SNIPER && !switch_end &&
+                        !in->swap && !in->knife_select && !player.respawn_at && player.reload_at<=clock_ms;
+        if (want_scope && !scoped) scope_since=clock_ms;
+        scoped=want_scope;
+        float aim_scale=scoped?SCOPE_TAN_HALF_FOV:1.f;
         float turn=fmaxf(-1,fminf(1,in->turn));
         int direction=(turn>0)-(turn<0);
         if (direction!=player.turn_direction || fabsf(turn)<.85f) player.turn_boost=0;
@@ -808,10 +868,10 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (fabsf(turn)>=.85f) player.turn_boost=fminf(1,player.turn_boost+dt/.4f);
         float outer=fmaxf(0,(fabsf(turn)-.85f)/.15f);
         float yaw_rate=turn*(150+70*outer*player.turn_boost)*radians;
-        manual_yaw=yaw_rate*dt;
+        manual_yaw=yaw_rate*dt*aim_scale;
         player.yaw=fmodf(player.yaw+manual_yaw,6.2831853f);
         float look=fmaxf(-1,fminf(1,in->look));
-        float pitch_change=look*105*dt;
+        float pitch_change=look*105*dt*aim_scale;
         // The PC applies recoil on a 5 ms physics clock. Keep stick input on
         // the display clock so a new aim report affects this rendered frame.
         pitch_change+=recoil_degrees(player,in->crouch);
@@ -924,6 +984,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             else if (in->knife_select) { previous_firearm=current; next_gun=GUN_KNIFE; }
             else next_gun=current==GUN_PISTOL ? player.state.primary : GUN_PISTOL;
             radar_action_until=clock_ms+500;
+            release_after_switch=in->fire;
             switch_end=clock_ms+switch_ms;
             player.ready_at=0;
             player.shots=player.shot_until=0;
@@ -1026,8 +1087,8 @@ static float aim_from_weapon(MatchPoint &direction) {
 }
 MatchSound match_attack(const MatchInput *in) {
     empty_click=false;
-    if (!in->fire) semi_trigger_used=false;
-    bool fire = in->fire && (guns[player.state.gunselect].isauto || !semi_trigger_used);
+    if (!in->fire) semi_trigger_used=release_after_switch=false;
+    bool fire = in->fire && !release_after_switch && (guns[player.state.gunselect].isauto || !semi_trigger_used);
     if (switch_end && !player.respawn_at && phase==PLAYING)
         return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
     // PC gun::attack only observes a trigger release after gunwait expires.
@@ -1054,6 +1115,7 @@ MatchSound match_attack(const MatchInput *in) {
         return KNIFE_SWING;
     }
     MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill) : SILENT;
+    if (shot==SNIPER_RELOAD) scoped=false;
     if (shot==feedback[view_weapon(player.state.gunselect)].shot) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
@@ -1071,12 +1133,15 @@ MatchSound match_attack(const MatchInput *in) {
         ray.angle=atan2f(dy,dx); ray.pitch=atan2f(dz,hypotf(dx,dy));
         bot_view(&ray);
         float magnitude=sqrtf(dx*dx+dy*dy+dz*dz);
-        if (!lan_match && target_contact(&ray,length*hypotf(dx,dy),false)) {
-            damage(bot,player,gun,dx,dy,dz);
+        shot_direction={dx/magnitude,dy/magnitude,dz/magnitude};
+        shot_contact=hide_bot?0:target_contact(&ray,length*hypotf(dx,dy),false);
+        if (shot_contact) {
+            if (!lan_match) damage(bot,player,gun,dx,dy,dz,gun==GUN_SNIPER && shot_contact==2);
             // PC raydamage shortens the effects endpoint to the struck actor.
             length=hypotf(distance(player.x,player.y,bot.x,bot.y),eye(player)-eye(bot))/magnitude;
         }
-        spark_splash(player.x+length*dx,player.y+length*dy,z+length*dz);
+        shot_end={player.x+length*dx,player.y+length*dy,z+length*dz};
+        spark_splash(shot_end.x,shot_end.y,shot_end.z);
         // Only leave a decal when the struck surface is within one map unit
         // of the endpoint. This also covers an opponent backed against a wall.
         float reach=length+1/magnitude;
@@ -1121,6 +1186,8 @@ void match_view(MatchView *v) {
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;
     v->magazine = player.state.mag[gun]; v->reserve = player.state.ammo[gun];
+    v->scoped=scoped && phase==PLAYING && !player.respawn_at && !switch_end && gun==GUN_SNIPER;
+    v->shot_end=shot_end; v->shot_direction=shot_direction; v->shot_contact=shot_contact;
     v->weapon=view_weapon(gun);
     v->respawning = !!player.respawn_at; v->reload = player.reload_at > clock_ms;
     v->hide_crosshair=player.reload_hud_until>clock_ms;
@@ -1156,7 +1223,7 @@ void match_view(MatchView *v) {
             v->next_gun_pose=v->gun_pose<12?v->gun_pose+1:12;
             v->gun_pose_blend=frame-floorf(frame);
         } else {
-            unsigned poses=gun==GUN_CARBINE?50:8;
+            unsigned poses=(gun==GUN_CARBINE || gun==GUN_SNIPER)?50:8;
             v->gun_pose=1+((unsigned)frame%poses); v->next_gun_pose=1+v->gun_pose%poses;
             v->gun_pose_blend=frame-floorf(frame);
             v->flash=age<(unsigned)fmaxf(120,attackdelay(gun))/4;
@@ -1186,7 +1253,7 @@ void match_view(MatchView *v) {
     unsigned end_ms=lan_match?lan_end_ms:duration;
     v->seconds = clock_ms >= end_ms ? 0 : (end_ms-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
-    for (int i = 0; i < item_count; ++i) if (clock_ms >= unavailable_until[i]) {
+    for (int i = 0; i < item_count; ++i) if (lan_match ? lan_item_visible[i] : clock_ms >= unavailable_until[i]) {
         const ItemLocation &p = locations[i];
         int icon = p.kind >= I_HEALTH ? 2+p.kind-I_HEALTH : p.kind-I_CLIPS;
         item_views[v->item_count++] = {p.x,p.y,icon,ground(p.x,p.y)+p.height_tenths*.1f};
@@ -1204,14 +1271,15 @@ static int target_contact(const MatchView *v,float range,bool check_geometry) {
     MatchPoint delta={v->px-v->tx,v->py-v->ty,v->eye-v->bot_floor};
     auto torso=[&](float limit) { return torso_contact(delta,v->bot_yaw,v->bot_tilt,PLAYER_EYE_HEIGHT,c,s,slope,limit); };
     float enter=radius2>=0?closest-sqrtf(radius2/norm):-1;
-    if (enter<0 || enter>range) enter=torso(range);
+    bool head=enter>=0 && enter<=range;
+    if (!head) enter=torso(range);
     else if (check_geometry) {
         // A waist-high prop can separate intersections with the two volumes.
         float body=torso(enter);
         if (body>=0) enter=body;
     }
     if (enter<0) return 0;
-    if (!check_geometry) return 1;
+    if (!check_geometry) return head?2:1;
     return visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter) &&
            prop_depth({v->px,v->py,v->eye},{c,s,slope},enter)>=enter;
 }

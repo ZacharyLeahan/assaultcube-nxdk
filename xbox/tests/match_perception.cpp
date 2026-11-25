@@ -280,7 +280,36 @@ extern "C" void test_carbine_loadout(void) {
     phase=INTERMISSION;
     in={}; in.swap=1; in.start=1;
     match_update(&in,0,0); match_view(&v);
-    assert(v.weapon==VIEW_RIFLE && v.phase==PLAYING);
+    assert(v.weapon==VIEW_SNIPER && v.phase==PLAYING);
+}
+
+extern "C" void test_sniper_scope(void) {
+    match_prepare();
+    MatchView v={};
+    MatchInput in={};
+    in.swap=1;
+    for (int i=0;i<3;++i) match_update(&in,0,0);
+    in={}; in.start=1; match_update(&in,0,0);
+    in={}; in.turn=.4f; in.look=.3f;
+    float base_yaw=player.yaw,base_pitch=player.pitch;
+    match_update(&in,16,.016f);
+    float yaw_step=player.yaw-base_yaw,pitch_step=player.pitch-base_pitch;
+    base_yaw=player.yaw; base_pitch=player.pitch;
+    in.scope=1;
+    match_update(&in,16,.016f); match_view(&v);
+    assert(v.scoped && fabsf(player.yaw-base_yaw-yaw_step*SCOPE_TAN_HALF_FOV)<.0001f);
+    assert(fabsf(player.pitch-base_pitch-pitch_step*SCOPE_TAN_HALF_FOV)<.0001f);
+    in.scope=0; match_update(&in,16,.016f); match_view(&v); assert(!v.scoped);
+    in.scope=1; match_update(&in,16,.016f); match_update(&in,181,.016f);
+    float x=1,y=0,z=0; apply_spread(player,GUN_SNIPER,x,y,z);
+    assert(x==1 && y==0 && z==0);
+    in.fire=1; assert(match_attack(&in)==SNIPER_SHOT);
+    in.fire=0; in.refill=1; assert(match_attack(&in)==SNIPER_RELOAD);
+    match_view(&v); assert(!v.scoped && v.reload);
+    phase=INTERMISSION; in={}; in.start=in.swap=1;
+    match_update(&in,0,0);
+    in={}; in.scope=1; match_update(&in,16,.016f); match_view(&v);
+    assert(v.weapon==VIEW_RIFLE && !v.scoped);
 }
 
 extern "C" void test_bot_ammunition(void) {
@@ -307,4 +336,71 @@ extern "C" void test_bot_ammunition(void) {
     player.state.health=1; player.state.armour=0;
     damage(player,bot,GUN_ASSAULT,1,0,0);
     assert(phase==INTERMISSION && bot.frags==FRAG_LIMIT);
+}
+
+extern "C" void test_lan_pickups(void) {
+    match_prepare();
+    match_lan_reset_items();
+    int ammo_state[NUMGUNS]={},mag_state[NUMGUNS]={};
+    match_lan_spawn(56,0,GUN_ASSAULT,GUN_ASSAULT,ammo_state,mag_state);
+    int box=0;
+    while(locations[box].kind!=I_AMMO) ++box;
+    const ItemLocation &ammo=locations[box];
+    player.x=ammo.x;player.y=ammo.y;feet_z=ground(ammo.x,ammo.y);
+    int &reserve=player.state.ammo[GUN_ASSAULT];
+    reserve=0;
+    // A late join omits items that the PC has already collected.
+    assert(match_lan_touch_item()==-1);
+    match_lan_item(ammo.entity,1,0);
+    assert(match_lan_touch_item()==ammo.entity && reserve==0);
+    assert(match_lan_touch_item()==-1);
+    match_lan_item(ammo.entity,0,0);
+    assert(match_lan_touch_item()==-1 && reserve==0);
+    match_lan_item(ammo.entity,1,0);
+    assert(match_lan_touch_item()==ammo.entity);
+    match_lan_item(ammo.entity,0,1);
+    match_lan_item(ammo.entity,0,1);
+    assert(reserve==ammostats[GUN_ASSAULT].add);
+    int kit=0;
+    while(locations[kit].kind!=I_HEALTH) ++kit;
+    match_lan_item(locations[kit].entity,1,0);
+    match_lan_item(locations[kit].entity,0,1);
+    assert(player.state.health==56+powerupstats[0].add);
+    match_lan_stop();
+}
+
+extern "C" void test_lan_sidearm(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    ammo[GUN_PISTOL]=50;mag[GUN_PISTOL]=10;mag[GUN_ASSAULT]=3;
+    match_prepare();
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    MatchInput in={};in.fire=1;
+    assert(match_attack(&in)==RIFLE_SHOT);
+    unsigned first=match_lan_shot_time(1000);
+    for (unsigned shot=1;shot<=2;++shot) {
+        while (player.state.mag[GUN_ASSAULT]>2-(int)shot) {
+            match_update(&in,17,.017f);
+            match_attack(&in);
+        }
+        assert(match_lan_shot_time(1000+clock_ms)==first+shot*attackdelay(GUN_ASSAULT));
+    }
+    in.swap=1;match_update(&in,16,.016f);
+    assert(match_lan_selected_weapon()==-1);
+    in.swap=0;match_update(&in,201,.016f);
+    assert(player.state.gunselect==GUN_PISTOL && match_lan_selected_weapon()==-1);
+    match_update(&in,200,.016f);
+    assert(match_lan_selected_weapon()==GUN_PISTOL && match_attack(&in)==SILENT);
+    in.fire=0;match_attack(&in);in.fire=1;
+    assert(match_attack(&in)==PISTOL_SHOT);
+    match_update(&in,500,.016f);
+    assert(match_attack(&in)==SILENT && player.state.mag[GUN_PISTOL]==9);
+    in.fire=0;in.refill=1;
+    assert(match_attack(&in)==PISTOL_RELOAD);
+    in.refill=0;in.swap=1;match_update(&in,100,.016f);
+    assert(match_lan_selected_weapon()==GUN_PISTOL);
+    match_update(&in,reloadtime(GUN_PISTOL),.016f);
+    in.swap=0;match_update(&in,401,.016f);
+    assert(match_lan_selected_weapon()==GUN_ASSAULT && player.state.mag[GUN_ASSAULT]==0);
+    assert(player.state.mag[GUN_PISTOL]==10 && player.state.ammo[GUN_PISTOL]==49);
+    match_lan_stop();
 }

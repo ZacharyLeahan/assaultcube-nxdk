@@ -64,7 +64,7 @@ def bake():
         if kind == 2 and team == 100:
             starts.append((x, y, yaw))
         elif kind in item_kinds:
-            pickups.append((x, y, yaw, item_kinds[kind]))
+            pickups.append((x, y, yaw, item_kinds[kind], i))
         elif kind == 12:
             ladders.append((x,y,yaw))  # attr1 is height above the cell floor
         elif kind == 15:
@@ -117,7 +117,7 @@ def bake():
     (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
-        "".join(f"    {{{x}, {y}, {height}, {kind}}},\n" for x, y, height, kind in pickups) + "};\n")
+        "".join(f"    {{{x}, {y}, {height}, {kind}, {entity}}},\n" for x, y, height, kind, entity in pickups) + "};\n")
     from bake_corners import map_corners
     corners = map_corners(cells,deltas)
     records = []
@@ -138,7 +138,7 @@ def bake():
     (OUT / "cell_light.bin").write_bytes(lighting.tobytes())
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting, corners, surface, (r,g,b,a))
-    sounds=("weapon/knife","weapon/auto","weapon/auto_reload","weapon/sub","weapon/sub_reload","weapon/carbine","weapon/carbine_reload","weapon/usp","weapon/pistol_reload","weapon/clip_empty",
+    sounds=("weapon/knife","weapon/auto","weapon/auto_reload","weapon/sub","weapon/sub_reload","weapon/carbine","weapon/carbine_reload","weapon/sniper","weapon/sniper_reload","weapon/usp","weapon/pistol_reload","weapon/clip_empty",
             "weapon/ric1","weapon/ric2","weapon/ric3","weapon/waterimpact",
             "player/jump","player/land","player/step","player/footsteps","player/crouch","player/watersteps",
             "player/watercrouch","player/crouch_in","player/crouch_out",*(f"player/pain{i}" for i in range(1,7)),

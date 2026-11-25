@@ -20,6 +20,12 @@ This development build joins a stock AssaultCube 1.3.0.2 dedicated server on a P
 
 3. Allow incoming UDP traffic to port 28763 from the Xbox on your private network. The server runs unlisted and accepts guests.
 4. In the stock PC client's console, enter `/connect 192.168.1.210 28763`, substituting your PC's address.
-5. Copy the development `default.xbe` and a plain-text file named `lan-server.txt` to the same folder on the Xbox. Put only the PC's IPv4 address on the first line. Launch the XBE. The Xbox joins automatically as **Xbox** with the assault rifle. To play the offline bot match again, remove the text file and relaunch.
+5. Copy the development `default.xbe` and a plain-text file named `lan-server.txt` to the same folder on the Xbox. Put only the PC's IPv4 address on the first line. Launch the XBE. The Xbox joins automatically as **Xbox** with the assault rifle by default. To start with the AD-81, put `sniper` on the second line of `lan-server.txt`. During a LAN match, press Y to switch between your primary and the MK-77 pistol. Tap RT for each pistol shot and press X to reload. Press D-pad Down to choose the assault rifle or sniper rifle for your next spawn. Hold LT with the AD-81 to use its scope. To play the offline bot match again, remove the text file and relaunch.
+
+Ammo and health pickups use the stock server's item list. If the other player takes a box first, the Xbox hides it and keeps its current inventory until the server awards another pickup.
+
+On a stock Windows server, both players scored an MK-77 frag on original-Xbox crossplay. Holding RT fired one round. Reloading took the pistol from 9/50 to 10/49, and switching back preserved the rifle magazine. Windows received the server's shot effects for all 60 Xbox rifle rounds across three magazines.
+
+On original hardware, both players collected the courtyard ammo box on separate spawns. The Xbox stayed at 40 reserve rounds after Windows took it, then reached 60 when the server awarded the next spawn about eight seconds later. A separate health pickup raised Xbox health from 56 to 89. A late Xbox join received an initial item list with the occupied ammo box absent.
 
 The Xbox implementation lives under `xbox/`. Server discovery, Xbox hosting, and full stock gameplay parity are outside this milestone.

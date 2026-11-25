@@ -9,21 +9,23 @@ extern "C" {
 enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 224 };
 #define PLAYER_EYE_HEIGHT 4.5f
 #define PLAYER_ABOVE_EYE .7f
+// tan(50 degrees / 2) relative to the normal 90-degree horizontal FOV.
+#define SCOPE_TAN_HALF_FOV .46630766f
 #define PLAYER_RADIUS 1.1f
 typedef struct {
     uint8_t kind;
     int8_t floor, ceil;
     uint8_t wall, ground, roof, upper, tag;
 } Cube;
-typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select; } MatchInput;
+typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select, scope; } MatchInput;
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
-typedef enum { VIEW_RIFLE,VIEW_SMG,VIEW_CARBINE,VIEW_PISTOL,VIEW_KNIFE } MatchWeapon;
+typedef enum { VIEW_RIFLE,VIEW_SMG,VIEW_CARBINE,VIEW_PISTOL,VIEW_KNIFE,VIEW_SNIPER } MatchWeapon;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     PLAYER_JUMP, PLAYER_LAND, PLAYER_PAIN, PLAYER_DEATH,
     PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR, WEAPON_CHANGE,
     BOT_PAIN1,BOT_PAIN2,BOT_PAIN3,BOT_PAIN4,BOT_PAIN5,ALT_DEATH,WATER_ENTER,WATER_EXIT,
     FOOTSTEPS,CROUCH_STEPS,WATER_STEPS,WATER_CROUCH_STEPS,CROUCH_IN,CROUCH_OUT,
-    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING,SMG_SHOT,SMG_RELOAD,CARBINE_SHOT,CARBINE_RELOAD } MatchSound;
+    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING,SMG_SHOT,SMG_RELOAD,CARBINE_SHOT,CARBINE_RELOAD,SNIPER_SHOT,SNIPER_RELOAD } MatchSound;
 typedef struct { float x,y,z; } MatchPoint;
 typedef struct { MatchPoint pos; float yaw,pitch,sink; unsigned model; } GibView;
 typedef struct { MatchPoint pos; MatchSound sound; } PositionalSound;
@@ -53,7 +55,7 @@ typedef struct {
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     unsigned gun_pose, next_gun_pose;
     unsigned bot_flash_end_ms,player_light,bot_light;
-    int respawning, reload, hide_crosshair, flash, wide_crosshair;
+    int scoped, respawning, reload, hide_crosshair, flash, wide_crosshair;
     float damage_alpha;
     int bot_shot_pending,respawn_work_pending,empty_click;
     const unsigned *damage_directions;
@@ -66,6 +68,8 @@ typedef struct {
     MatchSound footsteps,bot_footsteps,stance_sound;
     PositionalSound air,impact;
     ShotLine bot_line;
+    MatchPoint shot_end,shot_direction;
+    int shot_contact; // 0 miss, 1 body, 2 head
     const ItemView *items;
     int item_count;
     const BulletMark *marks;
