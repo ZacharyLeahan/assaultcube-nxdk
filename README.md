@@ -18,10 +18,10 @@ In the development build, an original Xbox and a stock Windows client can join t
 
 | Stock Windows client | Original Xbox |
 | --- | --- |
-| ![Windows player strafing and firing, then watching the Xbox player move](xbox/lan/ac-desert-windows.gif) | ![The same exchange from the original Xbox over HDMI](xbox/lan/ac-desert-xbox.gif) |
+| ![Windows view tracking the Xbox player around the courtyard](xbox/lan/ac-desert-windows.gif) | ![Original Xbox strafing around the Windows player on ac_desert](xbox/lan/ac-desert-xbox.gif) |
 
 [Discord MP4 (8.6 MB)](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay-discord.mp4) | [Full-resolution MP4](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay.mp4) · [Watch the original Xbox microSD recording](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-xbox-microsd.mp4) · [View the screenshot](xbox/lan/ac-desert-lan-hardware.jpg)
 
-In one continuous 23-second take, the Xbox rounds a corner, circles the Windows player and scores the frag. Both 60 fps exports include the live Xbox FPS counter and Cam Link HDMI audio. The full-resolution version preserves both 720p views. The GIFs and Xbox-only clip show the earlier microSD recording.
+In one continuous 23-second take, the Xbox rounds a corner, circles the Windows player and scores the frag. Both 60 fps exports include the live Xbox FPS counter and Cam Link HDMI audio. The full-resolution version preserves both 720p views. The 50 fps GIFs show seconds 6 through 9 of the same take. The Xbox-only clip is the earlier microSD recording.
 
 [Build instructions and controls](xbox/README.md) · [Upstream AssaultCube](https://github.com/assaultcube/AC) · [License](https://assault.cubers.net/docs/license.html)
