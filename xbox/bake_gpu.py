@@ -72,7 +72,6 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                 continue
             f,c = (f+128)%256-128, (c+128)%256-128
             for face,base,tex in ((0,f,ft),(1,c,ct)):
-                if face and not tex: continue
                 corners=((x,y),(x+1,y),(x+1,y+1),(x,y+1))
                 points=[(u,v,level(kind,base,face,u,v)) for u,v in corners]
                 if all(p[2]==points[0][2] for p in points):
@@ -124,6 +123,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
             for u,v in (reversed(corners) if reverse else corners):
                 xyz = (u,v,level) if face<2 else (level,u,v) if face==2 else (u,level,v)
                 groups[tex].append((xyz,world_texcoord(tex,u,v if face<2 else -v),light(*xyz,face)))
+    mark("SKY_PORTAL_BATCH",len(batches))
+    add_batch(0,groups.pop(0),4)
     for tex,points in sorted(groups.items()): add_batch(tex,points,4)
     mark("WORLD_BATCHES",len(batches))
 

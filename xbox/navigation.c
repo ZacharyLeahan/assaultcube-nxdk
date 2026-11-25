@@ -141,6 +141,7 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
         }
         if (map_solid(c) || a<=fa || b<=fb || a>=ca || b>=cb) {
             if (hit) {
+                if (map_solid(c) && !c->wall) return 0;
                 int axis=entry_axis;
                 if (!map_solid(c) && a>fa && a<ca) {
                     if (b>=cb && !c->roof) return 0; // open sky

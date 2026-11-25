@@ -147,6 +147,8 @@ int main(void) {
     // This floor has opposite high corners. The body uses the cell mean,
     // while a vertical shot at the center lands on its rendered diagonal.
     SurfaceHit slope;
+    // The solid boundary above the east battlement is a sky portal.
+    assert(!trace_surface(179,156.5f,12,190,156.5f,12,&slope));
     // The low rotated obstacle at (164,156) stops walking but can be jumped.
     float x=160.5f,y=156.5f,floor,ceiling;
     walk_body(&x,&y,5,0,0,4.5f,1.5f);
