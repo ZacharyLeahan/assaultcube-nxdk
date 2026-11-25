@@ -309,7 +309,9 @@ extern "C" void test_sniper_scope(void) {
     phase=INTERMISSION; in={}; in.start=in.swap=1;
     match_update(&in,0,0);
     in={}; in.scope=1; match_update(&in,16,.016f); match_view(&v);
-    assert(v.weapon==VIEW_RIFLE && !v.scoped);
+    assert(v.weapon==VIEW_SHOTGUN && !v.scoped);
+    phase=INTERMISSION; in={}; in.start=in.swap=1;
+    match_update(&in,0,0);match_view(&v);assert(v.weapon==VIEW_RIFLE);
 }
 
 extern "C" void test_bot_ammunition(void) {
@@ -474,4 +476,24 @@ extern "C" void test_lan_primary_loadouts(void) {
         assert(v.weapon==weapon && v.bot_weapon==weapon);
         match_lan_stop();
     }
+}
+
+extern "C" void test_shotgun_pellets(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    ammo[GUN_SHOTGUN]=14;mag[GUN_SHOTGUN]=7;
+    match_prepare();match_lan_spawn(100,0,GUN_SHOTGUN,GUN_SHOTGUN,ammo,mag);
+    player.x=121;player.y=121;feet_z=ground(121,121);player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    player.yaw=0;player.pitch=-.2f;
+    match_lan_remote(124,121,feet_z,0,0,0);
+    MatchInput in={};in.fire=1;
+    assert(match_attack(&in)==SHOTGUN_SHOT);
+    assert(shotgun_info==((21<<24)|(21<<16)|(21<<8)|65));
+    assert(player.state.mag[GUN_SHOTGUN]==6 && !player.frags);
+    assert(match_attack(&in)==SILENT);
+    clock_ms+=880;in.fire=0;match_attack(&in);
+    player.yaw=1.5f;in.fire=1;
+    assert(match_attack(&in)==SHOTGUN_SHOT && !shot_contact && !shotgun_info);
+    in.fire=0;in.refill=1;
+    assert(match_attack(&in)==SHOTGUN_RELOAD && player.state.mag[GUN_SHOTGUN]==7 && player.state.ammo[GUN_SHOTGUN]==12);
+    match_lan_stop();
 }

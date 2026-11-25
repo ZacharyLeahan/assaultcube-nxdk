@@ -24,7 +24,8 @@ constexpr PrimaryChoice primaries[]={
     {GUN_ASSAULT,"assault","Next spawn: MTP-57 rifle"},
     {GUN_SNIPER,"sniper","Next spawn: AD-81 sniper"},
     {GUN_SUBGUN,"subgun","Next spawn: A-ARD/10 SMG"},
-    {GUN_CARBINE,"carbine","Next spawn: TMP-M&A CB carbine"}
+    {GUN_CARBINE,"carbine","Next spawn: TMP-M&A CB carbine"},
+    {GUN_SHOTGUN,"shotgun","Next spawn: V-19 CS shotgun"}
 };
 constexpr unsigned primary_count=sizeof(primaries)/sizeof(primaries[0]);
 unsigned primary_choice;
@@ -348,17 +349,17 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         Message change;change.word(SV_WEAPCHANGE);change.word(gun);change.transmit();
         sent_weapon=gun;
     }
-    if(effect==KNIFE_SWING || effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT || effect==SMG_SHOT || effect==CARBINE_SHOT) {
+    if(effect==KNIFE_SWING || effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT || effect==SMG_SHOT || effect==CARBINE_SHOT || effect==SHOTGUN_SHOT) {
         Message m;m.word(SV_SHOOT);m.word(match_lan_shot_time(now));m.word(gun);
         MatchPoint dir=v->shot_direction;
         m.word(v->shot_end.x*DMF);m.word(v->shot_end.y*DMF);m.word(v->shot_end.z*DMF);
         bool hit=remote>=0 && v->shot_contact;
         m.word(hit);
-        if(hit){m.word(remote);m.word(remote_life);m.word(gun==GUN_KNIFE || (gun==GUN_SNIPER && v->shot_contact==2));
+        if(hit){m.word(remote);m.word(remote_life);m.word(gun==GUN_SHOTGUN?v->shotgun_info:(gun==GUN_KNIFE || (gun==GUN_SNIPER && v->shot_contact==2)));
             m.word(dir.x*DNF);m.word(dir.y*DNF);m.word(dir.z*DNF);}
         m.transmit();
     }
-    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
+    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD || effect==SHOTGUN_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
 }
 
 

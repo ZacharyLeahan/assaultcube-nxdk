@@ -70,6 +70,7 @@ typedef struct {
     PositionalSound air,impact;
     ShotLine bot_line;
     MatchPoint shot_end,shot_direction;
+    int shotgun_info; // stock hit message: bonus, center, middle and outer pellet counts
     int shot_contact; // 0 miss, 1 body, 2 head
     const ItemView *items;
     int item_count;
