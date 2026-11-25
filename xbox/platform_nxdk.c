@@ -50,7 +50,19 @@ static SDL_AudioDeviceID audio_device;
 enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS, EMPTY_CLICK, GIB };
 typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; } Voice;
 static const int volume[]={96,96,48,70,64,96,85,96,96,40,40,96,96};
-static Voice voices[sizeof(volume)/sizeof(volume[0])];
+// A rifle sample lasts 626 ms with 120 ms between rounds. Reserve enough
+// voices for both fighters to finish their bursts and begin a reload.
+enum { SHOT_VOLUME=64, WEAPON_VOICES=8, LOCAL_WEAPONS=GIB+1, BOT_WEAPONS=LOCAL_WEAPONS+WEAPON_VOICES };
+static Voice voices[BOT_WEAPONS+WEAPON_VOICES];
+
+static Voice *weapon_voice(unsigned first) {
+    Voice *shortest=&voices[first];
+    for (unsigned i=first;i<first+WEAPON_VOICES;++i) {
+        if (!voices[i].remaining) return &voices[i];
+        if (voices[i].remaining<shortest->remaining) shortest=&voices[i];
+    }
+    return shortest;
+}
 
 static void set_footsteps(unsigned channel,MatchSound sound,unsigned now,int active) {
     Voice *v=&voices[channel];
@@ -96,9 +108,9 @@ static void mix_audio(void *unused, Uint8 *out, int len) {
     }
 }
 static void spatial_gain(const MatchView *v,MatchPoint pos,float *left,float *right) {
-    float dx=pos.x-v->px,dy=pos.y-v->py,dz=pos.z-v->eye;
+    float dx=pos.x-v->camera.x,dy=pos.y-v->camera.y,dz=pos.z-v->camera.z;
     float distance=sqrtf(dx*dx+dy*dy+dz*dz);
-    float pan=(dy*cosf(v->angle)-dx*sinf(v->angle))/fmaxf(.001f,distance);
+    float pan=(dy*cosf(v->camera_yaw)-dx*sinf(v->camera_yaw))/fmaxf(.001f,distance);
     pan=fmaxf(-1,fminf(1,pan));
     float gain=4/fmaxf(4,distance);
     *left=gain*sqrtf(.5f*(1-pan)); *right=gain*sqrtf(.5f*(1+pan));
@@ -107,7 +119,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
     const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
     SDL_LockAudioDevice(audio_device);
-    ambience_update(v->px,v->py,v->eye,v->angle);
+    ambience_update(v->camera.x,v->camera.y,v->camera.z,v->camera_yaw);
     if (v->gib_sound) {
         float left,right;
         spatial_gain(v,(MatchPoint){v->tx,v->ty,v->bot_floor+PLAYER_EYE_HEIGHT},&left,&right);
@@ -120,8 +132,14 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     for (unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i) {
         if (effects[i]==SILENT) continue;
         const Clip *clip=&clips[effects[i]];
-        voices[i]=(Voice){(const int16_t *)clip->start,
-            ((uintptr_t)clip->end-(uintptr_t)clip->start)/sizeof(int16_t),volume[i],volume[i]};
+        int gain=volume[i];
+        Voice *voice=&voices[i];
+        if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT) {
+            voice=weapon_voice(i==LOCAL_GUN?LOCAL_WEAPONS:BOT_WEAPONS);
+            gain=SHOT_VOLUME;
+        }
+        *voice=(Voice){(const int16_t *)clip->start,
+            ((uintptr_t)clip->end-(uintptr_t)clip->start)/sizeof(int16_t),gain,gain};
     }
     static MatchPoint origin[2];
     if (v->air.sound) origin[0]=v->air.pos;
@@ -133,16 +151,18 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     }
     set_footsteps(LOCAL_STEPS,v->footsteps,v->elapsed_ms,v->phase==PLAYING && !v->respawning);
     set_footsteps(BOT_STEPS,v->bot_footsteps,v->elapsed_ms,v->phase==PLAYING && v->bot_alive);
-    if (voices[BOT_GUN].remaining || voices[BOT_VOICE].remaining || voices[BOT_STEPS].loop) {
-        float left,right;
-        spatial_gain(v,(MatchPoint){v->tx,v->ty,v->bot_floor+PLAYER_EYE_HEIGHT},&left,&right);
-        const int channels[]={BOT_GUN,BOT_VOICE,BOT_STEPS};
-        for(unsigned i=0;i<3;++i) {
-            int ch=channels[i];
-            voices[ch].left=(int)(volume[ch]*left+.5f);
-            voices[ch].right=(int)(volume[ch]*right+.5f);
-        }
+    float left,right;
+    spatial_gain(v,(MatchPoint){v->tx,v->ty,v->bot_floor+PLAYER_EYE_HEIGHT},&left,&right);
+    voices[BOT_GUN].left=(int)(volume[BOT_GUN]*left+.5f);
+    voices[BOT_GUN].right=(int)(volume[BOT_GUN]*right+.5f);
+    for (unsigned i=BOT_WEAPONS;i<BOT_WEAPONS+WEAPON_VOICES;++i) if (voices[i].remaining) {
+        voices[i].left=(int)(SHOT_VOLUME*left+.5f);
+        voices[i].right=(int)(SHOT_VOLUME*right+.5f);
     }
+    voices[BOT_VOICE].left=(int)(volume[BOT_VOICE]*left+.5f);
+    voices[BOT_VOICE].right=(int)(volume[BOT_VOICE]*right+.5f);
+    voices[BOT_STEPS].left=(int)(volume[BOT_STEPS]*left+.5f);
+    voices[BOT_STEPS].right=(int)(volume[BOT_STEPS]*right+.5f);
     SDL_UnlockAudioDevice(audio_device);
 }
 
