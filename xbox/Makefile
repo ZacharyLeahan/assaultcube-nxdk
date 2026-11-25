@@ -6,6 +6,13 @@ NXDK_CXXFLAGS += -O2 -Wall -fno-rtti
 NXDK_DIR ?= $(CURDIR)/../../nxdk
 SRCS = $(addprefix $(CURDIR)/,platform_nxdk.c ambience.c controllers.c match.cpp navigation.c shot_light.c prop_depth.c gpu_render.c assets.s)
 NXDK_CFLAGS += -O2 -Wall
+SDL_AUDIO_DIR := $(NXDK_DIR)/lib/sdl/SDL2/src/audio/xbox
+SDL_AUDIO_SOURCE := $(SDL_AUDIO_DIR)/SDL_xboxaudio.c
+# Older nxdk SDL forces 1024 frames even when the title requests a smaller buffer.
+ifneq ($(shell grep -F '_this->spec.samples = SAMPLE_FRAME_COUNT;' "$(SDL_AUDIO_SOURCE)"),)
+SRCS += $(CURDIR)/generated/xbox_audio.c
+NXDK_CFLAGS += -I$(SDL_AUDIO_DIR)
+endif
 PBGL_DIR := $(CURDIR)/third_party/pbgl
 NXDK_CFLAGS += -I$(PBGL_DIR)/include
 ifeq ($(AIM_TRACE),1)
@@ -16,6 +23,9 @@ endif
 include $(NXDK_DIR)/Makefile
 include $(PBGL_DIR)/config_pbgl.make
 main.exe: $(PBGL_LIB)
+
+$(CURDIR)/generated/xbox_audio.c: $(SDL_AUDIO_SOURCE) Makefile
+	@sed 's/_this->spec.samples = SAMPLE_FRAME_COUNT;/\/\* AssaultCube: keep the requested SDL buffer size. \*\//' "$<" > "$@"
 
 # bake.py also regenerates the binary assets referenced by assets.s.
 $(CURDIR)/assets.obj: $(wildcard generated/*.bin)
