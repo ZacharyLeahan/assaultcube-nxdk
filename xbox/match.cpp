@@ -34,7 +34,7 @@ float feet_z, stance, jump_speed, air_seconds, sway_vertical;
 unsigned sway_ms;
 bool grounded, held_jump, in_water;
 unsigned last_splash;
-unsigned clock_ms, next_route, bot_attack_at, hurt_until;
+unsigned clock_ms, frame_start_ms, next_route, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
@@ -51,23 +51,44 @@ float step_distance;
 ItemView item_views[item_count];
 BulletMark marks[64];
 unsigned next_mark, mark_count;
-ImpactSpark sparks[64];
+SplashParticle sparks[64];
+BloodParticle blood[64];
+unsigned next_blood,blood_count;
 unsigned next_spark,spark_count,effect_seed;
 unsigned effect_random(unsigned limit) {
     effect_seed=1664525u*effect_seed+1013904223u;
     return (effect_seed>>8)%limit;
 }
+SplashParticle splash_particle(float x,float y,float z,unsigned max_lifetime) {
+    short dx,dy,dz;
+    do {
+        dx=(int)effect_random(300)-150;
+        dy=(int)effect_random(300)-150;
+        dz=(int)effect_random(300)-150;
+    } while (dx*dx+dy*dy+dz*dz>150*150);
+    return {x,y,z,dx,dy,dz,clock_ms,effect_random(max_lifetime)};
+}
 void spark_splash(const SurfaceHit &hit) {
     for (int i=0;i<5;++i) {
-        short x,y,z;
-        do {
-            x=(int)effect_random(300)-150;
-            y=(int)effect_random(300)-150;
-            z=(int)effect_random(300)-150;
-        } while (x*x+y*y+z*z>150*150);
-        sparks[next_spark]={hit.x,hit.y,hit.z,x,y,z,clock_ms,effect_random(750)};
+        sparks[next_spark]=splash_particle(hit.x,hit.y,hit.z,750);
         next_spark=(next_spark+1)%64;
         if (spark_count<64) ++spark_count;
+    }
+}
+void update_blood(unsigned elapsed) {
+    for (unsigned i=0;i<blood_count;++i) {
+        BloodParticle &b=blood[i];
+        SplashParticle &p=b.motion;
+        unsigned age=clock_ms-p.born;
+        if (b.on_floor || age>p.lifetime) continue;
+        float travel=elapsed/20000.f;
+        p.x+=travel*p.dx; p.y+=travel*p.dy;
+        p.z+=travel*p.dz-age*(float)elapsed/30000.f;
+        const Cube *c=map_cube((int)p.x,(int)p.y);
+        if (c->kind==4 && p.z<=c->floor) {
+            p.z=c->floor+.005f; p.born=clock_ms; p.lifetime=10000;
+            b.on_floor=1;
+        }
     }
 }
 unsigned random_number() {
@@ -107,7 +128,8 @@ void begin(MatchPhase initial) {
     next_mark=mark_count=0;
     intermission_age=0;
     next_spark=spark_count=0; effect_seed=1;
-    clock_ms = 0; random_state = 7331; phase = initial;
+    next_blood=blood_count=0;
+    clock_ms = frame_start_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0;
     next_route = hurt_until = 0;
@@ -151,7 +173,14 @@ void damage(Fighter &victim, Fighter &attacker, int gun) {
         int sector=(int)floorf(relative/(45*radians)+.5f);
         damage_directions[(unsigned)sector%8]=clock_ms+1000;
         pain_sound=dead ? death : PLAYER_PAIN;
-    } else bot_voice=dead ? death : (MatchSound)(BOT_PAIN1+effect_random(5));
+    } else {
+        bot_voice=dead ? death : (MatchSound)(BOT_PAIN1+effect_random(5));
+        for (int i=0;i<guns[gun].damage/10;++i) {
+            blood[next_blood]={splash_particle(victim.x,victim.y,eye(victim),3000),0};
+            next_blood=(next_blood+1)%64;
+            if (blood_count<64) ++blood_count;
+        }
+    }
     if (victim.state.health > 0) return;
     victim.state.health = 0;
     victim.respawn_at = clock_ms+2000;
@@ -172,8 +201,13 @@ MatchSound trigger(Fighter &f, bool fire, bool refill, bool on_target, Fighter &
     }
     if (!fire || !mag) return SILENT;
     --mag;
-    f.ready_at = clock_ms+attackdelay(gun);
-    f.flash_until = clock_ms+90;
+    // Preserve the part of this frame spent past the previous shot deadline.
+    // An idle trigger or a long stall starts a fresh firing interval.
+    unsigned delay=attackdelay(gun),action=clock_ms;
+    if (f.ready_at && f.ready_at>=frame_start_ms && clock_ms-f.ready_at<delay)
+        action=f.ready_at;
+    f.ready_at = action+delay;
+    f.flash_until = action+90;
     if (on_target && !opponent.respawn_at) damage(opponent,f,gun);
     return gun == GUN_PISTOL ? PISTOL_SHOT : RIFLE_SHOT;
 }
@@ -255,7 +289,9 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (in->start) begin(PLAYING);
         return;
     }
+    frame_start_ms=clock_ms;
     clock_ms += elapsed;
+    update_blood(elapsed);
     if (clock_ms >= duration) { phase = INTERMISSION; return; }
     if (player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
     if (bot.respawn_at && bot.respawn_at <= clock_ms) respawn_near(bot,player);
@@ -273,10 +309,19 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         manual_yaw=yaw_rate*dt;
         player.yaw=fmodf(player.yaw+manual_yaw,6.2831853f);
         float look=fmaxf(-1,fminf(1,in->look));
-        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+(look*105+player.pitch_velocity*16)*radians*dt));
-        player.pitch_velocity*=expf(-25*dt);
-        if (player.pitch_velocity>.001f && player.pitch_velocity<.05f)
-            player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
+        float pitch_change=look*105*dt;
+        // The PC applies recoil on a 5 ms physics clock. Keep stick input on
+        // the display clock so a new aim report affects this rendered frame.
+        unsigned steps=(clock_ms+4)/5-(frame_start_ms+4)/5;
+        float step_gain=.005f*16*(in->crouch?.75f:1);
+        for (unsigned i=0;i<steps && i<20 && player.pitch_velocity!=0;++i) {
+            pitch_change+=player.pitch_velocity*step_gain;
+            player.pitch_velocity*=.875f;
+            if (player.pitch_velocity>.001f && player.pitch_velocity<.05f)
+                player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
+            if (fabsf(player.pitch_velocity)<.000001f) player.pitch_velocity=0;
+        }
+        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+pitch_change*radians));
 
         float floor,ceiling;
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
@@ -292,20 +337,27 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             else movement_sound=PLAYER_JUMP;
         }
         held_jump=in->jump;
-        float speed=(stance<3.59f?6.4f:16.f)/fmaxf(1,hypotf(in->move,in->strafe));
+        float speed=stance<3.59f?6.4f:16.f;
         if (swimming) speed*=.5f;
         float c=cosf(player.yaw), s=sinf(player.yaw);
         float forward=climbing && !grounded && in->move<0 ? 0 : in->move;
         if (swimming) forward*=cosf(player.pitch);
-        float dx=(forward*c-in->strafe*s)*speed-player.velocity_x;
-        float dy=(forward*s+in->strafe*c)*speed-player.velocity_y;
-        float change=hypotf(dx,dy);
-        float acceleration=(in->move || in->strafe) ? 128.f : 240.f;
-        float fraction=swimming ? fminf(1,dt/.4f) : change>0 ? fminf(1,acceleration*dt/change) : 0;
-        player.velocity_x+=dx*fraction;
-        player.velocity_y+=dy*fraction;
+        float stick_length=fmaxf(1,hypotf(in->move,in->strafe));
+        float target_x=(forward*c-in->strafe*s)/stick_length;
+        float target_y=(forward*s+in->strafe*c)/stick_length;
+        // Sum the PC's 5 ms friction steps, including distance travelled
+        // during acceleration, over the current display interval.
+        float friction=swimming?20.f:grounded?6.f:climbing?1.5f:30.f;
+        float retain=1-.005f/(friction*.02f);
+        float fraction=1-powf(retain,dt/.005f);
+        float carry=(friction*.02f-.005f)*fraction;
+        float dx=player.velocity_x-target_x,dy=player.velocity_y-target_y;
+        float travel_x=(target_x*dt+dx*carry)*speed;
+        float travel_y=(target_y*dt+dy*carry)*speed;
+        player.velocity_x-=dx*fraction;
+        player.velocity_y-=dy*fraction;
         float old_x=player.x,old_y=player.y;
-        walk_body(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt,
+        walk_body(&player.x,&player.y,travel_x,travel_y,
                   feet_z,stance+.9f,grounded||climbing?1.5f:0.f);
         if (grounded && !swimming && !in->crouch) {
             step_distance+=distance(old_x,old_y,player.x,player.y);
@@ -398,7 +450,7 @@ MatchSound match_attack(const MatchInput *in) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
         ++player.shots;
-        player.shot_until=clock_ms+g.attackdelay;
+        player.shot_until=player.ready_at;
         float ramp=(float)player.shots/g.recoilincrease;
         player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
         int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;
@@ -424,11 +476,13 @@ MatchSound match_attack(const MatchInput *in) {
 void match_view(MatchView *v) {
     v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
     v->sparks=sparks; v->spark_count=spark_count;
+    v->blood=blood; v->blood_count=blood_count;
     v->classic_assist=classic_assist;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
-    v->bot_flash = bot.flash_until > clock_ms;
+    // The world rifle's md2emit lasts 50 ms of the 90 ms attack cue.
+    v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     int first=0,count=1;
     float pose=0;
