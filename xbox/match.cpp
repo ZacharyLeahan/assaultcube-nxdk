@@ -139,7 +139,8 @@ bool remote_air_crouch;
 float remote_stance=PLAYER_EYE_HEIGHT;
 int bot_pose;
 float stride_phase,stride_rate;
-unsigned combat_move_until;
+unsigned combat_move_until,combat_jump_after;
+bool combat_jump_pending;
 float combat_forward,combat_side;
 struct BotClip {
     int first,count;
@@ -360,7 +361,7 @@ void spawn(Fighter &f, int index, float offset=.5f) {
         f.state.nextprimary=stock_round && !lan_match ? GUN_CARBINE+random_number()%5 : GUN_ASSAULT;
         last_bot_gun=f.state.nextprimary;
         bot_scope_since=0;bot_air_ms=0;bot_vertical=0;bot_airborne=bot_jump_request=false;
-        bot_switch_after=bot_akimbo_until=0;
+        bot_switch_after=bot_akimbo_until=combat_jump_after=0;combat_jump_pending=false;
         bot_primed_at=0;
     }
     f.x = starts[index][0]+offset; f.y = starts[index][1]+offset;
@@ -868,8 +869,41 @@ float bot_clearance(float yaw,float length) {
     trace_surface(from.x,from.y,from.z,from.x+length*dir.x,from.y+length*dir.y,from.z,&hit);
     return prop_depth(from,dir,length*hit.fraction);
 }
+// Good bots prepare an evasive direction for 125-250 ms before jumping.
+bool combat_jump(float distance) {
+    if(bot_airborne || clock_ms<=combat_jump_after || distance>=13) return false;
+    float angle=atan2f(player.y-bot.y,player.x-bot.x);
+    if(fabsf(remainderf(angle-bot.yaw,2*3.14159265f))>=80*radians ||
+       1+(int)(random_number()%100)>100-(int)distance*8) return false;
+    if(distance<=4 || bot.state.gunselect==GUN_KNIFE) {
+        combat_forward=1;combat_side=0;
+    } else {
+        static const int directions[][2]={{1,-1},{1,1},{-1,0},{-1,-1},{-1,1},{0,-1},{0,1}};
+        int total=0;
+        for(const auto &dir:directions) {
+            if(bot_clearance(bot.yaw+atan2f(dir[1],dir[0]),4)<3.999f) continue;
+            int weight=dir[0]>0?(distance>8?20:10):dir[0]<0?(distance<=6?20:10):(distance<6?20:10);
+            total+=weight;
+            if((int)(random_number()%total)<weight) {combat_forward=dir[0];combat_side=dir[1];}
+        }
+        if(!total) return false;
+    }
+    combat_jump_pending=true;
+    combat_move_until=clock_ms+125+random_number()%126;
+    return true;
+}
 // Probe the forward or retreat arc in 45-degree steps, as in DoCombatNav.
 void choose_combat_move(float distance,const CombatRange &range) {
+    if(stock_round) {
+        if(combat_jump_pending) {
+            bot_jump_request=true;
+            combat_jump_pending=false;
+            combat_jump_after=clock_ms+1500+random_number()%1301;
+            return;
+        }
+        if(combat_jump(hypotf(distance,eye(player)-eye(bot)))) return;
+        if(bot.state.gunselect==GUN_KNIFE) {combat_forward=1;combat_side=0;return;}
+    }
     combat_forward=0;
     if (distance<=range.near) combat_forward=-1;
     if (distance>=range.far) combat_forward=1;
@@ -909,7 +943,8 @@ void choose_combat_move(float distance,const CombatRange &range) {
 }
 void advance_bot_velocity(float target_x,float target_y,float dt) {
     if (target_x==0 && target_y==0 && fabsf(bot.velocity_x)+fabsf(bot.velocity_y)<.0001f) return;
-    float fraction=1-powf(23.f/24,dt/.005f),carry=.115f*fraction;
+    float friction=stock_round && bot_airborne?.6f:.12f;
+    float fraction=1-powf(1-.005f/friction,dt/.005f),carry=(friction-.005f)*fraction;
     float dx=bot.velocity_x-target_x,dy=bot.velocity_y-target_y;
     move_bot(16*(target_x*dt+dx*carry),16*(target_y*dt+dy*carry));
     bot.velocity_x-=dx*fraction; bot.velocity_y-=dy*fraction;
@@ -1214,7 +1249,7 @@ void update_bot(float dt) {
         if (stride_phase<0) stride_phase+=6;
         bot_pose=1+(int)stride_phase;
     }
-    if (!sees) { bot_saw_player = false; bot.shots=0; return; }
+    if (!sees) { bot_saw_player = false; combat_jump_pending=false; bot.shots=0; return; }
     if (!bot_saw_player) {
         const BotSkill &skill=skills[stock_round];
         bot_attack_at=clock_ms+skill.attack_min+random_number()%(skill.attack_max-skill.attack_min+1);

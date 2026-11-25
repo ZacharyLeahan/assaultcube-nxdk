@@ -582,6 +582,11 @@ extern "C" void test_stock_bot_primaries(void) {
     choose_combat_move(30,rifle_range);
     assert(combat_forward==0 && fabsf(combat_side)==1);
     assert(combat_move_until>=clock_ms+1500 && combat_move_until<=clock_ms+3000);
+    place_target(0,3.5f);
+    for(int attempt=0;!combat_jump_pending && attempt<32;++attempt) choose_combat_move(3.5f,rifle_range);
+    assert(combat_jump_pending && combat_forward==1 && !combat_side);
+    clock_ms=combat_move_until;choose_combat_move(3.5f,rifle_range);
+    assert(bot_jump_request && combat_jump_after>=clock_ms+1500 && combat_jump_after<=clock_ms+2800);
     unsigned drawn=0;
     for(int i=0;i<60;++i) {
         spawn(bot,3,0);
@@ -590,8 +595,8 @@ extern "C" void test_stock_bot_primaries(void) {
         drawn|=1u<<(bot.state.primary-GUN_CARBINE);
     }
     assert(drawn==31);
-    bot.state.primary=GUN_SNIPER;bot.state.gunselect=GUN_SNIPER;
-    bot.state.mag[GUN_SNIPER]=5;bot.state.mag[GUN_PISTOL]=10;
+    bot.state.nextprimary=GUN_SNIPER;
+    bot.state.respawn();bot.state.spawnstate(GMODE_BOTDEATHMATCH);
     assert(preferred_bot_weapon(2)==GUN_KNIFE);
     assert(preferred_bot_weapon(9)==GUN_PISTOL);
     assert(preferred_bot_weapon(80)==GUN_SNIPER);
