@@ -225,7 +225,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 commands+=12
                 indices.setdefault(key,key[2])
         vertices=list(indices.values())
-        if muzzle is None:
+        if name=="BODY":
             head_indices=[vertices[int(i)] for i in re.search(r"^md2tag tag_head (.+)",cfg,re.M)[1].split()]
         mark(name+"_VERTICES",nv)
         mark(name+"_POSE_BASE",len(bot_positions)//12)
@@ -247,7 +247,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                        ",".join(map(str,neighbors.flatten()))+"};\n")
         for pose in bot_frames:
             pos=positions(pose)
-            if muzzle is None:
+            if name=="BODY":
                 heads.append((pose,pos[head_indices].mean(axis=0)))
             if muzzle is not None:
                 # assault/world/md2.cfg uses "md2tag tag_muzzle X": select
@@ -288,6 +288,9 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         md2(gun,gun/"skin.jpg",(128,64),name.upper(),muzzle)
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in muzzle)+"};\n")
+    gun=packages/"models/weapons/knife/world"
+    mark("WORLD_KNIFE_BATCH",len(batches))
+    md2(gun,gun/"skin.jpg",(128,64),"WORLD_KNIFE")
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
     hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")

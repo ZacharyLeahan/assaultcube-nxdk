@@ -48,7 +48,7 @@ extern const Position bot_poses[];
 static Position *pose_positions;
 // Each silhouette edge emits at most one triangle to the shadow tip.
 #define MAX_COUNT(a,b) ((a)>(b)?(a):(b))
-enum { WORLD_GUN_INDEX_BYTES=MAX_COUNT(sizeof(bot_gun_indices),sizeof(world_pistol_indices)) };
+enum { WORLD_GUN_INDEX_BYTES=MAX_COUNT(sizeof(world_knife_indices),MAX_COUNT(sizeof(bot_gun_indices),sizeof(world_pistol_indices))) };
 enum { SHADOW_CAPACITY=3*(2*(sizeof(body_indices)+WORLD_GUN_INDEX_BYTES))/sizeof(unsigned short) };
 static Position *shadow_positions, shadow_tip;
 static unsigned shadow_count;
@@ -123,6 +123,7 @@ int gpu_init(int width, int height) {
     for (unsigned i=0;i<world_count;++i)
         world_light_uv[i]=(LightUV){(source[i].x+.5f)/256,(source[i].y+.5f)/256};
     unsigned world_gun=MAX_COUNT(batches[BOT_GUN_BATCH].count,batches[WORLD_PISTOL_BATCH].count);
+    world_gun=MAX_COUNT(world_gun,batches[WORLD_KNIFE_BATCH].count);
     unsigned extra=batches[BODY_BATCH].count+world_gun;
     for (unsigned i=0;i<sizeof(weapon_art)/sizeof(weapon_art[0]);++i) {
         const WeaponArt *art=weapon_art+i;
@@ -300,7 +301,7 @@ static void actor_batch(unsigned batch_id,unsigned base,unsigned count,const uns
                       BotPose cur,BotPose prev,float transition,unsigned texture) {
     // UV seams duplicate positions in the draw buffer. Mix each MD2 vertex
     // once before expanding to triangle order.
-    static Position mixed[MAX_COUNT(BODY_VERTICES,MAX_COUNT(BOT_GUN_VERTICES,WORLD_PISTOL_VERTICES))];
+    static Position mixed[MAX_COUNT(MAX_COUNT(BODY_VERTICES,WORLD_KNIFE_VERTICES),MAX_COUNT(BOT_GUN_VERTICES,WORLD_PISTOL_VERTICES))];
     const Position *poses=bot_poses+base;
     const Position *a=poses+bot_frame_batch[cur.first]*count,*b=poses+bot_frame_batch[cur.second]*count;
     for (unsigned i=0;i<count;++i) mixed[i]=mix_point(a[i],b[i],cur.blend);
@@ -491,7 +492,10 @@ static void level(const MatchView *v) {
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
                     v->current_pose,v->previous_pose,v->pose_transition,batches[BODY_BATCH].texture);
-        world_firearm(v->bot_pistol,v->current_pose,v->previous_pose,v->pose_transition);
+        if (v->bot_knife)
+            actor_batch(WORLD_KNIFE_BATCH,WORLD_KNIFE_POSE_BASE,WORLD_KNIFE_VERTICES,world_knife_indices,world_knife_neighbors,
+                        v->current_pose,v->previous_pose,v->pose_transition,batches[WORLD_KNIFE_BATCH].texture);
+        else world_firearm(v->bot_pistol,v->current_pose,v->previous_pose,v->pose_transition);
         stencil_reference(64);
         glPopMatrix();
     }
