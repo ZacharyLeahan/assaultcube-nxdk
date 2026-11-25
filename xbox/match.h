@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 192 };
+enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 224 };
 #define PLAYER_EYE_HEIGHT 4.5f
 #define PLAYER_ABOVE_EYE .7f
 #define PLAYER_RADIUS 1.1f
@@ -22,7 +22,7 @@ typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR, WEAPON_CHANGE,
     BOT_PAIN1,BOT_PAIN2,BOT_PAIN3,BOT_PAIN4,BOT_PAIN5,ALT_DEATH,WATER_ENTER,WATER_EXIT,
     FOOTSTEPS,CROUCH_STEPS,WATER_STEPS,WATER_CROUCH_STEPS,CROUCH_IN,CROUCH_OUT,
-    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING } MatchSound;
+    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING,SMG_SHOT,SMG_RELOAD } MatchSound;
 typedef struct { float x,y,z; } MatchPoint;
 typedef struct { MatchPoint pos; float yaw,pitch,sink; unsigned model; } GibView;
 typedef struct { MatchPoint pos; MatchSound sound; } PositionalSound;
@@ -58,7 +58,7 @@ typedef struct {
     const unsigned *damage_directions;
     unsigned seconds;
     MatchPhase phase;
-    int classic_assist;
+    int classic_assist,selected_smg,smg;
     MatchSound bot_sound, movement_sound, pickup_sound, pain_sound, bot_voice;
     MatchSound footsteps,bot_footsteps,stance_sound;
     PositionalSound air,impact;

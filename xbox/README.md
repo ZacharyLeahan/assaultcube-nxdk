@@ -12,9 +12,9 @@ The easy bot backs away when you close inside its preferred rifle range. It look
 | A | Jump |
 | B | Hold to crouch |
 | Back | Hold for the overhead map |
-| Right trigger | Hold for automatic rifle fire. Tap for each pistol shot or knife swing |
+| Right trigger | Hold for automatic rifle or SMG fire. Tap for each pistol shot or knife swing |
 | X | Reload from reserve ammunition. An empty magazine reloads automatically when reserves are available |
-| Y | Switch between the MTP-57 rifle and MK-77 pistol |
+| Y | Before a match, choose the MTP-57 rifle or A-ARD/10 SMG. During play, switch between the chosen primary and the MK-77 pistol |
 | D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
 | Start | Begin the match or play again from the result screen |
 | LT + RT + Back + Black | Hold for one second to reboot |
