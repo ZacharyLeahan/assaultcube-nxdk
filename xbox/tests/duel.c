@@ -7,6 +7,33 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../generated/starts.h"
+
+static void test_routes_to_spawn(int gx,int gy) {
+    route_to(gx,gy);
+    for (unsigned i=0;i<sizeof(starts)/sizeof(starts[0]);++i) {
+        float x=starts[i][0]+.5f,y=starts[i][1]+.5f;
+        int n;
+        for (n=0;n<2000;++n) {
+            float tx,ty;
+            assert(route_next(x,y,&tx,&ty));
+            if (hypotf(tx-x,ty-y)<.001f) {
+                float range=hypotf(gx+.5f-x,gy+.5f-y);
+                if (gx==150 && gy==102) {
+                    assert(range<=5.001f);
+                    assert(visible(x,y,body_floor(x,y)+PLAYER_EYE_HEIGHT,gx+.5f,gy+.5f,
+                                   body_floor(gx+.5f,gy+.5f)+PLAYER_EYE_HEIGHT-1));
+                } else assert(range<.001f);
+                break;
+            }
+            float dx=tx-x,dy=ty-y;
+            float scale=.18f/fmaxf(.18f,hypotf(dx,dy));
+            walk(&x,&y,dx*scale,dy*scale);
+        }
+        assert(n<2000);
+    }
+}
+
 static void test_wind_playback(void) {
     // At this position only the wind emitter is audible.
     int start[512][2]={0}, next[512][2]={0}, replay[1024][2]={0};
@@ -448,6 +475,8 @@ int main(void) {
     test_idle_animation();
     test_incoming_fire(0);
     test_incoming_fire(1);
+    navigation_prepare();
+    for (unsigned i=0;i<sizeof(starts)/sizeof(starts[0]);++i) test_routes_to_spawn(starts[i][0],starts[i][1]);
     test_strafe_reversal(60);
     test_weapon_sway(0);
     test_weapon_sway(1);
@@ -576,7 +605,7 @@ int main(void) {
         input.fire = !view.player_frags;
         // Track the torso during the opening burst, including its vertical recoil.
         float dx=view.tx-view.px, dy=view.ty-view.py;
-        float chest=map_floor(map_cube((int)view.tx,(int)view.ty))+PLAYER_EYE_HEIGHT-1;
+        float chest=view.bot_floor+PLAYER_EYE_HEIGHT-1;
         input.look=input.fire ? (atan2f(chest-view.eye,hypotf(dx,dy))-view.pitch)/(.033f*105*.017453293f) : 0;
         input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);
