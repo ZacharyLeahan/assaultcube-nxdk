@@ -16,6 +16,7 @@ typedef struct { unsigned offset, bytes, width, height, mip; } ImageInfo;
 typedef struct { unsigned texture, first, count, primitive; } Batch;
 typedef struct { int x, y, w, h; } Glyph;
 #include "generated/gpu.h"
+#include "generated/water.h"
 extern const unsigned char gpu_vertices[], gpu_textures[];
 typedef struct { float x,y,z,u,v; unsigned char rgba[4]; } Vertex;
 static const Vertex *geometry;
@@ -204,6 +205,24 @@ static void skybox(void) {
         end_quads();
     }
 }
+static void draw_water(unsigned ms) {
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    float t=fmodf(ms/(300.f*6.2831853f),1.f);
+    begin_quads();
+    for (unsigned i=0;i<sizeof(water_patches)/sizeof(water_patches[0]);++i) {
+        for (unsigned j=0;j<4;++j) {
+            int x=water_patches[i][0]+4*(j==1||j==2),y=water_patches[i][1]+4*(j>=2);
+            float phase=x*y*(.1f/6.2831853f)+t;
+            float wave=phase-floorf(phase)-.5f;
+            wave*=8-16*fabsf(wave);
+            color(water_color[0]/255.f,water_color[1]/255.f,water_color[2]/255.f,
+                  fminf(1,(water_color[3]+24*fabsf(wave))/255.f));
+            vertex(x,y,WATER_SURFACE+.15f*wave,0,0);
+        }
+    }
+    end_quads();
+}
 static void level(const MatchView *v) {
     float c=cosf(v->angle),s=sinf(v->angle);
     float cp=cosf(v->pitch), sp=sinf(v->pitch);
@@ -277,6 +296,7 @@ static void level(const MatchView *v) {
         }
     }
     end_quads();
+    draw_water(v->elapsed_ms);
     glDisable(GL_BLEND);
     color(1,1,1,1);
     glDepthMask(GL_TRUE);
@@ -348,6 +368,12 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    if (v->eye<WATER_SURFACE) {
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+        color(water_color[0]/255.f,water_color[1]/255.f,water_color[2]/255.f,.4f);
+        begin_quads(); quad(0,0,hud_width,720,0,0,1,1); end_quads();
+    }
     if (v->damage_alpha>0) {
         glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
         glBindTexture(GL_TEXTURE_2D,textures[DAMAGE_TEX]);

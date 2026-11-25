@@ -62,6 +62,15 @@ def bake():
         if max(cells[index::8]) >= len(names):
             raise ValueError("Map references a missing texture")
     (OUT / "world.bin").write_bytes(cells)
+    water,r,g,b,a=struct.unpack_from("<i4B",data,916)
+    surface=water/10-.3
+    wet=[(i%256,i//256) for i,(k,f,*_) in enumerate(struct.iter_unpack("<Bbb5B",cells))
+         if k>=2 and f<surface]
+    patches=sorted({(x//4*4,y//4*4) for x,y in wet})
+    (OUT/"water.h").write_text(f"#define WATER_SURFACE ({surface:.3f}f)\n"+
+        f"static const unsigned char water_color[4] = {{{r},{g},{b},{a}}};\n"+
+        "static const short water_patches[][2] = {"+
+        ",".join(f"{{{x},{y}}}" for x,y in patches)+"};\n")
     (OUT / "ladders.h").write_text("static const short ladders[][3] = {\n"+
         "".join(f"    {{{x}, {y}, {height}}},\n" for x,y,height in ladders)+"};\n")
     (OUT / "deltas.bin").write_bytes(deltas)
