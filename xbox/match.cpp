@@ -29,7 +29,7 @@ struct Fighter {
     unsigned shots, shot_until;
     int turn_direction;
     int frags;
-    unsigned respawn_at, ready_at, reload_at, flash_until, light_until, pain_until;
+    unsigned respawn_at, ready_at, reload_at, reload_hud_until, flash_until, light_until, pain_until;
 };
 Fighter player, bot;
 float feet_z, stance, jump_speed, sway_vertical;
@@ -141,6 +141,7 @@ void spawn(Fighter &f, int index) {
     f.state.respawn();
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
     f.respawn_at = f.ready_at = f.reload_at = f.flash_until = f.light_until = f.pain_until = 0;
+    f.reload_hud_until=0;
 }
 void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.yaw = atan2f(opponent.y-f.y,opponent.x-f.x);
@@ -245,7 +246,8 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
         // Manual reload starts immediately, retaining any outstanding shot wait.
         unsigned start=f.ready_at>clock_ms?f.ready_at:clock_ms;
         f.ready_at=start+reloadtime(gun);
-        f.reload_at=clock_ms+reloadtime(gun);
+        f.reload_at=f.ready_at;
+        f.reload_hud_until=clock_ms+reloadtime(gun);
         return gun == GUN_PISTOL ? PISTOL_RELOAD : RIFLE_RELOAD;
     }
     if (!fire || !mag) return SILENT;
@@ -672,9 +674,13 @@ void match_view(MatchView *v) {
     v->magazine = player.state.mag[gun]; v->reserve = player.state.ammo[gun];
     v->pistol = gun == GUN_PISTOL;
     v->respawning = !!player.respawn_at; v->reload = player.reload_at > clock_ms;
+    v->hide_crosshair=player.reload_hud_until>clock_ms;
     float lower=0;
     if (v->reload) {
-        lower=sinf(3.14159265f*(player.reload_at-clock_ms)/reloadtime(gun));
+        float duration=reloadtime(gun);
+        float elapsed=1-((float)player.reload_hud_until-clock_ms)/duration;
+        float limit=fmaxf(.5f,1-(player.reload_at-clock_ms)/duration);
+        lower=sinf(3.14159265f*fminf(elapsed,limit));
     } else if (switch_end && switch_end>clock_ms) {
         lower=sinf(3.14159265f*(switch_end-clock_ms)/switch_ms);
     }
