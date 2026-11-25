@@ -23,7 +23,7 @@ with TemporaryDirectory() as directory:
                  f'.incbin "generated/{name}.bin"']
     asm.write_text("\n".join(text) + "\n")
     objects = []
-    for source in (asm, Path("navigation.c"), Path("shot_light.c"), Path("prop_depth.c"), Path("ambience.c"), Path("match.cpp"), Path("tests/duel.c")):
+    for source in (asm, Path("navigation.c"), Path("shot_light.c"), Path("prop_depth.c"), Path("ambience.c"), Path("tests/match_perception.cpp"), Path("tests/duel.c")):
         obj = tmp / (source.stem + ".o")
         run(cxx if source.suffix == ".cpp" else cc, "-O2", "-c", source, "-o", obj)
         objects.append(obj)

@@ -40,7 +40,7 @@ MatchPoint death_camera;
 float death_yaw,death_pitch;
 bool grounded, held_jump, in_water;
 unsigned last_splash;
-unsigned clock_ms, frame_start_ms, next_route, bot_attack_at, hurt_until;
+unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
@@ -214,7 +214,7 @@ void begin(MatchPhase initial) {
     clock_ms = frame_start_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0; idle_ms=0;
-    next_route = hurt_until = 0;
+    next_enemy_search = next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
     // Open in the same courtyard at two official free-for-all player starts.
@@ -241,7 +241,7 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
     }
     spawn(f,best >= 0 ? best : fallback);
     aim_at_opponent(f,opponent);
-    next_route = 0; bot_attack_at = clock_ms+1200; burst = 0;
+    next_enemy_search = next_route = 0; bot_attack_at = clock_ms+1200; burst = 0;
     bot_saw_player = false;
 }
 void impulse(Fighter &f,float x,float y,float z,float amount) {
@@ -418,6 +418,12 @@ void move_bot(float dx,float dy) {
     walk_past_actor(&bot.x,&bot.y,dx,dy,body_floor(bot.x,bot.y),PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE,1.5f,
                     bot.respawn_at || player.respawn_at ? nullptr : &opponent);
 }
+// Return the remaining signed angle before the turn, used by the firing gate.
+float turn_bot_toward(float ideal,float dt) {
+    float delta=atan2f(sinf(ideal-bot.yaw),cosf(ideal-bot.yaw));
+    bot.yaw+=fmaxf(-75*radians*dt,fminf(75*radians*dt,delta));
+    return delta;
+}
 void update_bot(float dt) {
     bot_pose = 0;
     // Bot navigation supplies its own walk speed. Carry shot impulses through
@@ -432,7 +438,15 @@ void update_bot(float dt) {
     if (bot.respawn_at || player.respawn_at || clock_ms < 1000) return;
     float dx = player.x-bot.x, dy = player.y-bot.y;
     float d = fmaxf(.01f,hypotf(dx,dy));
-    bool sees = visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)-.8f);
+    // Windows FindEnemy retains a visible opponent outside the acquisition cone.
+    bool sees=false;
+    if (bot_saw_player || clock_ms>=next_enemy_search) {
+        float dz=eye(player)-eye(bot);
+        bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*.57357644f; // cos(110° / 2)
+        if (bot_saw_player || in_view || dx*dx+dy*dy+dz*dz<16)
+            sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player));
+        if (!sees) next_enemy_search=clock_ms+300+random_number()%61;
+    }
     float mx = 0, my = 0;
     if (!sees || d > 23) {
         if (clock_ms >= next_route) {
@@ -446,6 +460,7 @@ void update_bot(float dt) {
     }
     float length = hypotf(mx,my), old_x = bot.x, old_y = bot.y;
     if (length > .001f) {
+        if (!sees) turn_bot_toward(atan2f(my,mx),dt);
         float step = fminf(length,(sees ? 4 : 11)*dt);
         move_bot(mx/length*step,my/length*step);
         bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
@@ -465,8 +480,7 @@ void update_bot(float dt) {
     }
     bot.pitch=atan2f(eye(player)-.8f-eye(bot),d);
     float ideal = atan2f(player.y-bot.y,player.x-bot.x);
-    float delta = atan2f(sinf(ideal-bot.yaw),cosf(ideal-bot.yaw));
-    bot.yaw += fmaxf(-75*radians*dt,fminf(75*radians*dt,delta));
+    float delta = turn_bot_toward(ideal,dt);
     if (clock_ms < bot_attack_at || clock_ms<bot.ready_at || fabsf(delta)>.14f || d>80) return;
     int gun = bot.state.gunselect;
     if (!bot.state.mag[gun] && !bot.state.ammo[gun]) bot.state.gunselect = GUN_PISTOL;
