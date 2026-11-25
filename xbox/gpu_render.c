@@ -164,8 +164,7 @@ static void animated_batch(unsigned current,unsigned next,float blend) {
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
     glDrawArrays(GL_TRIANGLES,0,b->count);
 }
-static void projection(void) {
-    float near=.25f, half_h=near*(120.f/180.f);
+static void projection(float near,float half_h) {
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glFrustum(-half_h*aspect,half_h*aspect,-half_h,half_h,near,1200);
@@ -208,7 +207,8 @@ static void level(const MatchView *v) {
     float c=cosf(v->angle),s=sinf(v->angle);
     float cp=cosf(v->pitch), sp=sinf(v->pitch);
     const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
-    projection();
+    // PC world FOV is horizontal: tan(90 degrees / 2) == 1.
+    projection(.15f,.15f/aspect);
     glLoadMatrixf(camera);
     glTranslatef(-v->px,-v->py,-v->eye);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
@@ -263,7 +263,8 @@ static void level(const MatchView *v) {
 static void weapon(const MatchView *v) {
     if(v->respawning) return;
     // Reserve the front of the depth buffer for the view weapon.
-    projection();
+    // The view weapon uses the PC's separate 75-degree vertical field of view.
+    projection(.30f,.30f*.76732699f);
     const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 4,-1,-10,1};
     glLoadMatrixf(camera);
     glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up-4*v->reload_lower);
@@ -494,6 +495,9 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
             }
             file=fopen("D:\\tracking.bin","wb");
             if (file) {
+                float focal_pixels=.5f*pb_back_buffer_width();
+                fwrite("ACT1",4,1,file);
+                fwrite(&focal_pixels,sizeof(focal_pixels),1,file);
                 fwrite(tracking_frames,sizeof(tracking_frames),1,file);
                 fclose(file);
             }

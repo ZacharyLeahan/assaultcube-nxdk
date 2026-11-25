@@ -6,12 +6,16 @@ from statistics import median
 from struct import Struct
 
 ROW = Struct("<10f3I")
-FOCAL_PIXELS = 540  # 720p viewport, matching the renderer's vertical frustum.
 
 
 def opening(path):
     samples = []
     data = path.read_bytes()
+    focal_pixels = 540  # Original headerless 720p traces.
+    if data.startswith(b"ACT1"):
+        header = Struct("<4sf")
+        _, focal_pixels = header.unpack_from(data)
+        data = data[header.size:]
     if len(data) != 720 * ROW.size:
         raise ValueError(f"{path}: incomplete tracking trace")
     for frame, row in enumerate(ROW.iter_unpack(data)):
@@ -23,8 +27,8 @@ def opening(path):
         depth = along * cos(pitch) + dz * sin(pitch)
         if not clear or not strafe or depth <= 0:
             continue
-        horizontal = FOCAL_PIXELS * (dy * cos(yaw) - dx * sin(yaw)) / depth
-        vertical = FOCAL_PIXELS * (along * sin(pitch) - dz * cos(pitch)) / depth
+        horizontal = focal_pixels * (dy * cos(yaw) - dx * sin(yaw)) / depth
+        vertical = focal_pixels * (along * sin(pitch) - dz * cos(pitch)) / depth
         samples.append((frame, horizontal, vertical, strafe, turn, hit))
     return samples
 
