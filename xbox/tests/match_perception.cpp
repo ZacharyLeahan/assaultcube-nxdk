@@ -134,3 +134,45 @@ extern "C" void test_easy_bot_aim(void) {
     bot_fire_ray(0,0,GUN_ASSAULT);
     assert(player.state.health<health);
 }
+
+extern "C" void test_wall_impact_lifetime(void) {
+    match_prepare(); begin(PLAYING);
+    SurfaceHit hit={0,0,0,1,1,1};
+    MatchInput in={};
+    MatchView view={};
+    // Both fighters producing impacts during a sustained exchange.
+    for (int i=0;i<80;++i) {
+        hit.x=(float)i;
+        mark_surface(hit);
+        match_update(&in,1,.001f);
+    }
+    match_view(&view);
+    assert(view.mark_count==80 && view.marks[view.first_mark].x==0);
+    bot.ready_at=duration;
+    match_update(&in,9919,.016f);
+    match_view(&view);
+    assert(view.mark_count==80 && view.marks[view.first_mark].expires==clock_ms+1);
+    match_update(&in,1,.001f);
+    match_view(&view);
+    assert(view.mark_count==79 && view.marks[view.first_mark].x==1);
+    match_update(&in,79,.016f);
+    match_view(&view);
+    assert(!view.mark_count);
+    for (int i=0;i<160;++i) { hit.x=(float)i; mark_surface(hit); }
+    match_view(&view);
+    assert(view.mark_count==160);
+    for (unsigned i=0;i<view.mark_count;++i)
+        assert(view.marks[(view.first_mark+i)%MARK_CAPACITY].x==(float)i);
+
+    start_perception_test();
+    place_target(0,5);
+    player.yaw=player.pitch=0;
+    feet_z=eye(bot)-PLAYER_EYE_HEIGHT;
+    int health=player.state.health;
+    bot_fire_ray(0,atanf(-.95f),GUN_ASSAULT);
+    assert(player.state.health<health && mark_count==1);
+    assert(impact_sound.sound==BULLET_IMPACT);
+    // A shallower shot strikes the same player farther from the floor.
+    bot_fire_ray(0,atanf(-.45f),GUN_ASSAULT);
+    assert(mark_count==1);
+}

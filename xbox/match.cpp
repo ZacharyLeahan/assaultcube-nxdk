@@ -73,8 +73,9 @@ PositionalSound air_sound,impact_sound;
 ShotLine bot_line;
 bool was_crouching;
 ItemView item_views[item_count];
-BulletMark marks[64];
-unsigned next_mark, mark_count;
+// Two MTP-57s can fire up to 168 rounds in the 10-second decal lifetime.
+BulletMark marks[MARK_CAPACITY];
+unsigned first_mark, mark_count;
 SplashParticle sparks[64];
 BloodParticle blood[64];
 unsigned next_blood,blood_count;
@@ -157,9 +158,13 @@ void spark_splash(float x,float y,float z) {
 }
 void mark_surface(const SurfaceHit &hit) {
     if (!hit.can_mark) return;
-    marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
-    next_mark=(next_mark+1)%64;
-    if (mark_count<64) ++mark_count;
+    if (mark_count==MARK_CAPACITY) {
+        first_mark=(first_mark+1)%MARK_CAPACITY;
+        --mark_count;
+    }
+    unsigned tail=(first_mark+mark_count)%MARK_CAPACITY;
+    marks[tail]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
+    ++mark_count;
 }
 void update_blood(unsigned elapsed) {
     for (unsigned i=0;i<blood_count;++i) {
@@ -214,7 +219,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.pitch = atan2f(eye(opponent)-1-eye(f),fmaxf(1,distance(f.x,f.y,opponent.x,opponent.y)));
 }
 void begin(MatchPhase initial) {
-    next_mark=mark_count=0;
+    first_mark=mark_count=0;
     bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
     intermission_age=0;
     memset(frag_messages,0,sizeof(frag_messages));
@@ -433,7 +438,7 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     MatchPoint target={from.x+512*dx,from.y+512*dy,from.z+512*dz};
     SurfaceHit hit;
     bool wall=trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit);
-    float reach=512*hit.fraction;
+    float wall_depth=512*hit.fraction,reach=wall_depth;
     MatchPoint delta={from.x-player.x,from.y-player.y,from.z-feet_z};
     float contact=torso_contact(delta,player.yaw,player.pitch*.25f,stance,dx,dy,dz,reach);
     if (contact>=0) {
@@ -441,11 +446,11 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
         damage(player,bot,gun,dx,dy,dz);
     }
     target={from.x+reach*dx,from.y+reach*dy,from.z+reach*dz};
-    if (wall && contact<0) {
-        target={hit.x,hit.y,hit.z};
+    // PC attackfx still marks a surface within one unit of a struck actor.
+    if (wall && (contact<0 || (wall_depth-contact)*hypotf(1,dz)<=1)) {
         mark_surface(hit);
         if (hit.can_mark && hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
-            impact_sound={target,hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
+            impact_sound={{hit.x,hit.y,hit.z},hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
     }
     spark_splash(target.x,target.y,target.z);
     float d=distance(from.x,from.y,player.x,player.y);
@@ -655,6 +660,10 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     }
     frame_start_ms=clock_ms;
     clock_ms += elapsed;
+    while (mark_count && marks[first_mark].expires<=clock_ms) {
+        first_mark=(first_mark+1)%MARK_CAPACITY;
+        --mark_count;
+    }
     update_blood(elapsed);
     if (clock_ms >= duration) { phase = INTERMISSION; return; }
     if (player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
@@ -967,7 +976,7 @@ void match_view(MatchView *v) {
     v->player_light=player.light_until>now?(unsigned)fminf(50,player.light_until-now):0;
     v->bot_light=bot.light_until>now?(unsigned)fminf(50,bot.light_until-now):0;
     v->empty_click=empty_click;
-    v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
+    v->marks=marks; v->first_mark=first_mark; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
     v->bot_line=bot_line;
     if (bot_line.expires<=clock_ms+intermission_age) v->bot_line.expires=0;
     v->air=air_sound; v->impact=impact_sound;
