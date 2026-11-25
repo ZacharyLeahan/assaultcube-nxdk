@@ -378,10 +378,10 @@ static void world_weapon(MatchWeapon weapon,BotPose current,BotPose previous,flo
     const WorldWeapon *w=&world_weapons[weapon];
     actor_batch(w->batch,w->pose_base,w->vertices,w->indices,w->neighbors,current,previous,transition,batches[w->batch].texture);
 }
-static void projection(float near,float half_h) {
+static void projection(float near,float half_h,float ratio) {
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glFrustum(-half_h*aspect,half_h*aspect,-half_h,half_h,near,1200);
+    glFrustum(-half_h*ratio,half_h*ratio,-half_h,half_h,near,1200);
     glMatrixMode(GL_MODELVIEW);
 }
 static void quad(float x,float y,float w,float h,float u,float v,float du,float dv) {
@@ -511,7 +511,14 @@ static void level(const MatchView *v) {
     float cp=cosf(v->camera_pitch), sp=sinf(v->camera_pitch);
     const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
     // PC world FOV is horizontal: tan(90 degrees / 2) == 1.
-    projection(.15f,.15f*(v->scoped?SCOPE_TAN_HALF_FOV:1.f)/aspect);
+    float world_aspect=aspect,tan_half_y=(v->scoped?SCOPE_TAN_HALF_FOV:1.f)/aspect;
+    if(v->camera.z<WATER_SURFACE) {
+        // gl_drawframe distorts only the world projection below the surface.
+        float wave=sinf(v->elapsed_ms/1000.f);
+        tan_half_y=tanf(atanf(tan_half_y)+wave*.017453293f);
+        world_aspect-=wave*.1f;
+    }
+    projection(.15f,.15f*tan_half_y,world_aspect);
     glLoadMatrixf(camera);
     glTranslatef(-v->camera.x,-v->camera.y,-v->camera.z);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
@@ -764,7 +771,7 @@ static void level(const MatchView *v) {
 static void weapon_transform(const MatchView *v,int mirror) {
     // Reserve the front of the depth buffer for the view weapon.
     // The view weapon uses the PC's separate 75-degree vertical field of view.
-    projection(.30f,.30f*.76732699f);
+    projection(.30f,.30f*.76732699f,aspect);
     const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1};
     glLoadMatrixf(camera);
     glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up);
