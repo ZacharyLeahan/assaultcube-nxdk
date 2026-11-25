@@ -113,7 +113,7 @@ struct Gib {
 Gib gibs[12]; // Two knife frags reach the three-point duel limit.
 GibView gib_views[12];
 unsigned gib_count,gib_remainder;
-bool hide_bot,gib_sound,lan_match;
+bool hide_bot,gib_sound,lan_match,lan_gib_sound;
 unsigned lan_end_ms,scope_since;
 bool scoped;
 MatchSound lan_shot_sound;
@@ -768,11 +768,15 @@ void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int movi
     bot.yaw=yaw;bot.pitch=pitch;bot_pose=moving;hide_bot=false;
 }
 void match_lan_hide(void) { hide_bot=true; }
+void match_lan_remote_death(int gib) {
+    if (gib && !hide_bot) { spawn_gibs(bot); lan_gib_sound=true; }
+    match_lan_hide();
+}
 void match_lan_shot(int gun,float x,float y,float z) {
     if(!lan_match || hide_bot) return;
     bot.state.gunselect=gun;
     bot.flash_until=clock_ms+90;
-    bot.light_until=clock_ms+100;
+    bot.light_until=gun==GUN_KNIFE?0:clock_ms+100;
     lan_shot_sound=feedback[view_weapon(gun)].shot;
     if(gun==GUN_KNIFE) return;
     MatchPoint from={bot.x,bot.y,eye(bot)-.2f};
@@ -808,7 +812,7 @@ void match_lan_item(int entity,int visible,int picked_by_us) {
 int match_lan_touch_item(void) { return lan_match ? collect(player) : -1; }
 void match_lan_stop(void) { lan_shot_sound=SILENT; if(lan_match) {lan_match=false;begin(READY);} }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
-    gib_sound=false;
+    gib_sound=lan_gib_sound; lan_gib_sound=false;
     if (gib_count) update_gibs(elapsed);
     if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
     bot_sound=lan_shot_sound; lan_shot_sound=SILENT;
@@ -1037,7 +1041,8 @@ static void bot_view(MatchView *v) {
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-PLAYER_EYE_HEIGHT; v->bot_alive = !bot.respawn_at;
     v->bot_pistol=bot.state.gunselect==GUN_PISTOL && clock_ms>=bot.shot_until;
     // Both world model configs use md2emit for 50 ms.
-    v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
+    v->bot_knife=bot.state.gunselect==GUN_KNIFE;
+    v->bot_flash_end_ms = !v->bot_knife && bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     unsigned now=clock_ms+intermission_age;
     BotClip clip={0,40,0,now,idle_ms/100.f,.01f};
@@ -1096,6 +1101,7 @@ MatchSound match_attack(const MatchInput *in) {
     if (player.state.gunselect==GUN_KNIFE) {
         if (phase!=PLAYING || player.respawn_at || !fire || player.ready_at>clock_ms) return SILENT;
         unsigned action=player.ready_at>=frame_start_ms?player.ready_at:clock_ms;
+        player_shot_delay_ms=clock_ms-action;
         radar_action_until=action+500;
         player.ready_at=player.shot_until=action+attackdelay(GUN_KNIFE);
         semi_trigger_used=true;
@@ -1111,7 +1117,14 @@ MatchSound match_attack(const MatchInput *in) {
         ray.px=player.x; ray.py=player.y; ray.eye=z; ray.angle=player.yaw;
         ray.pitch=atan2f(dz,hypotf(dx,dy));
         bot_view(&ray);
-        if (target_contact(&ray,hypotf(dx,dy),true)) damage(bot,player,GUN_KNIFE,dx,dy,dz);
+        shot_contact=!hide_bot && target_contact(&ray,hypotf(dx,dy),true);
+        float length=sqrtf(dx*dx+dy*dy+dz*dz);
+        shot_direction=length>0?MatchPoint{dx/length,dy/length,dz/length}:direction;
+        if (shot_contact) {
+            length=hypotf(distance(player.x,player.y,bot.x,bot.y),eye(player)-eye(bot));
+            if (!lan_match) damage(bot,player,GUN_KNIFE,dx,dy,dz);
+        }
+        shot_end={player.x+length*shot_direction.x,player.y+length*shot_direction.y,z+length*shot_direction.z};
         return KNIFE_SWING;
     }
     MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill) : SILENT;

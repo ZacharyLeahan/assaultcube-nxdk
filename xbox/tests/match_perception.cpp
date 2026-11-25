@@ -404,3 +404,30 @@ extern "C" void test_lan_sidearm(void) {
     assert(player.state.mag[GUN_PISTOL]==10 && player.state.ammo[GUN_PISTOL]==49);
     match_lan_stop();
 }
+
+extern "C" void test_lan_knife(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_KNIFE,ammo,mag);
+    player.x=121; player.y=121; player.yaw=0; player.pitch=-.2f;
+    feet_z=ground(player.x,player.y);
+    player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    MatchInput in={}; in.fire=1;
+    match_lan_remote(126,121,feet_z,0,0,0);
+    assert(match_attack(&in)==KNIFE_SWING && !shot_contact);
+    assert(shot_end.x>123 && shot_end.x<=124);
+    match_lan_remote(124,121,feet_z,0,0,0);
+    clock_ms=500;
+    assert(match_attack(&in)==SILENT);
+    in.fire=0;match_attack(&in);in.fire=1;
+    int hp=bot.state.health;
+    assert(match_attack(&in)==KNIFE_SWING && shot_contact);
+    assert(bot.state.health==hp && !player.frags);
+    match_lan_shot(GUN_KNIFE,121,121,feet_z);
+    MatchView v={};match_view(&v);
+    assert(v.bot_knife && !v.bot_light && !v.bot_flash_end_ms);
+    match_lan_remote_death(1);
+    in={};match_update(&in,16,.016f);match_view(&v);
+    assert(v.hide_bot && v.gib_count==6 && v.gib_sound);
+    match_lan_stop();
+}

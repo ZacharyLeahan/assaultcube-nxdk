@@ -236,7 +236,7 @@ int main(void) {
         int classic=0, tuned=0;
         unsigned buttons=0;
         int scope=0, jump=0, crouch=0, showmap=0;
-        int knife_select=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
+        int knife_select=0, lan_knife=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
             Pad *pad = &pads[i];
             SDL_GameController *p = pad->handle;
@@ -255,7 +255,11 @@ int main(void) {
             int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
             int down=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_DOWN);
             if (down) buttons|=DOWN;
-            if (SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_UP)) buttons|=UP;
+            int up=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_UP);
+            if (up) buttons|=UP;
+            int melee=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+            lan_knife |= melee && !pad->previous_melee;
+            pad->previous_melee=melee;
             knife_select |= down && !pad->previous_knife;
             pad->previous_knife=down;
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
@@ -313,7 +317,8 @@ int main(void) {
         MatchSound effect=SILENT;
         if(lan_connected()) {
             if(input.knife_select && !releasing && !paused && system.choice==MENU_CLOSED) lan_toggle_primary(now);
-            input.knife_select=input.start=0;
+            input.knife_select=lan_knife;
+            input.start=0;
         }
         if (system.choice==MENU_CLOSED && !paused) {
             if (releasing) input=(MatchInput){0};

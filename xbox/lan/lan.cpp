@@ -186,7 +186,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(!r.valid) return;
             if(actor==own || actor==remote) match_lan_score(actor==own,frags);
             if(victim==own) {alive=false;next_spawn=now+2200;match_lan_health(0,0);}
-            if(victim==remote) match_lan_hide();
+            if(victim==remote) match_lan_remote_death(type==SV_GIBDIED);
             break;
         }
         case SV_CDIS: if(r.integer()==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");} break;
@@ -328,13 +328,13 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         Message change;change.word(SV_WEAPCHANGE);change.word(gun);change.transmit();
         sent_weapon=gun;
     }
-    if(effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT) {
+    if(effect==KNIFE_SWING || effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT) {
         Message m;m.word(SV_SHOOT);m.word(match_lan_shot_time(now));m.word(gun);
         MatchPoint dir=v->shot_direction;
         m.word(v->shot_end.x*DMF);m.word(v->shot_end.y*DMF);m.word(v->shot_end.z*DMF);
         bool hit=remote>=0 && v->shot_contact;
         m.word(hit);
-        if(hit){m.word(remote);m.word(remote_life);m.word(gun==GUN_SNIPER && v->shot_contact==2);
+        if(hit){m.word(remote);m.word(remote_life);m.word(gun==GUN_KNIFE || (gun==GUN_SNIPER && v->shot_contact==2));
             m.word(dir.x*DNF);m.word(dir.y*DNF);m.word(dir.z*DNF);}
         m.transmit();
     }

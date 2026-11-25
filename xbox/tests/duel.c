@@ -669,6 +669,7 @@ static void test_prop_depth(void) {
 }
 
 void test_lan_sidearm(void);
+void test_lan_knife(void);
 void test_lan_pickups(void);
 void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
@@ -681,6 +682,7 @@ void test_wall_impact_lifetime(void);
 
 int main(void) {
     test_lan_sidearm();
+    test_lan_knife();
     test_lan_pickups();
     test_easy_bot_perception();
     test_easy_bot_spacing();
