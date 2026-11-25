@@ -21,6 +21,8 @@ asset auto
 asset auto_reload
 asset sub
 asset sub_reload
+asset shotgun
+asset shotgun_reload
 asset carbine
 asset carbine_reload
 asset sniper

@@ -33,6 +33,7 @@ typedef struct {
 } WeaponArt;
 static const WeaponArt weapon_art[]={
     [VIEW_RIFLE]={assault_batches,ASSAULT_SURFACES,0,assault_muzzle,.75f,2,1,"Y   Primary: MTP-57 rifle"},
+    [VIEW_SHOTGUN]={shotgun_batches,SHOTGUN_SURFACES,SHOTGUN_DEATH_BATCH,shotgun_muzzle,.75f,3,0,"Y   Primary: V-19 CS shotgun"},
     [VIEW_SMG]={subgun_batches,SUBGUN_SURFACES,SUBGUN_DEATH_BATCH,subgun_muzzle,.55f,0,1,"Y   Primary: A-ARD/10 SMG"},
     [VIEW_SNIPER]={sniper_batches,SNIPER_SURFACES,SNIPER_DEATH_BATCH,sniper_muzzle,.50f,1,1,"Y   Primary: AD-81 sniper   /   LT scope"},
     [VIEW_CARBINE]={carbine_batches,CARBINE_SURFACES,CARBINE_DEATH_BATCH,carbine_muzzle,.50f,2,0,"Y   Primary: TMP-M&A CB carbine"},
@@ -60,6 +61,7 @@ static const WorldWeapon world_weapons[]={
     [VIEW_RIFLE]=WORLD_MODEL(BOT_GUN,bot_gun,bot_gun_muzzle,.525f),
     [VIEW_PISTOL]=WORLD_MODEL(WORLD_PISTOL,world_pistol,world_pistol_muzzle,.175f),
     [VIEW_KNIFE]=WORLD_MODEL(WORLD_KNIFE,world_knife,NULL,0),
+    [VIEW_SHOTGUN]=WORLD_MODEL(WORLD_SHOTGUN,world_shotgun,world_shotgun_muzzle,.525f),
     [VIEW_SMG]=WORLD_MODEL(WORLD_SMG,world_smg,world_smg_muzzle,.385f),
     [VIEW_CARBINE]=WORLD_MODEL(WORLD_CARBINE,world_carbine,world_carbine_muzzle,.35f),
     [VIEW_SNIPER]=WORLD_MODEL(WORLD_SNIPER,world_sniper,world_sniper_muzzle,.7f)

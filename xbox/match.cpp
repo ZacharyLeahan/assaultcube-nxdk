@@ -18,12 +18,14 @@ const WeaponFeedback feedback[]={
     {CARBINE_SHOT,CARBINE_RELOAD,"you picked off Bot"},
     {PISTOL_SHOT,PISTOL_RELOAD,"you busted Bot"},
     {KNIFE_SWING,SILENT,"you slashed Bot"},
-    {SNIPER_SHOT,SNIPER_RELOAD,"you sniped Bot"}
+    {SNIPER_SHOT,SNIPER_RELOAD,"you sniped Bot"},
+    {SHOTGUN_SHOT,SHOTGUN_RELOAD,"you splattered Bot"}
 };
 MatchWeapon view_weapon(int gun) {
     switch (gun) {
     case GUN_PISTOL: return VIEW_PISTOL;
     case GUN_KNIFE: return VIEW_KNIFE;
+    case GUN_SHOTGUN: return VIEW_SHOTGUN;
     case GUN_SUBGUN: return VIEW_SMG;
     case GUN_SNIPER: return VIEW_SNIPER;
     case GUN_CARBINE: return VIEW_CARBINE;
@@ -1239,7 +1241,7 @@ void match_view(MatchView *v) {
             v->next_gun_pose=v->gun_pose<12?v->gun_pose+1:12;
             v->gun_pose_blend=frame-floorf(frame);
         } else {
-            unsigned poses=(gun==GUN_CARBINE || gun==GUN_SNIPER)?50:8;
+            unsigned poses=gun==GUN_SHOTGUN?25:(gun==GUN_CARBINE || gun==GUN_SNIPER)?50:8;
             v->gun_pose=1+((unsigned)frame%poses); v->next_gun_pose=1+v->gun_pose%poses;
             v->gun_pose_blend=frame-floorf(frame);
             v->flash=age<(unsigned)fmaxf(120,attackdelay(gun))/4;

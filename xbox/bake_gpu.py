@@ -284,7 +284,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     player=packages/"models/playermodels"
     md2(player,player/"CLA/01.jpg",(256,256),"BODY")
     world_models=(("assault","bot_gun"),("pistol","world_pistol"),("knife","world_knife"),
-                  ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"))
+                  ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"),("shotgun","world_shotgun"))
     world_counts=[]
     for weapon,name in world_models:
         mark(name.upper()+"_BATCH",len(batches))
@@ -299,7 +299,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
     hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
-    for name in ("assault","pistol","knife","subgun","carbine","sniper"):
+    for name in ("assault","pistol","knife","subgun","carbine","sniper","shotgun"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
         tex=weapon_skin(folder/"skin_weapon.jpg")
@@ -331,7 +331,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
     mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
-    for name in ("knife","subgun","carbine","sniper"):
+    for name in ("knife","subgun","carbine","sniper","shotgun"):
         folder=packages/"models/weapons"/name/"world"
         mark(name.upper()+"_DEATH_BATCH",len(batches))
         md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
