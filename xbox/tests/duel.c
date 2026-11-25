@@ -691,6 +691,7 @@ void test_lan_prediction(void);
 void test_lan_jump_report(void);
 void test_lan_ffa_starts(void);
 void test_stock_bot_round(void);
+void test_stock_bot_primaries(void);
 void test_lan_damage_feedback(void);
 void test_lan_primary_loadouts(void);
 void test_shotgun_pellets(void);
@@ -717,6 +718,7 @@ int main(void) {
     test_lan_jump_report();
     test_lan_ffa_starts();
     test_stock_bot_round();
+    test_stock_bot_primaries();
     test_lan_damage_feedback();
     test_lan_primary_loadouts();
     test_shotgun_pellets();

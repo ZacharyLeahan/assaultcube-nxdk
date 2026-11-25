@@ -536,6 +536,29 @@ extern "C" void test_stock_bot_round(void) {
     match_prepare();
 }
 
+extern "C" void test_stock_bot_primaries(void) {
+    start_perception_test();stock_round=true;
+    unsigned drawn=0;
+    for(int i=0;i<60;++i) {
+        spawn(bot,3,0);
+        assert(bot.state.primary>=GUN_CARBINE && bot.state.primary<=GUN_ASSAULT);
+        assert(bot.state.mag[bot.state.primary]==magsize(bot.state.primary));
+        drawn|=1u<<(bot.state.primary-GUN_CARBINE);
+    }
+    assert(drawn==31);
+    for(int gun=GUN_CARBINE;gun<=GUN_ASSAULT;++gun) {
+        start_perception_test();stock_round=true;
+        place_target(0,4);feet_z=eye(player)-PLAYER_EYE_HEIGHT;
+        player.yaw=player.pitch=0;bot_saw_player=true;
+        bot.state.primary=bot.state.gunselect=gun;bot.state.mag[gun]=magsize(gun);
+        bot_attack_at=0;bot.ready_at=0;
+        update_bot(0);
+        assert(bot_sound==feedback[view_weapon(gun)].shot && bot.state.mag[gun]==magsize(gun)-1);
+        assert(player.state.health<100);
+    }
+    match_prepare();
+}
+
 extern "C" void test_lan_ffa_starts(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     match_prepare();match_lan_map(91);

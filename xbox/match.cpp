@@ -12,6 +12,8 @@ typedef unsigned char uchar;
 #include "../source/src/sound.h"
 #include "../source/src/weaponstats.inc"
 
+static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,MatchView *target,bool incoming=false);
+static int target_contact(const MatchView *v,float range,bool check_geometry);
 namespace {
 struct WeaponFeedback { MatchSound shot,reload; const char *verb; };
 const WeaponFeedback feedback[]={
@@ -48,6 +50,8 @@ constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
 constexpr unsigned bot_match_duration=15*60*1000;
 bool stock_round,respawn_trigger;
+int last_bot_gun;
+unsigned bot_scope_since;
 struct BotSkill {
     int pitch_min,pitch_max,yaw_min,yaw_max,pitch_error_min,pitch_error_max,yaw_error_min,yaw_error_max;
     int attack_min,attack_max,search_min,search_max,detect_radius;
@@ -300,6 +304,11 @@ float ground(float x, float y) { return map_floor(map_cube((int)x,(int)y)); }
 float distance(float x,float y,float tx,float ty) { return hypotf(tx-x,ty-y); }
 float eye(const Fighter &f) { return f.eye_height; }
 void spawn(Fighter &f, int index, float offset=.5f) {
+    if(&f==&bot) {
+        f.state.nextprimary=stock_round && !lan_match ? GUN_CARBINE+random_number()%5 : GUN_ASSAULT;
+        last_bot_gun=f.state.nextprimary;
+        bot_scope_since=0;
+    }
     f.x = starts[index][0]+offset; f.y = starts[index][1]+offset;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
@@ -419,7 +428,8 @@ void impulse(Fighter &f,float x,float y,float z,float amount) {
 }
 void firing_impulse(Fighter &f,int gun,float dx,float dy,float dz,bool crouched) {
     float recoil=guns[gun].recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
-    if (&f==&player && gun==GUN_SNIPER && scoped && clock_ms-scope_since>180) recoil/=3;
+    if (gun==GUN_SNIPER && ((&f==&player && scoped && clock_ms-scope_since>180) ||
+        (&f==&bot && bot_scope_since && clock_ms-bot_scope_since>180))) recoil/=3;
     impulse(f,dx,dy,dz,-.01f*recoil*(crouched?.75f:1));
 }
 static MatchPoint retreat_camera(float yaw) {
@@ -683,12 +693,25 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     bool wall=trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit);
     float wall_depth=512*hit.fraction;
     float reach=prop_depth(from,{dx,dy,dz},wall_depth);
+    MatchView ray={};
+    if(gun==GUN_SHOTGUN || gun==GUN_SNIPER) {
+        ray.px=from.x;ray.py=from.y;ray.eye=from.z;ray.angle=yaw;ray.pitch=pitch;
+        ray.tx=player.x;ray.ty=player.y;ray.bot_floor=feet_z;ray.bot_height=stance;
+        ray.bot_alive=!player.respawn_at;ray.bot_yaw=player.yaw;ray.bot_tilt=player.pitch*.25f;
+        ray.bot_head=bot_model_point(&ray,head_poses[was_crouching?135:0]);
+    }
+    if(gun==GUN_SHOTGUN) {
+        float norm=hypotf(1,dz);
+        shotgun_pattern(from,{dx/norm,dy/norm,dz/norm},reach*norm,&ray,true);
+        return;
+    }
     bool reaches_wall=wall && reach==wall_depth;
     MatchPoint delta={from.x-player.x,from.y-player.y,from.z-feet_z};
     float contact=torso_contact(delta,player.yaw,player.pitch*.25f,stance,dx,dy,dz,reach);
-    if (contact>=0) {
-        reach=contact;
-        damage(player,bot,gun,dx,dy,dz);
+    bool head=gun==GUN_SNIPER && target_contact(&ray,reach,false)==2;
+    if (contact>=0 || head) {
+        reach=head?distance(from.x,from.y,ray.bot_head.x,ray.bot_head.y):contact;
+        damage(player,bot,gun,dx,dy,dz,head);
     }
     target={from.x+reach*dx,from.y+reach*dy,from.z+reach*dz};
     // PC attackfx still marks a surface within one unit of a struck actor.
@@ -726,6 +749,8 @@ float turn_bot_toward(float ideal,float dt) {
 struct CombatRange { float near,far,max_fire; };
 // WeaponInfoTable in the Windows bot's ac_bot_ai.cpp.
 constexpr CombatRange rifle_range={20,80,150},pistol_range={3.5f,15,60};
+constexpr CombatRange bot_ranges[NUMGUNS]={{0,5,3.5f},pistol_range,{15,80,180},{0,15,50},
+    {0,25,60},{10,125,200},rifle_range,{5,30,50},{0,50,50}};
 // Probe the forward or retreat arc in 45-degree steps, as in DoCombatNav.
 void choose_combat_move(float distance,const CombatRange &range) {
     combat_forward=0;
@@ -784,8 +809,8 @@ void start_recoil(Fighter &fighter,int gun) {
 }
 void apply_spread(const Fighter &fighter,int gun,float &dx,float &dy,float &dz) {
     int spread=guns[gun].spread;
-    if (&fighter==&player && gun==GUN_SNIPER && scoped) {
-        unsigned age=clock_ms-scope_since;
+    if (gun==GUN_SNIPER && (&fighter==&player?scoped:bot_scope_since!=0)) {
+        unsigned age=clock_ms-(&fighter==&player?scope_since:bot_scope_since);
         spread=age>=180?1:(int)fmaxf(1,spread*(180-(int)age)/180);
     }
     if (gun==GUN_ASSAULT) spread=fighter.shots>2?55:spread+(fighter.shots==1?5:15);
@@ -858,7 +883,7 @@ void update_bot(float dt) {
         bot.state.gunselect=GUN_PISTOL;
         combat_move_until=0;
     }
-    const CombatRange &range=bot.state.gunselect==GUN_PISTOL?pistol_range:rifle_range;
+    const CombatRange &range=bot_ranges[bot.state.gunselect];
     float dx = player.x-bot.x, dy = player.y-bot.y;
     float d = fmaxf(.01f,hypotf(dx,dy));
     // Windows FindEnemy retains a visible opponent outside the acquisition cone.
@@ -930,25 +955,40 @@ void update_bot(float dt) {
     float ax=player.x-bot.x+aim_random(-xy_error,xy_error)*scale;
     float ay=player.y-bot.y+aim_random(-xy_error,xy_error)*scale;
     float az=dz+aim_random(-z_error,z_error)*scale;
+    if(stock_round && bot.state.gunselect==GUN_SNIPER) {
+        MatchView target={};
+        target.tx=player.x;target.ty=player.y;target.bot_yaw=player.yaw;
+        target.bot_floor=feet_z;target.bot_tilt=player.pitch*.25f;
+        MatchPoint head=bot_model_point(&target,head_poses[was_crouching?135:0]);
+        ax+=head.x-player.x;ay+=head.y-player.y;az+=head.z-eye(player);
+        if(d>15 && !bot_scope_since) bot_scope_since=clock_ms;
+        else if(d<=15 && bot_scope_since && clock_ms-bot_scope_since<1000) bot_scope_since=0;
+    } else bot_scope_since=0;
     if(stock_round && player.velocity_x*player.velocity_x+player.velocity_y*player.velocity_y+
        net_vertical_velocity*net_vertical_velocity>1) {
         float predict=aim_random(.4f,.6f);
         ax+=player.velocity_x*predict;ay+=player.velocity_y*predict;az+=net_vertical_velocity*predict;
     }
-    bot.yaw=bot_aim_step(bot.yaw,atan2f(ay,ax),false,dt);
-    bot.pitch=bot_aim_step(bot.pitch,atan2f(az,sqrtf(ax*ax+ay*ay+az*az)),true,dt);
+    float target_yaw=atan2f(ay,ax),target_pitch=atan2f(az,sqrtf(ax*ax+ay*ay+az*az));
+    bot.yaw=bot_aim_step(bot.yaw,target_yaw,false,dt);
+    bot.pitch=bot_aim_step(bot.pitch,target_pitch,true,dt);
     bot.pitch=fmaxf(-75*radians,fminf(75*radians,bot.pitch+recoil_degrees(bot,false)*radians));
-    if (clock_ms<bot_attack_at || clock_ms<bot.ready_at || fire_distance<3 || fire_distance>range.max_fire) return;
+    float min_fire=bot.state.gunselect==GUN_SHOTGUN?0:3;
+    if (clock_ms<bot_attack_at || clock_ms<bot.ready_at || fire_distance<min_fire || fire_distance>range.max_fire) return;
+    if ((bot.state.gunselect==GUN_CARBINE || bot.state.gunselect==GUN_SNIPER) &&
+        (fabsf(remainderf(bot.yaw-target_yaw,2*3.14159265f))>5*radians ||
+         fabsf(bot.pitch-target_pitch)>15*radians)) return;
     MatchSound shot=trigger(bot,true,false);
-    if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
+    if (shot==feedback[view_weapon(bot.state.gunselect)].shot) {
         int fired=bot.state.gunselect;
-        if (fired==GUN_ASSAULT) bot.shot_until=bot.ready_at;
+        last_bot_gun=fired;
+        if (stock_round || fired==GUN_ASSAULT) bot.shot_until=bot.ready_at;
         start_recoil(bot,fired);
         float x=cosf(bot.pitch)*cosf(bot.yaw),y=cosf(bot.pitch)*sinf(bot.yaw),z=sinf(bot.pitch);
         firing_impulse(bot,fired,x,y,z,false);
-        apply_spread(bot,fired,x,y,z);
+        if(fired!=GUN_SHOTGUN) apply_spread(bot,fired,x,y,z);
         bot_fire_ray(atan2f(y,x),atan2f(z,hypotf(x,y)),fired);
-    } else if (shot==RIFLE_RELOAD || shot==PISTOL_RELOAD) bot.shots=0;
+    } else if (shot==feedback[view_weapon(bot.state.gunselect)].reload) bot.shots=0;
     bot_sound = shot;
 }
 }
@@ -1042,7 +1082,6 @@ void match_lan_remote_death(int gib) {
     if(gib) { spawn_gibs(bot); lan_gib_sound=true; }
 
 }
-static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,MatchView *target);
 void match_lan_shot(int gun,float x,float y,float z) {
     if(!lan_match || hide_bot) return;
     if(gun==GUN_GRENADE) {bot.state.gunselect=gun;lan_shot_sound=GRENADE_PULL;return;}
@@ -1410,7 +1449,7 @@ static void bot_view(MatchView *v) {
     v->bot_height=lan_match?remote_stance:PLAYER_EYE_HEIGHT;
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-v->bot_height; v->bot_alive = !bot.respawn_at;
     v->bot_weapon=view_weapon(bot.state.gunselect);
-    if (!lan_match && v->bot_weapon==VIEW_PISTOL && clock_ms<bot.shot_until) v->bot_weapon=VIEW_RIFLE;
+    if (!lan_match && clock_ms<bot.shot_until) v->bot_weapon=view_weapon(last_bot_gun);
     v->bot_flash_end_ms = v->bot_weapon!=VIEW_KNIFE && v->bot_weapon!=VIEW_GRENADE && bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     unsigned now=clock_ms+intermission_age;
@@ -1448,9 +1487,8 @@ static void bot_view(MatchView *v) {
     if (v->pose_transition<1) head=mix_point(head_position(v->previous_pose),head,v->pose_transition);
     v->bot_head=bot_model_point(v,head);
 }
-static int target_contact(const MatchView *v,float range,bool check_geometry);
 // Stock createrays rotates 21 spokes in each of three independently jittered rings.
-static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,MatchView *target) {
+static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,MatchView *target,bool incoming) {
     const int base[]={SGCObase,SGCMbase,SGCCbase},width[]={SGCOrange,SGCMrange,SGCCrange};
     const float horizontal=hypotf(direction.x,direction.y);
     MatchPoint u=horizontal>.0001f?MatchPoint{-direction.y/horizontal,direction.x/horizontal,0}:MatchPoint{1,0,0};
@@ -1485,13 +1523,14 @@ static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,Ma
     if(!target) return;
     int total=hits[0]+hits[1]+hits[2];
     int bonus=total && victim_distance<=SGDMGDISTB/10.f?SGDMGBONUS:0;
-    shotgun_info=(hits[0]<<24)|(hits[1]<<16)|(hits[2]<<8)|bonus;
-    shot_contact=total!=0;
     if(total && !lan_match) {
         float weighted=(hits[0]*SGCOdmg+hits[1]*SGCMdmg+hits[2]*SGCCdmg)/10.f;
         int dealt=(int)ceilf(bonus+weighted*(SGDMGTOTAL/(SGRAYS*100.f)));
-        damage(bot,player,GUN_SHOTGUN,direction.x,direction.y,direction.z,false,dealt,total==3*SGRAYS);
+        damage(incoming?player:bot,incoming?bot:player,GUN_SHOTGUN,direction.x,direction.y,direction.z,false,dealt,total==3*SGRAYS);
     }
+    if(incoming) return;
+    shotgun_info=(hits[0]<<24)|(hits[1]<<16)|(hits[2]<<8)|bonus;
+    shot_contact=total!=0;
     float endpoint=total?victim_distance:length;
     shot_direction=direction;
     shot_end={from.x+endpoint*direction.x,from.y+endpoint*direction.y,from.z+endpoint*direction.z};
