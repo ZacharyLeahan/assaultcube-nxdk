@@ -162,6 +162,7 @@ static float surface_delta(int ix,int iy,float u,float v,int ceiling) {
     return (a+v*(e-a)+u*(c-e))*.25f;
 }
 int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit *hit) {
+    if (hit) hit->fraction=1;
     float dx = tx-x, dy = ty-y;
     // Visit each boundary so thin pillars and raised ledges occlude gunfire.
     int ix = (int)x, iy = (int)y, sx = dx >= 0 ? 1 : -1, sy = dy >= 0 ? 1 : -1;
@@ -206,15 +207,17 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
         }
         if (solid || a<=fa || b<=fb || a>=ca || b>=cb) {
             if (hit) {
-                if (solid && !wall) return 0;
                 int axis=entry_axis;
+                int sky=solid && !wall;
                 if (!solid && a>fa && a<ca) {
-                    if (b>=cb && !roof) return 0; // open sky
+                    sky=b>=cb && !roof;
                     float before=b<=fb ? a-fa : ca-a;
                     float after=b<=fb ? b-fb : cb-b;
                     t+=(end-t)*before/(before-after);
                     axis=2;
                 }
+                hit->fraction=t; // Geometric depth before the bullet-mark offset, including sky.
+                if (sky) return 0;
                 hit->x=x+t*dx; hit->y=y+t*dy; hit->z=z+t*(tz-z); hit->axis=axis;
                 if (axis==0) hit->x-=sx*.015f;
                 if (axis==1) hit->y-=sy*.015f;

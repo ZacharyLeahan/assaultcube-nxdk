@@ -337,6 +337,12 @@ static void test_bot_hitpush(void) {
     assert(match_attack(&in)==RIFLE_SHOT);
     match_view(&after);
     assert(after.blood_count>0);
+    assert(after.spark_count==5);
+    float effect_distance=hypotf(hypotf(after.sparks[0].x-before.px,after.sparks[0].y-before.py),
+                                 after.sparks[0].z-(before.eye-.2f));
+    float target_distance=hypotf(hypotf(before.tx-before.px,before.ty-before.py),
+                                 map_floor(map_cube((int)before.tx,(int)before.ty))+3.6f-before.eye);
+    assert(fabsf(effect_distance-target_distance)<.001f);
     in.fire=0;
     for (int i=0;i<20;++i) match_update(&in,5,.005f);
     match_view(&after);
@@ -371,13 +377,29 @@ int main(void) {
     match_update(&floor_shot,16,.016f);
     floor_shot=(MatchInput){.look=-1};
     for (int i=0;i<20;++i) match_update(&floor_shot,16,.016f);
+    match_view(&effects);
+    float floor_z=map_floor(map_cube((int)effects.px,(int)effects.py));
+    float depth=(floor_z-effects.eye)/sinf(effects.pitch);
+    float horizontal=depth*cosf(effects.pitch);
+    float length=hypotf(horizontal,floor_z-(effects.eye-.2f));
+    // Original attackphysics adds three spread offsets to the target, scaled
+    // by muzzle-to-target distance. These are the seeded first rifle offsets.
+    float target_x=effects.px+horizontal*cosf(effects.angle)+.009f*length;
+    float target_y=effects.py+horizontal*sinf(effects.angle)+.010f*length;
     floor_shot.fire=1;
     assert(match_attack(&floor_shot)==RIFLE_SHOT);
     match_view(&effects);
     assert(effects.mark_count==1 && effects.spark_count==5);
+    assert(fabsf(effects.sparks[0].x-target_x)<.00005f);
+    assert(fabsf(effects.sparks[0].y-target_y)<.00005f);
+    assert(fabsf(effects.sparks[0].z-(floor_z+.011f*length))<.00005f);
     for (unsigned i=0;i<effects.spark_count;++i) {
         const SplashParticle *p=effects.sparks+i;
-        assert(p->x==effects.marks[0].x && p->y==effects.marks[0].y && p->z==effects.marks[0].z);
+        // Sparks start at the spread-adjusted endpoint. The hole lies on
+        // the map surface and has its separate offset to avoid z-fighting.
+        assert(hypotf(hypotf(p->x-effects.marks[0].x,p->y-effects.marks[0].y),
+                      p->z-effects.marks[0].z)<1.015f);
+        assert(p->x==effects.sparks[0].x && p->y==effects.sparks[0].y && p->z==effects.sparks[0].z);
         assert(p->born==effects.elapsed_ms && p->lifetime<750);
         assert(p->dx*p->dx+p->dy*p->dy+p->dz*p->dz<=150*150);
     }
@@ -396,6 +418,7 @@ int main(void) {
     assert(floor>ceiling);
     assert(visible(131.1f,134.1f,3,131.2f,134.2f,3));
     assert(trace_surface(131.1f,134.1f,3,131.9f,134.9f,3,&slope));
+    assert(fabsf(slope.fraction-.5f)<.001f);
     assert(slope.axis==3 && fabsf(slope.x-131.489f)<.001f && fabsf(slope.y-134.489f)<.001f);
     float slide_x=131.17f,slide_y=134.17f;
     walk_body(&slide_x,&slide_y,.1f,0,-2,4.5f,1.5f);
