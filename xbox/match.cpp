@@ -1118,11 +1118,9 @@ void match_view(MatchView *v) {
             v->next_gun_pose=v->gun_pose<12?v->gun_pose+1:12;
             v->gun_pose_blend=frame-floorf(frame);
         } else {
-            // The original carbine MD3 has identical geometry and muzzle tags in every pose.
-            if (gun!=GUN_CARBINE) {
-                v->gun_pose=1+((unsigned)frame%8); v->next_gun_pose=1+v->gun_pose%8;
-                v->gun_pose_blend=frame-floorf(frame);
-            }
+            unsigned poses=gun==GUN_CARBINE?50:8;
+            v->gun_pose=1+((unsigned)frame%poses); v->next_gun_pose=1+v->gun_pose%poses;
+            v->gun_pose_blend=frame-floorf(frame);
             v->flash=age<(unsigned)fmaxf(120,attackdelay(gun))/4;
         }
         float phase=1.5f*t-1.5f;

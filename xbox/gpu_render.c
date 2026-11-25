@@ -23,18 +23,19 @@ typedef struct { int x,y; unsigned first,count; } PropLightSpan;
 #include "generated/gpu.h"
 #include "generated/water.h"
 typedef struct {
-    unsigned batch,surfaces,death_batch;
+    const unsigned short *poses;
+    unsigned surfaces,death_batch;
     const float (*muzzle)[3];
     float flash_scale;
     unsigned icon_x,icon_y;
     const char *choice;
 } WeaponArt;
 static const WeaponArt weapon_art[]={
-    [VIEW_RIFLE]={ASSAULT_BATCH,ASSAULT_SURFACES,0,assault_muzzle,.75f,2,1,"Y   Primary: MTP-57 rifle"},
-    [VIEW_SMG]={SUBGUN_BATCH,SUBGUN_SURFACES,SUBGUN_DEATH_BATCH,subgun_muzzle,.55f,0,1,"Y   Primary: A-ARD/10 SMG"},
-    [VIEW_CARBINE]={CARBINE_BATCH,CARBINE_SURFACES,CARBINE_DEATH_BATCH,carbine_muzzle,.50f,2,0,"Y   Primary: TMP-M&A CB carbine"},
-    [VIEW_PISTOL]={PISTOL_BATCH,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
-    [VIEW_KNIFE]={KNIFE_BATCH,KNIFE_SURFACES,KNIFE_DEATH_BATCH,NULL,0,0,0,NULL}
+    [VIEW_RIFLE]={assault_batches,ASSAULT_SURFACES,0,assault_muzzle,.75f,2,1,"Y   Primary: MTP-57 rifle"},
+    [VIEW_SMG]={subgun_batches,SUBGUN_SURFACES,SUBGUN_DEATH_BATCH,subgun_muzzle,.55f,0,1,"Y   Primary: A-ARD/10 SMG"},
+    [VIEW_CARBINE]={carbine_batches,CARBINE_SURFACES,CARBINE_DEATH_BATCH,carbine_muzzle,.50f,2,0,"Y   Primary: TMP-M&A CB carbine"},
+    [VIEW_PISTOL]={pistol_batches,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
+    [VIEW_KNIFE]={knife_batches,KNIFE_SURFACES,KNIFE_DEATH_BATCH,NULL,0,0,0,NULL}
 };
 extern const unsigned char gpu_textures[];
 static Vertex *geometry;
@@ -117,7 +118,7 @@ int gpu_init(int width, int height) {
     for (unsigned i=0;i<sizeof(weapon_art)/sizeof(weapon_art[0]);++i) {
         const WeaponArt *art=weapon_art+i;
         unsigned count=0;
-        for (unsigned j=0;j<art->surfaces;++j) count+=batches[art->batch+j].count;
+        for (unsigned j=0;j<art->surfaces;++j) count+=batches[art->poses[0]+j].count;
         extra=MAX_COUNT(extra,count);
         if (art->death_batch) extra=MAX_COUNT(extra,batches[BODY_BATCH].count+batches[art->death_batch].count);
     }
@@ -678,8 +679,8 @@ static void weapon(const MatchView *v) {
     model_color(v->px,v->py);
     bind_vertices(geometry);
     const WeaponArt *art=&weapon_art[v->weapon];
-    unsigned current=art->batch+art->surfaces*v->gun_pose,next=art->batch+art->surfaces*v->next_gun_pose;
-    for (unsigned i=0;i<art->surfaces;++i) animated_batch(current+i,next+i,v->gun_pose_blend);
+    unsigned current=art->poses[v->gun_pose],next=art->poses[v->next_gun_pose];
+    for (unsigned i=0;i<art->surfaces;++i) animated_batch(current+i,next+i,current==next?0:v->gun_pose_blend);
     glEnableClientState(GL_COLOR_ARRAY);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
 }
