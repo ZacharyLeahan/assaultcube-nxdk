@@ -64,7 +64,7 @@ def bake():
         if kind == 2 and team == 100:
             starts.append((x, y, yaw))
         elif kind in item_kinds:
-            pickups.append((x, y, yaw, item_kinds[kind]))
+            pickups.append((x, y, yaw, item_kinds[kind], i))
         elif kind == 12:
             ladders.append((x,y,yaw))  # attr1 is height above the cell floor
         elif kind == 15:
@@ -117,7 +117,7 @@ def bake():
     (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
-        "".join(f"    {{{x}, {y}, {height}, {kind}}},\n" for x, y, height, kind in pickups) + "};\n")
+        "".join(f"    {{{x}, {y}, {height}, {kind}, {entity}}},\n" for x, y, height, kind, entity in pickups) + "};\n")
     from bake_corners import map_corners
     corners = map_corners(cells,deltas)
     records = []

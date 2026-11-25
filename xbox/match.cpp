@@ -30,7 +30,7 @@ MatchWeapon view_weapon(int gun) {
     default: return VIEW_RIFLE;
     }
 }
-struct ItemLocation { int x, y, height_tenths, kind; };
+struct ItemLocation { int x, y, height_tenths, kind, entity; };
 #include "generated/starts.h"
 #include "generated/items.h"
 #include "generated/water.h"
@@ -69,6 +69,9 @@ unsigned damage_directions[8];
 unsigned radar_action_until;
 int supply_index=-1;
 unsigned next_supply_check;
+bool lan_item_visible[item_count];
+unsigned lan_retry_at[item_count];
+MatchSound lan_pickup_sound;
 unsigned unavailable_until[item_count], random_state, aim_state;
 int bot_pose;
 float stride_phase,stride_rate;
@@ -422,22 +425,31 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
     f.light_until=clock_ms+100;
     return feedback[view_weapon(gun)].shot;
 }
-void collect(Fighter &f) {
-    if (f.respawn_at) return;
+MatchSound pickup_effect(int kind) {
+    return kind==I_HEALTH?PICKUP_HEALTH:kind==I_HELMET?PICKUP_HELMET:
+           kind==I_ARMOUR?PICKUP_ARMOUR:PICKUP_AMMO;
+}
+int collect(Fighter &f) {
+    if (f.respawn_at) return -1;
     for (int i = 0; i < item_count; ++i) {
         const ItemLocation &p = locations[i];
         float dz=(&f==&player?feet_z:f.eye_height-PLAYER_EYE_HEIGHT)-ground(p.x,p.y)-p.height_tenths*.1f;
         float dx=f.x-p.x, dy=f.y-p.y;
-        if (unavailable_until[i] > clock_ms || dx*dx+dy*dy+dz*dz>=6.25f ||
+        if ((lan_match ? !lan_item_visible[i] || clock_ms<lan_retry_at[i] : unavailable_until[i]>clock_ms) || dx*dx+dy*dy+dz*dz>=6.25f ||
             !f.state.canpickup(p.kind)) continue;
+        if (lan_match) {
+            // Rejected requests have no reply. Retry only while still in range.
+            lan_retry_at[i]=clock_ms+500;
+            return p.entity;
+        }
         f.state.pickup(p.kind);
         if (&f==&player) {
-            pickup_sound=p.kind==I_HEALTH?PICKUP_HEALTH:p.kind==I_HELMET?PICKUP_HELMET:
-                         p.kind==I_ARMOUR?PICKUP_ARMOUR:PICKUP_AMMO;
+            pickup_sound=pickup_effect(p.kind);
         }
         unsigned delay = p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
         unavailable_until[i] = clock_ms+delay;
     }
+    return -1;
 }
 // Both volumes use horizontal ray distance as their parameter. Rotating into
 // actor-local space makes the pitched torso an upright finite cylinder.
@@ -764,13 +776,31 @@ void match_lan_health(int hp,int armour) {
 }
 void match_lan_time(unsigned remaining_ms) { lan_end_ms=clock_ms+remaining_ms; }
 void match_lan_score(int local,int frags) { (local?player:bot).frags=frags; }
+void match_lan_reset_items(void) {
+    memset(lan_item_visible,0,sizeof(lan_item_visible));
+    memset(lan_retry_at,0,sizeof(lan_retry_at));
+    lan_pickup_sound=SILENT;
+}
+void match_lan_item(int entity,int visible,int picked_by_us) {
+    for (int i=0;i<item_count;++i) if (locations[i].entity==entity) {
+        if (lan_item_visible[i] && picked_by_us && lan_match && !player.respawn_at) {
+            player.state.pickup(locations[i].kind);
+            lan_pickup_sound=pickup_effect(locations[i].kind);
+        }
+        lan_item_visible[i]=visible;
+        lan_retry_at[i]=0;
+        return;
+    }
+}
+int match_lan_touch_item(void) { return lan_match ? collect(player) : -1; }
 void match_lan_stop(void) { lan_shot_sound=SILENT; if(lan_match) {lan_match=false;begin(READY);} }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     gib_sound=false;
     if (gib_count) update_gibs(elapsed);
     if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
     bot_sound=lan_shot_sound; lan_shot_sound=SILENT;
-    movement_sound=pickup_sound=pain_sound=bot_voice=SILENT;
+    movement_sound=pain_sound=bot_voice=SILENT;
+    pickup_sound=lan_match?lan_pickup_sound:SILENT;lan_pickup_sound=SILENT;
     step_sound=stance_sound=SILENT;
     air_sound.sound=impact_sound.sound=SILENT;
     if (phase != PLAYING) {
@@ -1209,7 +1239,7 @@ void match_view(MatchView *v) {
     unsigned end_ms=lan_match?lan_end_ms:duration;
     v->seconds = clock_ms >= end_ms ? 0 : (end_ms-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
-    for (int i = 0; i < item_count; ++i) if (clock_ms >= unavailable_until[i]) {
+    for (int i = 0; i < item_count; ++i) if (lan_match ? lan_item_visible[i] : clock_ms >= unavailable_until[i]) {
         const ItemLocation &p = locations[i];
         int icon = p.kind >= I_HEALTH ? 2+p.kind-I_HEALTH : p.kind-I_CLIPS;
         item_views[v->item_count++] = {p.x,p.y,icon,ground(p.x,p.y)+p.height_tenths*.1f};

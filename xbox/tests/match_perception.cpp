@@ -337,3 +337,33 @@ extern "C" void test_bot_ammunition(void) {
     damage(player,bot,GUN_ASSAULT,1,0,0);
     assert(phase==INTERMISSION && bot.frags==FRAG_LIMIT);
 }
+
+extern "C" void test_lan_pickups(void) {
+    match_prepare();
+    match_lan_reset_items();
+    match_lan_spawn(56,0,GUN_ASSAULT);
+    int box=0;
+    while(locations[box].kind!=I_AMMO) ++box;
+    const ItemLocation &ammo=locations[box];
+    player.x=ammo.x;player.y=ammo.y;feet_z=ground(ammo.x,ammo.y);
+    int &reserve=player.state.ammo[GUN_ASSAULT];
+    reserve=0;
+    // A late join omits items that the PC has already collected.
+    assert(match_lan_touch_item()==-1);
+    match_lan_item(ammo.entity,1,0);
+    assert(match_lan_touch_item()==ammo.entity && reserve==0);
+    assert(match_lan_touch_item()==-1);
+    match_lan_item(ammo.entity,0,0);
+    assert(match_lan_touch_item()==-1 && reserve==0);
+    match_lan_item(ammo.entity,1,0);
+    assert(match_lan_touch_item()==ammo.entity);
+    match_lan_item(ammo.entity,0,1);
+    match_lan_item(ammo.entity,0,1);
+    assert(reserve==ammostats[GUN_ASSAULT].add);
+    int kit=0;
+    while(locations[kit].kind!=I_HEALTH) ++kit;
+    match_lan_item(locations[kit].entity,1,0);
+    match_lan_item(locations[kit].entity,0,1);
+    assert(player.state.health==56+powerupstats[0].add);
+    match_lan_stop();
+}

@@ -17,6 +17,9 @@ void match_lan_shot(int gun,float x,float y,float z);
 void match_lan_health(int health,int armour);
 void match_lan_time(unsigned remaining_ms);
 void match_lan_score(int local,int frags);
+void match_lan_reset_items(void);
+void match_lan_item(int entity,int visible,int picked_by_us);
+int match_lan_touch_item(void);
 void match_lan_stop(void);
 #ifdef __cplusplus
 }

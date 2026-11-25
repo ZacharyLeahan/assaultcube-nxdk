@@ -138,7 +138,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             char map[48];r.string(map,sizeof(map));
             int mode=r.integer();r.skip(3);
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
-            ready=true;alive=false;remote=-1;match_lan_hide();
+            ready=true;alive=false;remote=-1;match_lan_hide();match_lan_reset_items();
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
             next_spawn=now+1200;
@@ -184,7 +184,24 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         case SV_CDIS: if(r.integer()==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");} break;
         case SV_FORCEDEATH: if(r.integer()==own) alive=false;break;
         case SV_SPAWNDENY:if(r.integer()==SP_WRONGMAP){stop("map revision mismatch");return;}break;
-        case SV_ITEMLIST:while(r.valid && r.integer()!=-1) {} break;
+        case SV_ITEMLIST:
+            match_lan_reset_items();
+            while(r.valid) {
+                int entity=r.integer();
+                if(!r.valid || entity<0) break;
+                match_lan_item(entity,true,false);
+            }
+            break;
+        case SV_ITEMSPAWN: {
+            int entity=r.integer();
+            if(r.valid) match_lan_item(entity,true,false);
+            break;
+        }
+        case SV_ITEMACC: {
+            int entity=r.integer(),picker=r.integer();
+            if(r.valid) match_lan_item(entity,false,picker==own);
+            break;
+        }
         case SV_INITCLIENT:r.integer();r.string(nullptr,0);r.skip(8);break;
         case SV_TIMEUP:{
             int elapsed=r.integer(),limit=r.integer();
@@ -205,9 +222,9 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             break;
         }
         case SV_HITPUSH:r.skip(5);break;
-        case SV_RELOAD:case SV_ITEMACC:r.skip(2);break;
+        case SV_RELOAD:r.skip(2);break;
         case SV_SERVMSG:case SV_SERVMSGVERB:r.string(nullptr,0);break;
-        case SV_ITEMSPAWN:case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:case SV_CLIENTPING:case SV_WEAPCHANGE:r.skip(1);break;
+        case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:case SV_CLIENTPING:case SV_WEAPCHANGE:r.skip(1);break;
         default:return; // Unknown message may have variable length; discard this packet's remainder.
         }
     }
@@ -284,6 +301,8 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         for(int i=0;i<4;i++)m.byte(packed>>(8*i));
         m.transmit(0);
     }
+    int item=match_lan_touch_item();
+    if(item>=0) {Message m;m.word(SV_ITEMPICKUP);m.word(item);m.transmit();}
     int gun=v->weapon==VIEW_SNIPER?GUN_SNIPER:GUN_ASSAULT;
     if(effect==RIFLE_SHOT || effect==SNIPER_SHOT) {
         Message m;m.word(SV_SHOOT);m.word(now);m.word(gun);
