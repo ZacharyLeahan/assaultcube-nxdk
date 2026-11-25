@@ -137,7 +137,7 @@ void positions(Reader &r) {
         LanPose pose={{x/DMF,y/DMF,z/DMF},velocity,angle,tilt*90/degrees,
             movement/3%3-1,movement%3-1,(flags&128)!=0,movement/9==1,movement/9==2};
         match_lan_remote(&pose);
-        snprintf(status,sizeof(status),"LAN  ac_desert    PC #%d",cn);
+        snprintf(status,sizeof(status),"LAN  ac_desert    %s #%d",lan_opponent_name(),cn);
     }
 }
 void messages(Reader &r,unsigned now,int sender=-1) {
@@ -185,7 +185,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             sent_weapon=gun;alive=true;joining=false;
             match_lan_spawn(hp,armour,primary,gun,ammo,mag);
             match_lan_remote_weapon(remote_weapon);
-            snprintf(status,sizeof(status),"LAN  ac_desert    Waiting for PC");break;
+            snprintf(status,sizeof(status),"LAN  ac_desert    Waiting for opponent");break;
         }
         case SV_SPAWN:
             if(sender<0) return;
@@ -240,8 +240,13 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         }
         case SV_CDIS: {
             int cn=r.integer();
-            if(cn>=0 && cn<MAXCLIENTS) {deaths[cn]=pings[cn]=0;player_names[cn][0]=0;appearances[cn]={};}
-            if(cn==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");}
+            if(cn<0 || cn>=MAXCLIENTS) break;
+            if(cn==remote) {
+                snprintf(status,sizeof(status),"LAN  ac_desert    %s left",lan_opponent_name());
+                remote=-1; remote_alive=false;
+                match_lan_hide();
+            }
+            deaths[cn]=pings[cn]=0;player_names[cn][0]=0;appearances[cn]={};
             break;
         }
         case SV_FORCEDEATH: {
@@ -390,7 +395,7 @@ const char *lan_status(void) {
 }
 int lan_connected(void) {return ready;}
 const char *lan_opponent_name(void) {
-    return remote>=0 && remote<MAXCLIENTS && player_names[remote][0]?player_names[remote]:"PC";
+    return remote>=0 && remote<MAXCLIENTS && player_names[remote][0]?player_names[remote]:"Player";
 }
 int lan_opponent_number(void) {return remote;}
 int lan_skin(int local) {
