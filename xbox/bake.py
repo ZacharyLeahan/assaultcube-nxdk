@@ -71,6 +71,18 @@ def map_vantage(header):
 
 
 def bake():
+    skills=(ROOT.parent/"bot/bot_skill.cfg").read_text()
+    profiles=[]
+    for number in (5,2):  # Quick duel, Windows Singleplayer menu
+        block=skills.split(f"[SKILL{number}]",1)[1].split("[SKILL",1)[0]
+        values=dict(re.findall(r"^(\w+)\s+([\d.]+)",block,re.M))
+        fields=[]
+        for name,scale in (("x_aim_speed",1),("y_aim_speed",1),("x_aim_offset",1),
+                           ("y_aim_offset",1),("attack_delay",1000),("enemy_search_delay",1000)):
+            fields.extend(round(float(values[prefix+"_"+name])*scale) for prefix in ("min","max"))
+        fields.append(int(values["max_always_detect_distance"]))
+        profiles.append("{"+",".join(map(str,fields))+"}")
+    (OUT/"bot_skill.h").write_text("static const BotSkill skills[]={"+",".join(profiles)+"};\n")
     data = gzip.decompress((PKG / "maps/official/ac_desert.cgz").read_bytes())
     magic, version, offset, factor, count = struct.unpack_from("<4s4i", data)
     if (magic, version, factor) != (b"ACMP", 10, 8):

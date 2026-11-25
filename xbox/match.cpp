@@ -48,6 +48,11 @@ constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
 constexpr unsigned bot_match_duration=15*60*1000;
 bool stock_round,respawn_trigger;
+struct BotSkill {
+    int pitch_min,pitch_max,yaw_min,yaw_max,pitch_error_min,pitch_error_max,yaw_error_min,yaw_error_max;
+    int attack_min,attack_max,search_min,search_max,detect_radius;
+};
+#include "generated/bot_skill.h"
 constexpr unsigned switch_ms = 400;
 constexpr unsigned player_respawn_ms=2000,bot_respawn_ms=5000;
 constexpr unsigned frag_message_ms=3000;
@@ -788,15 +793,17 @@ void apply_spread(const Fighter &fighter,int gun,float &dx,float &dy,float &dz) 
     auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
     dx+=jitter(); dy+=jitter(); dz+=jitter();
 }
-// Windows SKILL5 AimToIdeal speed and offset depend on angular error.
+// Windows AimToIdeal speed and offset depend on angular error.
 float aim_random(float low,float high) {
     aim_state=aim_state*1664525u+1013904223u;
     return low+(high-low)*((aim_state>>8)/16777216.f);
 }
 float bot_aim_step(float current,float target,bool vertical,float dt) {
     float delta=remainderf(target-current,2*3.14159265f),degrees=fabsf(delta)/radians;
-    float speed=vertical?aim_random(60,90):aim_random(80,110);
-    float offset=vertical?aim_random(.35f,.40f):aim_random(.30f,.35f);
+    const BotSkill &skill=skills[stock_round];
+    float speed=vertical?aim_random(skill.pitch_min,skill.pitch_max):aim_random(skill.yaw_min,skill.yaw_max);
+    float offset=vertical?aim_random(skill.pitch_error_min*.01f,skill.pitch_error_max*.01f):
+                          aim_random(skill.yaw_error_min*.01f,skill.yaw_error_max*.01f);
     float desired=delta+fabsf(delta)*(aim_random(0,1)<.5f?offset:-offset);
     if (fabsf(desired)<=.5f*radians) return current+desired;
     speed*=degrees>=1?degrees/(vertical?80.f:70.f)+.25f:(vertical?.01f:.015f);
@@ -859,10 +866,11 @@ void update_bot(float dt) {
     if (bot_saw_player || clock_ms>=next_enemy_search) {
         float dz=eye(player)-eye(bot);
         bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*.57357644f; // cos(110� / 2)
-        if (bot_saw_player || in_view || dx*dx+dy*dy+dz*dz<16)
+        const BotSkill &skill=skills[stock_round];
+        if (bot_saw_player || in_view || dx*dx+dy*dy+dz*dz<skill.detect_radius*skill.detect_radius)
             sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)) &&
                  prop_depth({bot.x,bot.y,eye(bot)},{dx,dy,dz},1)>=1;
-        if (!sees) next_enemy_search=clock_ms+300+random_number()%61;
+        if (!sees) next_enemy_search=clock_ms+skill.search_min+random_number()%(skill.search_max-skill.search_min+1);
     }
     if (clock_ms>=next_supply_check || (supply_index>=0 && unavailable_until[supply_index]>clock_ms)) {
         int previous=supply_index;
@@ -911,16 +919,22 @@ void update_bot(float dt) {
     }
     if (!sees) { bot_saw_player = false; bot.shots=0; return; }
     if (!bot_saw_player) {
-        // SKILL5 in bot/bot_skill.cfg allows 1.5-2 seconds to acquire a target.
-        bot_attack_at = clock_ms+1500+random_number()%501;
+        const BotSkill &skill=skills[stock_round];
+        bot_attack_at=clock_ms+skill.attack_min+random_number()%(skill.attack_max-skill.attack_min+1);
         bot_saw_player = true;
     }
     d=fmaxf(.01f,distance(player.x,player.y,bot.x,bot.y));
     float dz=eye(player)-eye(bot),fire_distance=hypotf(d,dz);
     float scale=fmaxf(.1f,fminf(1,fire_distance/60));
-    float ax=player.x-bot.x+aim_random(-20,20)*scale;
-    float ay=player.y-bot.y+aim_random(-20,20)*scale;
-    float az=dz+aim_random(-35,35)*scale;
+    float xy_error=stock_round?3:20,z_error=stock_round?6:35;
+    float ax=player.x-bot.x+aim_random(-xy_error,xy_error)*scale;
+    float ay=player.y-bot.y+aim_random(-xy_error,xy_error)*scale;
+    float az=dz+aim_random(-z_error,z_error)*scale;
+    if(stock_round && player.velocity_x*player.velocity_x+player.velocity_y*player.velocity_y+
+       net_vertical_velocity*net_vertical_velocity>1) {
+        float predict=aim_random(.4f,.6f);
+        ax+=player.velocity_x*predict;ay+=player.velocity_y*predict;az+=net_vertical_velocity*predict;
+    }
     bot.yaw=bot_aim_step(bot.yaw,atan2f(ay,ax),false,dt);
     bot.pitch=bot_aim_step(bot.pitch,atan2f(az,sqrtf(ax*ax+ay*ay+az*az)),true,dt);
     bot.pitch=fmaxf(-75*radians,fminf(75*radians,bot.pitch+recoil_degrees(bot,false)*radians));
