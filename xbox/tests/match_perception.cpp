@@ -56,3 +56,53 @@ extern "C" void test_easy_bot_perception(void) {
     update_bot(0);
     assert(!bot_saw_player);
 }
+
+extern "C" void test_easy_bot_spacing(void) {
+    start_perception_test();
+    place_target(0,8);
+    float x=bot.x,y=bot.y;
+    update_bot(.016f);
+    assert(combat_forward==-1 && combat_move_until==1500 && bot.x<x);
+    assert(stride_rate<0 && stride_phase>=0 && stride_phase<6);
+    assert(distance(x,y,bot.x,bot.y)<16*.016f);
+    float side=combat_side;
+    clock_ms+=100;
+    update_bot(.016f);
+    assert(combat_side==side && combat_move_until==1500);
+
+    start_perception_test();
+    choose_combat_move(30,rifle_range);
+    assert(combat_forward==0 && combat_side==0);
+    choose_combat_move(81,rifle_range);
+    assert(combat_forward==1);
+    choose_combat_move(8,pistol_range);
+    assert(combat_forward==0);
+    choose_combat_move(16,pistol_range);
+    assert(combat_forward==1);
+
+    start_perception_test();
+    // This courtyard corner has less than four units of lateral clearance.
+    // Hold position instead of oscillating between the two walls.
+    bot.x=107.20012f; bot.y=97.10065f; bot.yaw=1.146f;
+    bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+    choose_combat_move(17,rifle_range);
+    assert(combat_forward==0 && combat_side==0);
+
+    start_perception_test();
+    place_target(180,3);
+    x=bot.x; y=bot.y;
+    update_bot(.016f);
+    assert(bot_saw_player && bot.x==x && bot.y==y);
+
+    place_target(0,2.5f);
+    bot_attack_at=0;
+    bot.ready_at=0;
+    int rounds=bot.state.mag[GUN_ASSAULT];
+    update_bot(0);
+    assert(bot.state.mag[GUN_ASSAULT]==rounds);
+
+    bot.state.mag[GUN_ASSAULT]=bot.state.ammo[GUN_ASSAULT]=0;
+    place_target(0,8);
+    update_bot(0);
+    assert(bot.state.gunselect==GUN_PISTOL && combat_forward==0);
+}

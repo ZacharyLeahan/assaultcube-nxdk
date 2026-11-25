@@ -2,6 +2,8 @@
 
 Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and Arghvark. Press Start to begin. Reach three frags to win, or lead when the 90-second clock expires. A tied score at time produces a draw. You respawn after two seconds and the bot returns after five. When you are fragged, the camera pulls back to show your fall. The right stick lets you look around until first-person play resumes.
 
+The easy bot backs away when you close inside its preferred rifle range. It looks for a clear step along a wall and holds position when cornered.
+
 | Control | Action |
 | --- | --- |
 | Left stick | Move and strafe |
