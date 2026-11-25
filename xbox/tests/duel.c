@@ -48,6 +48,22 @@ static void test_stance(void) {
 }
 
 int main(void) {
+    MatchInput floor_shot={.start=1};
+    MatchView effects;
+    match_prepare();
+    match_update(&floor_shot,16,.016f);
+    floor_shot=(MatchInput){.look=-1};
+    for (int i=0;i<20;++i) match_update(&floor_shot,16,.016f);
+    floor_shot.fire=1;
+    assert(match_attack(&floor_shot)==RIFLE_SHOT);
+    match_view(&effects);
+    assert(effects.mark_count==1 && effects.spark_count==5);
+    for (unsigned i=0;i<effects.spark_count;++i) {
+        const ImpactSpark *p=effects.sparks+i;
+        assert(p->x==effects.marks[0].x && p->y==effects.marks[0].y && p->z==effects.marks[0].z);
+        assert(p->born==effects.elapsed_ms && p->lifetime<750);
+        assert(p->dx*p->dx+p->dy*p->dy+p->dz*p->dz<=150*150);
+    }
     // This floor has opposite high corners. The body uses the cell mean,
     // while a vertical shot at the center lands on its rendered diagonal.
     SurfaceHit slope;

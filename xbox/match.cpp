@@ -44,6 +44,25 @@ float step_distance;
 ItemView item_views[item_count];
 BulletMark marks[64];
 unsigned next_mark, mark_count;
+ImpactSpark sparks[64];
+unsigned next_spark,spark_count,effect_seed;
+unsigned effect_random(unsigned limit) {
+    effect_seed=1664525u*effect_seed+1013904223u;
+    return (effect_seed>>8)%limit;
+}
+void spark_splash(const SurfaceHit &hit) {
+    for (int i=0;i<5;++i) {
+        short x,y,z;
+        do {
+            x=(int)effect_random(300)-150;
+            y=(int)effect_random(300)-150;
+            z=(int)effect_random(300)-150;
+        } while (x*x+y*y+z*z>150*150);
+        sparks[next_spark]={hit.x,hit.y,hit.z,x,y,z,clock_ms,effect_random(750)};
+        next_spark=(next_spark+1)%64;
+        if (spark_count<64) ++spark_count;
+    }
+}
 unsigned random_number() {
     random_state = random_state*1664525u + 1013904223u;
     return random_state >> 8;
@@ -76,6 +95,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
 }
 void begin(MatchPhase initial) {
     next_mark=mark_count=0;
+    next_spark=spark_count=0; effect_seed=1;
     clock_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0;
@@ -343,6 +363,7 @@ MatchSound match_attack(const MatchInput *in) {
         if (match_targeted(&ray)) { damage(bot,player,gun); return shot; }
         SurfaceHit hit;
         if (trace_surface(player.x,player.y,z,player.x+512*dx,player.y+512*dy,z+512*dz,&hit)) {
+            spark_splash(hit);
             marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
             next_mark=(next_mark+1)%64;
             if (mark_count<64) ++mark_count;
@@ -352,6 +373,7 @@ MatchSound match_attack(const MatchInput *in) {
 }
 void match_view(MatchView *v) {
     v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
+    v->sparks=sparks; v->spark_count=spark_count;
     v->classic_assist=classic_assist;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;

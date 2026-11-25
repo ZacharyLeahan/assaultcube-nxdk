@@ -20,6 +20,11 @@ typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
 typedef struct { int x, y, icon; float base; } ItemView;
 typedef struct { float x,y,z; int axis; unsigned expires; } BulletMark;
 typedef struct {
+    float x,y,z;
+    short dx,dy,dz;
+    unsigned born, lifetime;
+} ImpactSpark;
+typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_yaw;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
     float stride_blend, weapon_kick, reload_lower;
@@ -37,6 +42,8 @@ typedef struct {
     int item_count;
     const BulletMark *marks;
     unsigned mark_count, elapsed_ms;
+    const ImpactSpark *sparks;
+    unsigned spark_count;
 } MatchView;
 
 const Cube *map_cube(int x, int y);

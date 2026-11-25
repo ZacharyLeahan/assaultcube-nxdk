@@ -240,8 +240,12 @@ static void level(const MatchView *v) {
         glPopMatrix();
     }
     bind_vertices(stream);
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    // Transparent effects blend against the sky or the nearest opaque surface.
     glDepthMask(GL_FALSE);
+    glPushMatrix(); glLoadMatrixf(camera);
+    skybox();
+    glPopMatrix();
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();
     for (unsigned i=0;i<v->mark_count;++i) {
@@ -254,11 +258,27 @@ static void level(const MatchView *v) {
                    m->z+(m->axis==2?0:b),u,w);
         }
     }
-    end_quads(); glDisable(GL_BLEND);
-    // The sky encloses the entire map. Depth rejection skips covered sky pixels.
-    glLoadMatrixf(camera);
-    glDepthMask(GL_FALSE);
-    skybox();
+    end_quads();
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE);
+    glBindTexture(GL_TEXTURE_2D,textures[SPARK_TEX]);
+    color(.4f,.4f,.4f,1);
+    begin_quads();
+    for (unsigned i=0;i<v->spark_count;++i) {
+        const ImpactSpark *p=v->sparks+i;
+        unsigned age=v->elapsed_ms-p->born;
+        if (age>p->lifetime) continue;
+        float travel=age/20000.f;
+        float x=p->x+p->dx*travel,y=p->y+p->dy*travel;
+        float z=p->z+p->dz*travel-age*(float)age/120000.f;
+        for (int j=0;j<4;++j) {
+            int u=j==1||j==2,w=j>=2;
+            float right=u?.06f:-.06f,up=w?-.06f:.06f;
+            vertex(x-s*right-c*sp*up,y+c*right-s*sp*up,z+cp*up,u,1-w);
+        }
+    }
+    end_quads();
+    glDisable(GL_BLEND);
+    color(1,1,1,1);
     glDepthMask(GL_TRUE);
 }
 static void weapon(const MatchView *v) {

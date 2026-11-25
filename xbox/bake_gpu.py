@@ -248,6 +248,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     decal[:,:,:3]=np.where(gray[:,:,None]>128,255,0)
     decal[:,:,3]=np.minimum(255,2*abs(gray-128))
     texture(Image.fromarray(decal),(64,64))
+    mark("SPARK_TEX",len(textures))
+    texture(Image.open(packages/"misc/base.png"),(32,32),False)
     mark("FLASH_TEX",len(textures))
     texture(Image.open(packages/"misc/muzzleflash.jpg"),(128,128),False)
     mark("DAMAGE_TEX",len(textures))
