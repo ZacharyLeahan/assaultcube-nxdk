@@ -431,6 +431,18 @@ extern "C" void test_lan_knife(void) {
     match_lan_remote_death(1);
     in={};match_update(&in,16,.016f);match_view(&v);
     assert(v.hide_bot && v.gib_count==6 && v.gib_sound);
+    match_lan_remote_spawn(GUN_PISTOL);
+    match_lan_remote(126,121,feet_z,0,0,0);
+    match_lan_remote_death(0);
+    match_view(&v);
+    assert(!v.bot_alive && !v.hide_bot && v.current_pose.first>=178);
+    for(int i=0;i<330;++i) match_update(&in,16,.016f);
+    match_view(&v);
+    assert(v.hide_bot && !v.bot_alive && bot.x==126);
+    match_lan_remote_spawn(GUN_ASSAULT);
+    match_lan_remote(127,121,feet_z,0,0,0);
+    match_view(&v);
+    assert(!v.hide_bot && v.bot_alive && v.bot_weapon==VIEW_RIFLE);
     match_lan_stop();
 }
 

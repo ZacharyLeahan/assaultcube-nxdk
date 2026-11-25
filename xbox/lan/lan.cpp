@@ -16,7 +16,7 @@ ENetHost *host;
 ENetPeer *peer;
 ENetAddress address;
 int own=-1,life,remote=-1,remote_life;
-bool ready,alive;
+bool ready,alive,remote_alive;
 unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
 char player_names[MAXCLIENTS][16];
@@ -119,7 +119,7 @@ void positions(Reader &r) {
         } else return;
         if(!r.valid || cn==own || cn<0 || cn>=MAXCLIENTS || x<0 || x>=MAP*16 || y<0 || y>=MAP*16) continue;
         if(flags&1024) z=-z;
-        remote=cn;
+        if(cn!=remote || !remote_alive || ((flags>>6)&1)!=(remote_life&1)) continue;
         float angle=(yaw*360.f/1024-90)/degrees;
         float tilt=(pitch-128)/256.f;
         if(tilt>1.f/3) tilt=4*tilt-1;
@@ -153,7 +153,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             char map[48];r.string(map,sizeof(map));
             int mode=r.integer();r.skip(3);
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
-            memset(player_names,0,sizeof(player_names));ready=true;alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
+            memset(player_names,0,sizeof(player_names));ready=true;alive=false;remote_alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
             next_spawn=now+1200;
@@ -176,13 +176,25 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(sender<0) return;
             remote=sender;remote_life=r.integer();r.skip(2);remote_weapon=r.integer();
             r.skip(2*NUMGUNS);
-            if(r.valid) match_lan_remote_weapon(remote_weapon);
+            if(r.valid) {
+                remote_alive=true;
+                match_lan_remote_spawn(remote_weapon);
+            }
             break;
         case SV_RESUME:
             while(r.valid) {
                 int cn=r.integer();if(cn<0) break;
-                r.integer();int seq=r.integer();r.integer();int gun=r.integer();r.skip(6+2*NUMGUNS);
-                if(r.valid && cn!=own){remote=cn;remote_life=seq;remote_weapon=gun;match_lan_remote_weapon(gun);}
+                int state=r.integer(),seq=r.integer();r.integer();int gun=r.integer();
+                r.integer();int frags=r.integer();r.skip(4+2*NUMGUNS);
+                if(!r.valid || cn>=MAXCLIENTS) return;
+                match_lan_score(cn==own,frags);
+                if(cn!=own) {
+                    remote=cn;remote_life=seq;remote_weapon=gun;
+                    // entity.h orders alive, dead, spawning, lagged, editing, spectator.
+                    remote_alive=state==0 || state==2 || state==3;
+                    if(remote_alive) match_lan_remote_spawn(gun);
+                    else match_lan_hide();
+                }
             }
             break;
         case SV_CLIENT: {
@@ -207,11 +219,16 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             }
             if(actor==own || actor==remote) match_lan_score(actor==own,frags);
             if(victim==own) {alive=false;next_spawn=now+2200;match_lan_health(0,0);}
-            if(victim==remote) match_lan_remote_death(type==SV_GIBDIED);
+            if(victim==remote) {remote_alive=false;match_lan_remote_death(type==SV_GIBDIED);}
             break;
         }
         case SV_CDIS: if(r.integer()==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");} break;
-        case SV_FORCEDEATH: if(r.integer()==own) alive=false;break;
+        case SV_FORCEDEATH: {
+            int cn=r.integer();
+            if(cn==own) alive=false;
+            if(cn==remote) {remote_alive=false;match_lan_hide();}
+            break;
+        }
         case SV_SPAWNDENY:if(r.integer()==SP_WRONGMAP){stop("map revision mismatch");return;}break;
         case SV_ITEMLIST:
             match_lan_reset_items();

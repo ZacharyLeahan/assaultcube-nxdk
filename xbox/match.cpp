@@ -812,6 +812,11 @@ unsigned match_lan_shot_time(unsigned now) { return now-player_shot_delay_ms; }
 void match_lan_remote_weapon(int gun) {
     if(gun>=0 && gun<NUMGUNS) bot.state.gunselect=gun;
 }
+void match_lan_remote_spawn(int gun) {
+    match_lan_remote_weapon(gun);
+    bot.respawn_at=bot.pain_until=bot.flash_until=bot.light_until=0;
+    current_clip={}; previous_clip={}; bot_pose=0; hide_bot=true;
+}
 void match_lan_remote_reload(int gun) {
     if(lan_match && !hide_bot) lan_shot_sound=feedback[view_weapon(gun)].reload;
 }
@@ -821,8 +826,12 @@ void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int movi
 }
 void match_lan_hide(void) { hide_bot=true; }
 void match_lan_remote_death(int gib) {
-    if (gib && !hide_bot) { spawn_gibs(bot); lan_gib_sound=true; }
-    match_lan_hide();
+    if(hide_bot) return;
+    bot_pose=0;
+    bot.respawn_at=clock_ms+bot_respawn_ms;
+    bot.flash_until=bot.light_until=0;
+    if(gib) { spawn_gibs(bot); lan_gib_sound=true; }
+
 }
 static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,MatchView *target);
 void match_lan_shot(int gun,float x,float y,float z) {
@@ -927,7 +936,10 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     update_blood(elapsed);
     if (!lan_match && clock_ms >= duration) { phase = INTERMISSION; return; }
     if (!lan_match && player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
-    if (bot.respawn_at && bot.respawn_at <= clock_ms) respawn_near(bot,player);
+    if (bot.respawn_at && bot.respawn_at <= clock_ms) {
+        if(lan_match) hide_bot=true;
+        else respawn_near(bot,player);
+    }
     float dt = fminf(.10f,motion_seconds);
     float old_dx=bot.x-player.x, old_dy=bot.y-player.y;
     float manual_yaw=0;
@@ -1385,7 +1397,7 @@ void match_view(MatchView *v) {
     v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
     v->bot_shot_pending=phase==PLAYING && bot_saw_player && !bot.respawn_at &&
                         bot_attack_at<=clock_ms+40 && bot.ready_at<=clock_ms+40;
-    v->respawn_work_pending=(bot.respawn_at && bot.respawn_at<=clock_ms+40) ||
+    v->respawn_work_pending=(!lan_match && bot.respawn_at && bot.respawn_at<=clock_ms+40) ||
                            (v->bot_shot_pending && v->health<=guns[bot.state.gunselect].damage);
     v->damage_directions=damage_directions;
     v->phase = phase; v->bot_sound = bot_sound;
