@@ -62,7 +62,7 @@ def bake():
     for i in range(count):
         x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
         if kind == 2 and team == 100:
-            starts.append((x, y, yaw))
+            starts.append((x, y, yaw, z))
         elif kind in item_kinds:
             pickups.append((x, y, yaw, item_kinds[kind], i))
         elif kind == 12:
@@ -114,8 +114,8 @@ def bake():
     (OUT / "clips.h").write_text("static const MapClip clips[] = {\n"+
         "".join("    {"+", ".join(map(str,c))+"},\n" for c in clips)+"};\n")
     (OUT / "deltas.bin").write_bytes(deltas)
-    (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
-        "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
+    (OUT / "starts.h").write_text("static const short starts[][4] = {\n" +
+        "".join(f"    {{{x}, {y}, {yaw}, {z}}},\n" for x,y,yaw,z in starts) + "};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
         "".join(f"    {{{x}, {y}, {height}, {kind}, {entity}}},\n" for x, y, height, kind, entity in pickups) + "};\n")
     from bake_corners import map_corners

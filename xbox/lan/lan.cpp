@@ -152,7 +152,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             char map[48];r.string(map,sizeof(map));
             int mode=r.integer();r.skip(3);
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
-            ready=true;alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_hide();match_lan_reset_items();
+            ready=true;alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
             next_spawn=now+1200;

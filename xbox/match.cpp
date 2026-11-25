@@ -75,6 +75,8 @@ bool lan_item_visible[item_count];
 unsigned lan_retry_at[item_count];
 MatchSound lan_pickup_sound;
 unsigned unavailable_until[item_count], random_state, aim_state;
+int spawn_cycle=-1, initial_spawn_cycles=2;
+unsigned spawn_seed;
 int bot_pose;
 float stride_phase,stride_rate;
 unsigned combat_move_until;
@@ -222,8 +224,8 @@ unsigned random_number() {
 float ground(float x, float y) { return map_floor(map_cube((int)x,(int)y)); }
 float distance(float x,float y,float tx,float ty) { return hypotf(tx-x,ty-y); }
 float eye(const Fighter &f) { return f.eye_height; }
-void spawn(Fighter &f, int index) {
-    f.x = starts[index][0]+.5f; f.y = starts[index][1]+.5f;
+void spawn(Fighter &f, int index, float offset=.5f) {
+    f.x = starts[index][0]+offset; f.y = starts[index][1]+offset;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
@@ -268,6 +270,24 @@ void begin(MatchPhase initial) {
     // Open in the same courtyard at two official free-for-all player starts.
     spawn(player,17); spawn(bot,18);
     aim_at_opponent(player,bot); aim_at_opponent(bot,player);
+}
+// Stock free-for-all selection visits successive map entities. Keep the last
+// safe start visited, or the farthest visited start when all are occupied.
+int next_lan_start(int visits) {
+    int best=-1;
+    float best_distance=-1;
+    for (int i=0;i<visits;++i) {
+        spawn_cycle=(spawn_cycle+1)%start_count;
+        const short *start=starts[spawn_cycle];
+        float dx=start[0]-bot.x, dy=start[1]-bot.y, dz=start[3]-eye(bot);
+        float d=dx*dx+dy*dy+dz*dz;
+        if(hide_bot || d>=15*15) d=-1;
+        if(best<0 || d<0 || (best_distance>=0 && d>best_distance)) {
+            best=spawn_cycle;
+            best_distance=d;
+        }
+    }
+    return best;
 }
 void respawn_near(Fighter &f, const Fighter &opponent) {
     // Sample FFA spawns, preferring covered positions with a route back to combat.
@@ -749,10 +769,22 @@ void update_bot(float dt) {
 }
 
 void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
+void match_lan_map(unsigned seed) {
+    spawn_cycle=-1; initial_spawn_cycles=2; spawn_seed=seed;
+    if(!lan_match) { begin(PLAYING); lan_match=true; }
+    hide_bot=true;
+    match_lan_reset_items();
+}
 void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const int *mag) {
-    if (!lan_match) { begin(PLAYING); hide_bot=true; lan_match=true; }
+    if (!lan_match) match_lan_map(0);
     player.state.nextprimary=primary;
-    spawn(player,17);
+    unsigned visits=4;
+    if(initial_spawn_cycles) --initial_spawn_cycles;
+    else {
+        spawn_seed=1664525u*spawn_seed+1013904223u;
+        visits=1+(spawn_seed>>8)%10;
+    }
+    spawn(player,next_lan_start(visits),0);
     player.state.gunselect=gun;
     memcpy(player.state.ammo,ammo,sizeof(player.state.ammo));
     memcpy(player.state.mag,mag,sizeof(player.state.mag));

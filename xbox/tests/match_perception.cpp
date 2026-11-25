@@ -497,3 +497,19 @@ extern "C" void test_shotgun_pellets(void) {
     assert(match_attack(&in)==SHOTGUN_RELOAD && player.state.mag[GUN_SHOTGUN]==7 && player.state.ammo[GUN_SHOTGUN]==12);
     match_lan_stop();
 }
+
+extern "C" void test_lan_ffa_starts(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_map(91);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    assert(player.x==starts[3][0] && player.y==starts[3][1]);
+    assert(fabsf(player.yaw-(starts[3][2]*.1f-90)*radians)<.0001f);
+    // An enemy on the last candidate makes the preceding safe start preferable.
+    match_lan_remote(starts[7][0],starts[7][1],starts[7][3],0,0,0);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    assert(player.x==starts[6][0] && player.y==starts[6][1]);
+    match_lan_hide();
+    spawn_cycle=start_count-2;
+    assert(next_lan_start(4)==2);
+    match_lan_stop();
+}
