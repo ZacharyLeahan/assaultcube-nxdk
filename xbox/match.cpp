@@ -35,6 +35,7 @@ Fighter player, bot;
 float feet_z, stance, jump_speed, sway_vertical;
 unsigned air_ms,jump_start_ticks;
 unsigned sway_ms;
+float flash_angle;
 bool grounded, held_jump, in_water;
 unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, bot_attack_at, hurt_until;
@@ -645,6 +646,7 @@ MatchSound match_attack(const MatchInput *in) {
             fabsf(reach*hit.fraction-length)*magnitude<=1.f) {
             mark_surface(hit);
         }
+        flash_angle=effect_random(360)*radians;
     }
     return shot;
 }
@@ -672,7 +674,7 @@ void match_view(MatchView *v) {
     } else if (switch_end && switch_end>clock_ms) {
         lower=sinf(3.14159265f*(switch_end-clock_ms)/switch_ms);
     }
-    v->weapon_kick=0;
+    v->gun_pose_blend=0;
     float speed=fminf(1,hypotf(player.velocity_x,player.velocity_y));
     float step=sway_ms/105.f, bob=(v->reload || switch_end)?0:.025f*speed*(was_crouching?.75f:1);
     float cp=cosf(player.pitch),sp=sinf(player.pitch);
@@ -684,14 +686,15 @@ void match_view(MatchView *v) {
     v->gun_forward=forward*cp+up*sp;
     v->gun_rotation=-90*lower; v->gun_back=0;
     v->gun_pose=v->next_gun_pose=0;
-    v->flash=0;
+    v->flash=0; v->flash_angle=flash_angle;
     if (!v->reload && player.shot_until>clock_ms) {
         unsigned age=attackdelay(gun)-(player.shot_until-clock_ms);
         float t=age/(float)attackdelay(gun);
-        float frame=8*t;
-        v->gun_pose=1+(int)frame; v->next_gun_pose=(v->gun_pose+1)%9;
-        v->weapon_kick=frame-floorf(frame);
-        v->flash=age<(unsigned)attackdelay(gun)/4;
+        // renderhudmodel samples the MD3 shoot loop every 40 ms.
+        float frame=age/40.f;
+        v->gun_pose=1+((unsigned)frame%8); v->next_gun_pose=1+v->gun_pose%8;
+        v->gun_pose_blend=frame-floorf(frame);
+        v->flash=age<(unsigned)fmaxf(120,attackdelay(gun))/4;
         float phase=1.5f*t-1.5f;
         float kick=-sinf(phase*phase*phase);
         if (stance<PLAYER_EYE_HEIGHT) kick*=.75f;

@@ -142,6 +142,29 @@ static void test_rifle_recoil(unsigned hz,int crouch) {
     }
 }
 
+static void test_firing_pose(int pistol) {
+    MatchInput in={.start=1};
+    MatchView v;
+    match_prepare(); match_update(&in,0,0);
+    if (pistol) {
+        in=(MatchInput){.swap=1}; match_update(&in,1,.001f);
+        in=(MatchInput){0}; match_update(&in,401,.1f);
+    }
+    in=(MatchInput){.fire=1};
+    assert(match_attack(&in)==(pistol?PISTOL_SHOT:RIFLE_SHOT));
+    in.fire=0;
+    unsigned delay=pistol?160:120;
+    match_view(&v); float angle=v.flash_angle;
+    for (unsigned age=0;age<delay;++age) {
+        match_view(&v);
+        assert(v.gun_pose==1+age/40 && v.next_gun_pose==2+age/40);
+        assert(fabsf(v.gun_pose_blend-(age%40)/40.f)<.00001f);
+        assert(v.flash==(age<delay/4) && v.flash_angle==angle);
+        match_update(&in,1,.001f);
+    }
+    match_view(&v); assert(v.gun_pose==0 && !v.flash);
+}
+
 static void test_rifle_cadence(unsigned hz) {
     MatchInput in={.start=1};
     match_prepare();
@@ -516,6 +539,7 @@ int main(void) {
     test_rifle_recoil(60,1);
     test_rifle_recoil(50,0);
     test_rifle_recoil(50,1);
+    test_firing_pose(0); test_firing_pose(1);
     test_rifle_cadence(60);
     test_rifle_cadence(50);
     test_well_ladder();

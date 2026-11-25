@@ -460,8 +460,8 @@ static void weapon(const MatchView *v) {
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
     int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;
-    animated_batch(current,next,v->weapon_kick);
-    animated_batch(current+1,next+1,v->weapon_kick);
+    animated_batch(current,next,v->gun_pose_blend);
+    animated_batch(current+1,next+1,v->gun_pose_blend);
     glEnableClientState(GL_COLOR_ARRAY);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
 }
@@ -471,14 +471,20 @@ static void muzzle_flash(const MatchView *v) {
         bind_vertices(stream);
         const float (*muzzle)[3]=v->pistol?pistol_muzzle:assault_muzzle;
         float p[3];
-        for (int i=0;i<3;++i) p[i]=muzzle[v->gun_pose][i]+v->weapon_kick*
+        for (int i=0;i<3;++i) p[i]=muzzle[v->gun_pose][i]+v->gun_pose_blend*
             (muzzle[v->next_gun_pose][i]-muzzle[v->gun_pose][i]);
+        glTranslatef(p[0],p[1],p[2]);
+        // The emitter follows the barrel while the particle faces the camera.
+        glRotatef(-v->gun_rotation,1,0,0);
+        float half=.7f*(v->pistol?.25f:.75f)/.08f;
+        float ca=cosf(v->flash_angle),sa=sinf(v->flash_angle);
         glBindTexture(GL_TEXTURE_2D,textures[FLASH_TEX]);
-        glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE); glDepthMask(GL_FALSE);
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR); glDepthMask(GL_FALSE);
         begin_quads();
         for (int j=0;j<4;++j) {
-            int u=j==1||j==2, w=j>=2;
-            vertex(p[0]+(u?4:-4),p[1],p[2]+(w?-4:4),u,w);
+            int u=j==1||j==2,w=j>=2;
+            float right=u?half:-half,up=w?-half:half;
+            vertex(right*ca-up*sa,0,right*sa+up*ca,u,1-w);
         }
         end_quads(); glDepthMask(GL_TRUE); glDisable(GL_BLEND);
     }
