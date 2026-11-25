@@ -23,6 +23,8 @@ asset sub
 asset sub_reload
 asset carbine
 asset carbine_reload
+asset sniper
+asset sniper_reload
 asset clip_empty
 asset ric1
 asset ric2

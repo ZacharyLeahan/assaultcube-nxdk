@@ -19,6 +19,8 @@ int own=-1,life,remote=-1,remote_life;
 bool ready,alive;
 unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
+int next_primary=GUN_ASSAULT;
+unsigned choice_time;
 const float degrees=57.2957795f;
 int nearest(float value) { return (int)floorf(value + 0.5f); }
 
@@ -128,8 +130,8 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         case SV_SERVINFO_CONTD:
             if(r.integer()!=0 || !r.valid) {stop("unsupported authenticated server");return;}
             m.word(SV_CONNECT);m.word(1302);m.word(0);m.string("Xbox");m.string("");m.string("");
-            m.word(0);m.word(GUN_ASSAULT);
-            m.word(0);m.word(0);m.word(0);m.word(0);m.word(100);m.word(40);
+            m.word(0);m.word(next_primary);
+            m.word(0);m.word(0);m.word(0);m.word(0);m.word(90);m.word(50);
             m.transmit();return;
         case SV_WELCOME:r.skip(1);break;
         case SV_MAPCHANGE: {
@@ -147,7 +149,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             r.skip(2*NUMGUNS);
             if(!r.valid || !ready) return;
             m.word(SV_SPAWN);m.word(life);m.word(gun);m.transmit();
-            alive=true;match_lan_spawn(hp,armour);
+            alive=true;match_lan_spawn(hp,armour,gun==GUN_SNIPER?GUN_SNIPER:GUN_ASSAULT);
             snprintf(status,sizeof(status),"LAN  ac_desert    Waiting for PC");break;
         }
         case SV_SPAWN:
@@ -214,7 +216,13 @@ void messages(Reader &r,unsigned now,int sender=-1) {
 
 void lan_init(void) {
     FILE *f=fopen("D:\\lan-server.txt","r");if(!f)return;
-    char text[64];bool read=fgets(text,sizeof(text),f)!=nullptr;fclose(f);
+    char text[64];bool read=fgets(text,sizeof(text),f)!=nullptr;
+    char primary[32];
+    if (fgets(primary,sizeof(primary),f)) {
+        primary[strcspn(primary," \t\r\n")]=0;
+        if (!strcmp(primary,"sniper")) next_primary=GUN_SNIPER;
+    }
+    fclose(f);
     text[strcspn(read?text:""," \t\r\n")]=0;
     if(!read || !ip4addr_aton(text,(ip4_addr_t *)&address.host)) {stop("invalid lan-server.txt");return;}
     address.port=CUBE_DEFAULT_SERVER_PORT;
@@ -223,9 +231,21 @@ void lan_init(void) {
     if(!host) {stop("cannot open socket");return;}
     snprintf(status,sizeof(status),"LAN  Connecting to %s",text);
 }
-const char *lan_status(void) {return status[0]?status:nullptr;}
+const char *lan_status(void) {
+    if(choice_time)
+        return next_primary==GUN_SNIPER?"Next spawn: AD-81 sniper":"Next spawn: MTP-57 rifle";
+    return status[0]?status:nullptr;
+}
 int lan_connected(void) {return ready;}
+void lan_toggle_primary(unsigned now) {
+    if (!ready || !peer) return;
+    next_primary=next_primary==GUN_SNIPER?GUN_ASSAULT:GUN_SNIPER;
+    Message m;
+    m.word(SV_PRIMARYWEAP); m.word(next_primary); m.transmit();
+    choice_time=now;
+}
 void lan_poll(unsigned now) {
+    if(choice_time && now-choice_time>=2500) choice_time=0;
     if(!host)return;
     if(!peer) {
         if(connect_start || !netif_is_up(g_pnetif) || ip4_addr_isany_val(*netif_ip4_addr(g_pnetif))) return;
@@ -260,20 +280,22 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         if(pitch< -1.f/3) pitch=pitch*.25f-.25f;
         int pi=nearest((pitch+.5f)*256)&255;
         int move=(input->move>.1f)-(input->move<-.1f),strafe=(input->strafe>.1f)-(input->strafe<-.1f);
-        unsigned packed=(yaw<<19)|(pi<<11)|(4+move*3+strafe+(input->crouch?18:0))|(life%2<<6)|128|(z<0?1024:0);
+        unsigned packed=(yaw<<19)|(pi<<11)|(4+move*3+strafe+(input->crouch?18:0))|(v->scoped?32:0)|(life%2<<6)|128|(z<0?1024:0);
         for(int i=0;i<4;i++)m.byte(packed>>(8*i));
         m.transmit(0);
     }
-    if(effect==RIFLE_SHOT) {
-        Message m;m.word(SV_SHOOT);m.word(now);m.word(GUN_ASSAULT);
-        float c=cosf(v->pitch),dx=cosf(v->angle)*c,dy=sinf(v->angle)*c,dz=sinf(v->pitch);
-        m.word((int)((v->px+dx*100)*DMF));m.word((int)((v->py+dy*100)*DMF));m.word((int)((v->eye+dz*100)*DMF));
-        bool hit=remote>=0 && !v->hide_bot && match_targeted(v);
+    int gun=v->weapon==VIEW_SNIPER?GUN_SNIPER:GUN_ASSAULT;
+    if(effect==RIFLE_SHOT || effect==SNIPER_SHOT) {
+        Message m;m.word(SV_SHOOT);m.word(now);m.word(gun);
+        MatchPoint dir=v->shot_direction;
+        m.word(v->shot_end.x*DMF);m.word(v->shot_end.y*DMF);m.word(v->shot_end.z*DMF);
+        bool hit=remote>=0 && v->shot_contact;
         m.word(hit);
-        if(hit){m.word(remote);m.word(remote_life);m.word(1);m.word(dx*DNF);m.word(dy*DNF);m.word(dz*DNF);}
+        if(hit){m.word(remote);m.word(remote_life);m.word(gun==GUN_SNIPER && v->shot_contact==2);
+            m.word(dir.x*DNF);m.word(dir.y*DNF);m.word(dir.z*DNF);}
         m.transmit();
     }
-    if(effect==RIFLE_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(GUN_ASSAULT);m.transmit();}
+    if(effect==RIFLE_RELOAD || effect==SNIPER_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
 }
 
 

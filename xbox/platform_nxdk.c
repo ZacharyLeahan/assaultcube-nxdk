@@ -22,6 +22,7 @@ DECLARE_CLIP(footsteps); DECLARE_CLIP(crouch); DECLARE_CLIP(watersteps); DECLARE
 DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
 DECLARE_CLIP(sub); DECLARE_CLIP(sub_reload);
+DECLARE_CLIP(sniper); DECLARE_CLIP(sniper_reload);
 DECLARE_CLIP(carbine); DECLARE_CLIP(carbine_reload);
 DECLARE_CLIP(step);
 DECLARE_CLIP(clip_empty);
@@ -33,6 +34,7 @@ DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup
 #define CLIP(n) {n,n##_end}
 static const Clip clips[] = {
     [RIFLE_SHOT]={shot_audio,shot_end}, [RIFLE_RELOAD]=CLIP(auto_reload),
+    [SNIPER_SHOT]=CLIP(sniper), [SNIPER_RELOAD]=CLIP(sniper_reload),
     [CARBINE_SHOT]=CLIP(carbine), [CARBINE_RELOAD]=CLIP(carbine_reload),
     [SMG_SHOT]=CLIP(sub), [SMG_RELOAD]=CLIP(sub_reload),
     [KNIFE_SWING]=CLIP(knife),
@@ -140,7 +142,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         const Clip *clip=&clips[effects[i]];
         int gain=volume[i];
         Voice *voice=&voices[i];
-        if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT || effects[i]==SMG_SHOT || effects[i]==CARBINE_SHOT) {
+        if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT || effects[i]==SMG_SHOT || effects[i]==CARBINE_SHOT || effects[i]==SNIPER_SHOT) {
             voice=weapon_voice(i==LOCAL_GUN?LOCAL_WEAPONS:BOT_WEAPONS);
             gain=SHOT_VOLUME;
         }
@@ -233,7 +235,7 @@ int main(void) {
         float move = 0, strafe = 0, turn = 0, look = 0;
         int classic=0, tuned=0;
         unsigned buttons=0;
-        int jump=0, crouch=0, showmap=0;
+        int scope=0, jump=0, crouch=0, showmap=0;
         int knife_select=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
             Pad *pad = &pads[i];
@@ -246,6 +248,7 @@ int main(void) {
             showmap |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_BACK);
             int rt = axis(p,SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > .25f;
             fire |= rt;
+            scope |= axis(p,SDL_CONTROLLER_AXIS_TRIGGERLEFT) > .25f;
             int x = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_X);
             refill |= x && !pad->previous_reload;
             pad->previous_reload = x;
@@ -303,12 +306,15 @@ int main(void) {
         if (releasing && !buttons && !fire) releasing=0;
         MatchInput input = {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
-            .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .start = start,
+            .scope = scope, .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .start = start,
             .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
         };
         int aimed=0;
         MatchSound effect=SILENT;
-        if(lan_connected()) input.swap=input.knife_select=input.start=0;
+        if(lan_connected()) {
+            if(input.swap && !releasing && !paused && system.choice==MENU_CLOSED) lan_toggle_primary(now);
+            input.swap=input.knife_select=input.start=0;
+        }
         if (system.choice==MENU_CLOSED && !paused) {
             if (releasing) input=(MatchInput){0};
             match_update(&input, elapsed, refreshes*refresh_period);

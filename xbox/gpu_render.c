@@ -34,6 +34,7 @@ typedef struct {
 static const WeaponArt weapon_art[]={
     [VIEW_RIFLE]={assault_batches,ASSAULT_SURFACES,0,assault_muzzle,.75f,2,1,"Y   Primary: MTP-57 rifle"},
     [VIEW_SMG]={subgun_batches,SUBGUN_SURFACES,SUBGUN_DEATH_BATCH,subgun_muzzle,.55f,0,1,"Y   Primary: A-ARD/10 SMG"},
+    [VIEW_SNIPER]={sniper_batches,SNIPER_SURFACES,SNIPER_DEATH_BATCH,sniper_muzzle,.50f,1,1,"Y   Primary: AD-81 sniper   /   LT scope"},
     [VIEW_CARBINE]={carbine_batches,CARBINE_SURFACES,CARBINE_DEATH_BATCH,carbine_muzzle,.50f,2,0,"Y   Primary: TMP-M&A CB carbine"},
     [VIEW_PISTOL]={pistol_batches,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
     [VIEW_KNIFE]={knife_batches,KNIFE_SURFACES,KNIFE_DEATH_BATCH,NULL,0,0,0,NULL}
@@ -459,7 +460,7 @@ static void level(const MatchView *v) {
     float cp=cosf(v->camera_pitch), sp=sinf(v->camera_pitch);
     const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
     // PC world FOV is horizontal: tan(90 degrees / 2) == 1.
-    projection(.15f,.15f/aspect);
+    projection(.15f,.15f*(v->scoped?SCOPE_TAN_HALF_FOV:1.f)/aspect);
     glLoadMatrixf(camera);
     glTranslatef(-v->camera.x,-v->camera.y,-v->camera.z);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
@@ -808,7 +809,23 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
         glDisable(GL_BLEND);
     }
     glEnable(GL_BLEND);
-    if (!v->respawning && !v->hide_crosshair) {
+    if (v->scoped) {
+        float edge=(hud_width-720)*.5f;
+        glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+        color(0,0,0,1);
+        begin_quads();
+        quad(0,0,edge,720,0,0,1,1);
+        quad(edge+720,0,edge,720,0,0,1,1);
+        end_quads();
+        glBindTexture(GL_TEXTURE_2D,textures[SCOPE_TEX]);
+        color(1,1,1,1);
+        begin_quads(); quad(edge,0,720,720,0,0,1,1); end_quads();
+        glBlendFunc(GL_ONE,GL_ONE);
+        glBindTexture(GL_TEXTURE_2D,textures[SCOPE_DOT_TEX]);
+        begin_quads(); quad(hud_width*.5f-10,350,20,20,0,0,1,1); end_quads();
+    }
+    if (!v->scoped && !v->respawning && !v->hide_crosshair) {
         float half=v->wide_crosshair?8.4f:6.f;
         glBlendFunc(GL_ONE,GL_ONE);
         glBindTexture(GL_TEXTURE_2D,textures[CROSSHAIR_TEX]);
@@ -964,11 +981,11 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glStencilFunc(GL_ALWAYS,64,255);
     glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);
     glDepthRange(0,.04);
-    weapon(v);
+    if (!v->scoped) weapon(v);
     glDepthRange(.04,1);
     level(v);
     glDepthRange(0,.04);
-    muzzle_flash(v);
+    if (!v->scoped) muzzle_flash(v);
     glDepthRange(0,1);
     hud(v,fps10,connected,input->showmap,menu);
     // Show the completed surface at vblank. The default pbkit queue can expose
