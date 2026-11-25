@@ -103,12 +103,22 @@ static void test_stance(void) {
     }
     assert(peak>standing+2 && peak<standing+5);
     assert(jumps==1 && landings==1);
-    input=(MatchInput){.crouch=1};
-    for (int i=0;i<15;++i) match_update(&input,16,1.f/60);
+    input=(MatchInput){.crouch=1,.strafe=.2f};
+    for (int i=0;i<15;++i) {
+        match_update(&input,16,1.f/60); match_view(&v);
+        assert(v.stance_sound==(i==0?CROUCH_IN:SILENT));
+        assert(v.footsteps==CROUCH_STEPS);
+    }
     match_view(&v); assert(fabsf(v.eye-standing+.9f)<.001f);
     input.crouch=0;
-    for (int i=0;i<15;++i) match_update(&input,16,1.f/60);
+    for (int i=0;i<15;++i) {
+        match_update(&input,16,1.f/60); match_view(&v);
+        assert(v.stance_sound==(i==0?CROUCH_OUT:SILENT));
+        assert(v.footsteps==FOOTSTEPS);
+    }
     match_view(&v); assert(fabsf(v.eye-standing)<.001f);
+    input.strafe=0; match_update(&input,16,1.f/60); match_view(&v);
+    assert(v.footsteps==SILENT);
 }
 
 static void test_weapon_switch(void) {

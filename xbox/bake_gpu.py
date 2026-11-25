@@ -1,6 +1,5 @@
 """Build GPU texture uploads and material batches from the original ac_desert assets."""
 from collections import defaultdict
-from functools import lru_cache
 from pathlib import Path
 import re
 import struct
@@ -10,7 +9,7 @@ import numpy as np
 from PIL import Image
 
 
-def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
+def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lighting):
     blob = bytearray()
     textures, batches, symbols = [], [], []
     vertices = bytearray()
@@ -45,17 +44,6 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
         sx,sy=world_uv[tex]
         return (u*sx,v*sy)
     world = np.frombuffer(cells,np.uint8).reshape(256,256,8)
-    lights = np.array([(x,y,z,max(2,r),red,green or red,blue or red)
-                       for x,y,z,r,kind,red,green,blue in entities if kind == 1 and r>0])
-    @lru_cache(None)
-    def light(x,y,z,face):
-        # Map light radii and colors modulate vertex albedo; directional ambient keeps outdoor walls readable.
-        base = (0.73,0.59,0.80,0.68)[face]
-        delta = lights[:,:3] - (x,y,z)
-        weight = np.maximum(0,1-np.sqrt((delta*delta).sum(axis=1))/lights[:,3])
-        rgb = np.minimum(255, base*235 + (weight[:,None]*lights[:,4:]).sum(axis=0)*.53)
-        return tuple(rgb.astype(int))
-
     # Each coplanar grid stores its material. Merge neighboring cells with identical surfaces.
     planes = defaultdict(dict)
     groups = defaultdict(list)
@@ -78,7 +66,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                     planes[face,points[0][2],bool(face)][x,y]=tex
                 else:
                     for p in ([points[i] for i in (1,0,3,2)] if face else points):
-                        groups[tex].append((p,world_texcoord(tex,p[0],p[1]),light(*p,face)))
+                        groups[tex].append((p,world_texcoord(tex,p[0],p[1]),(255,255,255)))
             for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
                 nk,nf,nc,nw,_,_,nu,_ = map(int,world[y+dy,x+dx])
                 nf,nc = (nf+128)%256-128,(nc+128)%256-128
@@ -104,7 +92,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                         corners=((a[0],a[1]),(b[0],b[1]),(b[0],b[2]),(a[0],a[2]))
                         for s,z in (reversed(corners) if dx>0 or dy<0 else corners):
                             p=(coord,s,z) if dx else (s,coord,z)
-                            groups[tex].append((p,world_texcoord(tex,s,-z),light(*p,axis)))
+                            groups[tex].append((p,world_texcoord(tex,s,-z),(255,255,255)))
                     continue
                 walls = [(f,c,nw)] if nk<2 else [(f,min(c,nf),nw),(max(f,nc),c,nu)]
                 for low,high,material in walls:
@@ -122,7 +110,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
             corners=((a,b),(a+width,b),(a+width,b+height),(a,b+height))
             for u,v in (reversed(corners) if reverse else corners):
                 xyz = (u,v,level) if face<2 else (level,u,v) if face==2 else (u,level,v)
-                groups[tex].append((xyz,world_texcoord(tex,u,v if face<2 else -v),light(*xyz,face)))
+                groups[tex].append((xyz,world_texcoord(tex,u,v if face<2 else -v),(255,255,255)))
     mark("SKY_PORTAL_BATCH",len(batches))
     add_batch(0,groups.pop(0),4)
     for tex,points in sorted(groups.items()): add_batch(tex,points,4)
@@ -133,10 +121,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
         texture(Image.open(packages/f"textures/skymaps/makke/sand_{side}.jpg"),(256,256),False)
 
     def model_skin(path,size):
-        # Raise shadows in the original dark skins while preserving highlights.
-        skin=Image.open(path).convert("RGB")
-        curve=[round(255*(n/255)**.70) for n in range(256)]
-        return texture(skin.point(curve*3),size)
+        with Image.open(path) as skin:
+            return texture(skin,size)
 
     bot_frames=(0,*range(40,58),*range(178,184))
     symbols.append("static const unsigned char bot_frame_batch[198] = {"+
@@ -163,11 +149,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     def model_batch(tex,pos,uv,tri,st):
         pts=[]
         for idx,t in zip(tri,st):
-            a,b,c=pos[idx]
-            normal=np.cross(b-a,c-a)
-            n=normal/max(.0001,np.linalg.norm(normal))
-            shade=int(np.clip(207+36*n[2]-14*n[0],150,255))
-            for v,k in zip(idx,t): pts.append((pos[v],uv[k],(shade,)*3))
+            for v,k in zip(idx,t): pts.append((pos[v],uv[k],(255,255,255)))
         add_batch(tex,pts,3)
 
     def md3_surfaces(data, header, pose):
@@ -239,7 +221,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                 xyz=local@np.array([[c,s,0],[-s,c,0],[0,0,1]])
                 z=int(world[y,x,1].view(np.int8))+int(offset)+elevation/5
                 xyz+=[x,y,z]
-                rgb=light(x,y,z,2)
+                rgb=lighting[y,x]
                 points.extend((xyz[v],uv[v],rgb) for face in tri for v in face)
         if points: add_batch(tex,points,3)
     mark("PROP_END",len(batches))
@@ -295,6 +277,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     texture(Image.new("RGBA",(4,4),"white"),(4,4),False)
     mark("FONT_TEX",len(textures))
     texture(Image.open(packages/"misc/chars_default.png"),(512,512),False)
+    mark("WORLD_LIGHT_TEX",len(textures))
+    texture(Image.fromarray(lighting),(256,256),False)
     glyphs=re.findall(r"^fontchar\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)",
                       (packages.parent/"config/font_default.cfg").read_text(),re.M)[:94]
     mark("VERTEX_BYTES",len(vertices))

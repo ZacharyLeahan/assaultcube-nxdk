@@ -9,6 +9,7 @@ _\name\()_end:
 .endm
 asset world
 asset deltas
+asset cell_light
 asset gpu_vertices
 asset gpu_textures
 asset usp
@@ -17,7 +18,12 @@ asset auto
 asset auto_reload
 asset jump
 asset land
-asset step
+asset footsteps
+asset crouch
+asset watersteps
+asset watercrouch
+asset crouch_in
+asset crouch_out
 asset pain1
 asset pain2
 asset pain3
