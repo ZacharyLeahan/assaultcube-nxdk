@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "../generated/starts.h"
+#include "../generated/bot_head.h"
 
 static void test_routes_to_spawn(int gx,int gy) {
     route_to(gx,gy);
@@ -432,9 +433,9 @@ static void test_idle_animation(void) {
     for (int ms=0;ms<=4000;ms+=25) {
         if (ms) match_update(&in,25,.025f);
         match_view(&v);
-        assert(v.phase==READY && v.bot_pose==(ms/100)%40);
-        assert(v.next_bot_pose==(v.bot_pose+1)%40);
-        assert(fabsf(v.bot_pose_blend-(ms%100)/100.f)<.0001f);
+        assert(v.phase==READY && v.current_pose.first==(ms/100)%40);
+        assert(v.current_pose.second==(v.current_pose.first+1)%40);
+        assert(fabsf(v.current_pose.blend-(ms%100)/100.f)<.0001f);
     }
 }
 
@@ -456,14 +457,26 @@ static void test_bot_hit_volumes(void) {
     v.px-=.15f*s; v.py+=.15f*c;
     assert(!match_targeted(&v));
     // Interpolated head coordinates follow the very same pain frames as the mesh.
+    MatchPoint idle_head=v.bot_head;
     in=(MatchInput){.fire=1};
     assert(match_attack(&in)==RIFLE_SHOT);
-    match_view(&v); assert(v.bot_pose==54);
-    MatchPoint start=v.bot_head;
+    match_view(&v); assert(v.current_pose.first==54);
+    assert(v.previous_pose.first==0 && v.pose_transition==0);
+    assert(fabsf(v.bot_head.z-idle_head.z)<.0001f);
     in.fire=0;
-    match_update(&in,36,.036f); match_view(&v);
-    assert(v.bot_pose==54 && v.next_bot_pose==55 && fabsf(v.bot_pose_blend-.48f)<.001f);
-    assert(fabsf(v.bot_head.z-start.z)>.001f);
+    for (int ms=10;ms<=150;ms+=10) {
+        match_update(&in,10,.01f); match_view(&v);
+        // Sample both MD2 sequences at the current time, then crossfade the tags.
+        int idle=ms/100,pain=54+ms/75;
+        float t=ms/150.f;
+        MatchPoint from=mix_point(head_poses[idle],head_poses[idle+1],ms%100/100.f);
+        MatchPoint to=mix_point(head_poses[pain],head_poses[pain+1],ms%75/75.f);
+        MatchPoint expected=bot_model_point(&v,mix_point(from,to,t));
+        assert(fabsf(v.pose_transition-t)<.0001f);
+        assert(v.current_pose.first==pain);
+        assert(hypotf(hypotf(v.bot_head.x-expected.x,v.bot_head.y-expected.y),
+                      v.bot_head.z-expected.z)<.0001f);
+    }
 }
 
 static void test_prop_depth(void) {
@@ -643,13 +656,13 @@ int main(void) {
                 saw_splash=1;
             }
         }
-        if (view.bot_alive && view.bot_pose>=54 && view.bot_pose<=57) saw_pain=1;
+        if (view.bot_alive && view.current_pose.first>=54 && view.current_pose.first<=57) saw_pain=1;
         if (view.bot_voice>=BOT_PAIN1 && view.bot_voice<=BOT_PAIN5) heard_bot_pain=1;
         if (view.bot_voice==PLAYER_DEATH || view.bot_voice==ALT_DEATH) heard_bot_death=1;
         if (!view.bot_alive) {
             assert(!match_targeted(&view));
-            if (view.bot_pose>178 && view.bot_pose<183) saw_fall=1;
-            if (view.bot_pose==183 && view.next_bot_pose==183) saw_corpse=1;
+            if (view.current_pose.first>178 && view.current_pose.first<183) saw_fall=1;
+            if (view.current_pose.first==183 && view.current_pose.second==183) saw_corpse=1;
         }
         if (view.player_frags && !view.bot_alive) saw_bot_death = 1;
         if (saw_bot_death && view.bot_alive) saw_bot_respawn = 1;

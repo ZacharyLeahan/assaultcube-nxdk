@@ -23,7 +23,7 @@ extern const unsigned char cell_light[256][256][3];
 static const Vertex *geometry;
 typedef struct { float u,v; } LightUV;
 static LightUV *world_light_uv;
-typedef struct { float x,y,z; } Position;
+typedef MatchPoint Position;
 extern const Position bot_poses[];
 static Position *pose_positions;
 static unsigned pose_cursor;
@@ -189,16 +189,27 @@ static void animated_batch(unsigned current,unsigned next,float blend) {
     glDrawArrays(GL_TRIANGLES,0,b->count);
 }
 
+static MatchPoint muzzle_pose(BotPose pose) {
+    const float *a=bot_muzzle[bot_frame_batch[pose.first]],*b=bot_muzzle[bot_frame_batch[pose.second]];
+    return mix_point((MatchPoint){a[0],a[1],a[2]},(MatchPoint){b[0],b[1],b[2]},pose.blend);
+}
+
 static void bot_batch(unsigned batch_id,unsigned base,unsigned count,const unsigned short *indices,
-                      unsigned current,unsigned next,float blend) {
-    if (!current && blend==0) { batch(batch_id); return; }
-    // MD2 shares positions across UV seams. Interpolate each source vertex
-    // once, then expand in the same triangle order as the static UV buffer.
+                      const MatchView *v) {
+    BotPose cur=v->current_pose;
+    if (!cur.first && cur.blend==0 && v->pose_transition==1) { batch(batch_id); return; }
+    // UV seams duplicate positions in the draw buffer. Mix each MD2 vertex
+    // once before expanding to triangle order.
     static Position mixed[BODY_VERTICES>BOT_GUN_VERTICES?BODY_VERTICES:BOT_GUN_VERTICES];
-    const Position *a=bot_poses+base+current*count,*b=bot_poses+base+next*count;
-    for (unsigned i=0;i<count;++i)
-        mixed[i]=(Position){a[i].x+blend*(b[i].x-a[i].x),a[i].y+blend*(b[i].y-a[i].y),
-                            a[i].z+blend*(b[i].z-a[i].z)};
+    const Position *poses=bot_poses+base;
+    const Position *a=poses+bot_frame_batch[cur.first]*count,*b=poses+bot_frame_batch[cur.second]*count;
+    for (unsigned i=0;i<count;++i) mixed[i]=mix_point(a[i],b[i],cur.blend);
+    if (v->pose_transition<1) {
+        BotPose prev=v->previous_pose;
+        a=poses+bot_frame_batch[prev.first]*count; b=poses+bot_frame_batch[prev.second]*count;
+        for (unsigned i=0;i<count;++i)
+            mixed[i]=mix_point(mix_point(a[i],b[i],prev.blend),mixed[i],v->pose_transition);
+    }
     const Batch *mesh=&batches[batch_id];
     Position *out=pose_positions+pose_cursor;
     pose_cursor+=mesh->count;
@@ -312,9 +323,8 @@ static void level(const MatchView *v) {
         glTranslatef(v->tx,v->ty,v->bot_floor);
         glRotatef(v->bot_yaw*57.29578f,0,0,1);
         glRotatef(-v->bot_tilt*57.29578f,0,1,0);
-        unsigned current=bot_frame_batch[v->bot_pose],next=bot_frame_batch[v->next_bot_pose];
-        bot_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,current,next,v->bot_pose_blend);
-        bot_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,current,next,v->bot_pose_blend);
+        bot_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,v);
+        bot_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,v);
         glPopMatrix();
     }
     bind_vertices(geometry);
@@ -353,11 +363,9 @@ static void level(const MatchView *v) {
         color(1,1,1,1);
     }
     if (v->elapsed_ms<v->bot_flash_end_ms && v->bot_alive) {
-        const float *a=bot_muzzle[bot_frame_batch[v->bot_pose]];
-        const float *b=bot_muzzle[bot_frame_batch[v->next_bot_pose]];
-        float p[3];
-        for(int i=0;i<3;++i) p[i]=a[i]+v->bot_pose_blend*(b[i]-a[i]);
-        MatchPoint muzzle=bot_model_point(v,(MatchPoint){p[0],p[1],p[2]});
+        MatchPoint p=muzzle_pose(v->current_pose);
+        if (v->pose_transition<1) p=mix_point(muzzle_pose(v->previous_pose),p,v->pose_transition);
+        MatchPoint muzzle=bot_model_point(v,p);
         float x=muzzle.x,y=muzzle.y,z=muzzle.z;
         float angle=(v->bot_flash_end_ms%360)*.017453293f,ca=cosf(angle),sa=sinf(angle);
         glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR);

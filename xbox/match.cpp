@@ -41,7 +41,14 @@ unsigned clock_ms, frame_start_ms, next_route, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
-float stride_phase;
+float stride_phase,stride_rate;
+struct BotClip {
+    int first,count;
+    unsigned action,sample_time;
+    float phase,frames_per_ms;
+};
+BotClip current_clip,previous_clip;
+unsigned clip_switch;
 unsigned idle_ms;
 bool pistol_trigger_used,empty_click,bot_saw_player;
 unsigned switch_end;
@@ -125,6 +132,7 @@ void spawn(Fighter &f, int index) {
         sway_ms=0; sway_vertical=0;
         was_crouching=false; step_sound=stance_sound=SILENT;
     }
+    if (&f==&bot) { current_clip={}; previous_clip={}; }
     f.velocity_x=f.velocity_y=f.turn_boost=0;
     f.sway_x=f.sway_y=0;
     f.pitch_velocity=0; f.shots=f.shot_until=0;
@@ -329,6 +337,7 @@ void update_bot(float dt) {
         float traveled=distance(old_x,old_y,bot.x,bot.y);
         if (traveled>.001f) {
             // Advance the six original run poses by distance to avoid foot sliding.
+            stride_rate=traveled*1.5f/(dt*1000);
             stride_phase=fmodf(stride_phase+traveled*1.5f,6.f);
             bot_pose=1+(int)stride_phase;
         }
@@ -542,32 +551,48 @@ MatchPoint bot_model_point(const MatchView *v,MatchPoint p) {
     return {v->tx+c*forward-s*p.y,v->ty+s*forward+c*p.y,
             v->bot_floor+st*p.x+ct*p.z};
 }
+static BotPose sample_clip(const BotClip &clip,unsigned now) {
+    float frame=clip.phase+(now-clip.sample_time)*clip.frames_per_ms;
+    bool loop=clip.first==0 || clip.first==40;
+    frame=loop?fmodf(frame,clip.count):fminf(frame,clip.count-1);
+    int i=(int)frame;
+    int j=loop?(i+1)%clip.count:(i+1<clip.count?i+1:i);
+    return {clip.first+i,clip.first+j,frame-i};
+}
+static MatchPoint head_position(BotPose pose) {
+    return mix_point(head_poses[pose.first],head_poses[pose.second],pose.blend);
+}
 static void bot_view(MatchView *v) {
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-PLAYER_EYE_HEIGHT; v->bot_alive = !bot.respawn_at;
     // The world rifle's md2emit lasts 50 ms of the 90 ms attack cue.
     v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
-    int first=0,count=1;
-    float pose=0;
-    if (bot.respawn_at) {
-        first=178; count=6; pose=(clock_ms+2000-bot.respawn_at+intermission_age)/100.f;
-    } else if (bot.pain_until>clock_ms) {
-        first=54; count=4; pose=(clock_ms+300-bot.pain_until)/75.f;
-    } else if (bot.flash_until && clock_ms<bot.flash_until+210) {
-        first=46; count=8; pose=(clock_ms+90-bot.flash_until)/37.5f;
-    } else if (bot_pose) {
-        first=40; count=6; pose=stride_phase;
-    } else {
-        count=40; pose=idle_ms/100.f;
+    unsigned now=clock_ms+intermission_age;
+    BotClip clip={0,40,0,now,idle_ms/100.f,.01f};
+    if (bot.respawn_at)
+        clip={178,6,bot.respawn_at,now,(now+2000-bot.respawn_at)/100.f,.01f};
+    else if (bot.pain_until>clock_ms)
+        clip={54,4,bot.pain_until,now,(now+300-bot.pain_until)/75.f,1/75.f};
+    else if (bot.flash_until && clock_ms<bot.flash_until+210)
+        clip={46,8,bot.flash_until,now,(now+90-bot.flash_until)/37.5f,1/37.5f};
+    else if (bot_pose)
+        clip={40,6,0,now,stride_phase,stride_rate};
+
+    // vertmodel.h keeps the older outgoing clip when another change occurs
+    // within the first half of the 150 ms transition.
+    if (!current_clip.count || now-current_clip.sample_time>150) previous_clip={};
+    else if (clip.first!=current_clip.first || clip.action!=current_clip.action) {
+        if (!previous_clip.count || now-clip_switch>75) previous_clip=current_clip;
+        clip_switch=now;
     }
-    int frame=(int)fminf(pose,count-1);
-    v->bot_pose=first+frame;
-    v->next_bot_pose=first+(first==0 || first==40 ? (frame+1)%count : (frame+1<count ? frame+1 : frame));
-    v->bot_pose_blend=v->bot_pose==v->next_bot_pose ? 0 : pose-floorf(pose);
+    current_clip=clip;
+    v->current_pose=sample_clip(clip,now);
+    v->pose_transition=previous_clip.count?fminf(1,(now-clip_switch)/150.f):1;
+    v->previous_pose=v->pose_transition<1?sample_clip(previous_clip,now):v->current_pose;
     v->bot_tilt=bot.pitch*.25f;
-    const MatchPoint &a=head_poses[v->bot_pose],&b=head_poses[v->next_bot_pose];
-    float t=v->bot_pose_blend;
-    v->bot_head=bot_model_point(v,{a.x+t*(b.x-a.x),a.y+t*(b.y-a.y),a.z+t*(b.z-a.z)});
+    MatchPoint head=head_position(v->current_pose);
+    if (v->pose_transition<1) head=mix_point(head_position(v->previous_pose),head,v->pose_transition);
+    v->bot_head=bot_model_point(v,head);
 }
 static int target_contact(const MatchView *v,float range,bool check_geometry);
 MatchSound match_attack(const MatchInput *in) {
