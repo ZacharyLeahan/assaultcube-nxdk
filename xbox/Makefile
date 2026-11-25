@@ -25,7 +25,7 @@ $(CURDIR)/ambience.obj: generated/ambience.h
 $(CURDIR)/navigation.obj: generated/ladders.h generated/clips.h generated/corners.h
 $(CURDIR)/prop_depth.obj: generated/prop_bounds.h
 $(addprefix $(CURDIR)/,prop_depth.obj gpu_render.obj match.obj): geometry.h
-$(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h
+$(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h generated/bot_head.h
 $(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj): match.h
 $(addprefix $(CURDIR)/,match.obj gpu_render.obj navigation.obj): navigation.h
 $(addprefix $(CURDIR)/,controllers.obj platform_nxdk.obj): controllers.h

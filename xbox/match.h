@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 enum { MAP = 256, FRAG_LIMIT = 3 };
+#define BOT_EYE_HEIGHT 4.5f
 typedef struct {
     uint8_t kind;
     int8_t floor, ceil;
@@ -32,7 +33,8 @@ typedef struct {
 } SplashParticle;
 typedef struct { SplashParticle motion; unsigned on_floor; } BloodParticle;
 typedef struct {
-    float px, py, eye, angle, pitch, tx, ty, bot_yaw;
+    float px, py, eye, angle, pitch, tx, ty, bot_yaw,bot_tilt;
+    MatchPoint bot_head;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
     float bot_pose_blend, weapon_kick;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
@@ -66,6 +68,7 @@ void match_prepare(void);
 void match_update(const MatchInput *input, unsigned elapsed, float motion_seconds);
 MatchSound match_attack(const MatchInput *input);
 int match_targeted(const MatchView *view);
+MatchPoint bot_model_point(const MatchView *view,MatchPoint local);
 void match_view(MatchView *view);
 #ifdef __cplusplus
 }

@@ -290,6 +290,7 @@ static void level(const MatchView *v) {
         glPushMatrix();
         glTranslatef(v->tx,v->ty,map_floor(map_cube((int)v->tx,(int)v->ty)));
         glRotatef(v->bot_yaw*57.29578f,0,0,1);
+        glRotatef(-v->bot_tilt*57.29578f,0,1,0);
         unsigned current=bot_frame_batch[v->bot_pose],next=bot_frame_batch[v->next_bot_pose];
         animated_batch(BODY_BATCH+current,BODY_BATCH+next,v->bot_pose_blend);
         animated_batch(BOT_GUN_BATCH+current,BOT_GUN_BATCH+next,v->bot_pose_blend);
@@ -335,9 +336,8 @@ static void level(const MatchView *v) {
         const float *b=bot_muzzle[bot_frame_batch[v->next_bot_pose]];
         float p[3];
         for(int i=0;i<3;++i) p[i]=a[i]+v->bot_pose_blend*(b[i]-a[i]);
-        float bx=cosf(v->bot_yaw),by=sinf(v->bot_yaw);
-        float x=v->tx+bx*p[0]-by*p[1],y=v->ty+by*p[0]+bx*p[1];
-        float z=map_floor(map_cube((int)v->tx,(int)v->ty))+p[2];
+        MatchPoint muzzle=bot_model_point(v,(MatchPoint){p[0],p[1],p[2]});
+        float x=muzzle.x,y=muzzle.y,z=muzzle.z;
         float angle=(v->bot_flash_end_ms%360)*.017453293f,ca=cosf(angle),sa=sinf(angle);
         glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR);
         glBindTexture(GL_TEXTURE_2D,textures[FLASH_TEX]);
@@ -608,7 +608,7 @@ static unsigned duel_count;
 enum { DUEL_CAPACITY=5500 }; // 90 seconds at 60 Hz plus clock tolerance.
 
 static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,int aimed) {
-    float chest=map_floor(map_cube((int)v->tx,(int)v->ty))+2.6f;
+    float chest=map_floor(map_cube((int)v->tx,(int)v->ty))+BOT_EYE_HEIGHT-1;
     int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
     return (TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,v->tx,v->ty,chest,
         input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};

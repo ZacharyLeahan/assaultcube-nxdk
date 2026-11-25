@@ -177,7 +177,25 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
 
     def md2(path, skin, size, muzzle=None):
         d=(path/"tris.md2").read_bytes()
-        _,_,sw,sh,stride,_,nv,nt,nf,_,_,_,st,tr,frame,_,_=struct.unpack_from("<17i",d)
+        _,_,sw,sh,stride,_,nv,nt,nf,_,_,_,st,tr,frame,commands,_=struct.unpack_from("<17i",d)
+        cfg=(path/"md2.cfg").read_text()
+        model_scale=float(re.search(r"^mdlscale (\d+)",cfg,re.M)[1])/1600
+        translate=np.array(re.search(r"^mdltrans (.+)",cfg,re.M)[1].split(),float)
+        heads=[]
+        # md2tag indices address the PC loader's unique (UV, vertex)
+        # triples in GL command order, not the MD2 frame vertex array.
+        indices={}
+        while True:
+            count=struct.unpack_from("<i",d,commands)[0]
+            commands+=4
+            if not count: break
+            for _ in range(abs(count)):
+                key=struct.unpack_from("<3i",d,commands)
+                commands+=12
+                indices.setdefault(key,key[2])
+        vertices=list(indices.values())
+        if muzzle is None:
+            head_indices=[vertices[int(i)] for i in re.search(r"^md2tag tag_head (.+)",cfg,re.M)[1].split()]
         uv=np.frombuffer(d,"<i2",nt*2,st).reshape(-1,2)/[sw,sh]
         faces=np.frombuffer(d,"<u2",nf*6,tr).reshape(-1,6)
         tex=model_skin(skin,size)
@@ -185,13 +203,20 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
             off=frame+pose*stride
             scale=np.array(struct.unpack_from("<3f",d,off))
             pos=np.frombuffer(d,np.uint8,nv*4,off+40).reshape(-1,4)[:,:3]*scale+struct.unpack_from("<3f",d,off+12)
-            pos=(pos+[0,0,24.15])*.086
+            pos=(pos+translate)*[model_scale,-model_scale,model_scale]
+            if muzzle is None:
+                heads.append((pose,pos[head_indices].mean(axis=0)))
             if muzzle is not None:
                 # assault/world/md2.cfg uses "md2tag tag_muzzle X": select
                 # the first maximum-X vertex in frame zero, then track it.
-                if pose==0: muzzle_vertex=np.argmax(pos[:,0])
+                if pose==0: muzzle_vertex=vertices[np.argmax(pos[vertices,0])]
                 muzzle.append(pos[muzzle_vertex])
             model_batch(tex,pos,uv,faces[:,:3],faces[:,3:])
+        if heads:
+            tags=dict(heads)
+            (out/"bot_head.h").write_text("static const MatchPoint head_poses[] = {\n"+
+                "".join("    {"+",".join(f"{a:.7f}f" for a in tags.get(pose,(0,0,0)))+"},\n"
+                        for pose in range(max(tags)+1))+"};\n")
 
     def model_batch(tex,pos,uv,tri,st):
         pts=[]

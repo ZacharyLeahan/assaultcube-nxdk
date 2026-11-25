@@ -24,6 +24,8 @@ The map supplies six ambient sound sources. The courtyard has stereo wind and a 
 
 Local rifle and pistol impacts use the crosshair depth of the map and its props. A round that hits a barrel throws sparks at the barrel. Bullet holes appear on nearby level surfaces.
 
+The bot uses the original player model scale and animated head position for hit detection. The rifle and pistol deal their normal damage to both the head and torso.
+
 The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Walls and floors sample the map's baked light grid. The bot, pickups, and first-person models take their lighting from the cell they occupy. The HUD updates its frame counter every two seconds.
 
 ## Build and run
