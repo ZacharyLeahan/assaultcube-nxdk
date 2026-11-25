@@ -848,6 +848,8 @@ typedef struct {
 static FrameSample samples[720];
 static unsigned input_times[720][3];
 static unsigned short impact_counts[720];
+typedef struct { int8_t target; uint8_t rifle_mag,rifle_ammo,pistol_mag,pistol_ammo; } AmmoFrame;
+static AmmoFrame ammo_frames[720];
 typedef struct {
     float px,py,eye,yaw,pitch,tx,ty,chest,strafe,turn;
     unsigned live,clear,aimed;
@@ -867,14 +869,16 @@ static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,i
         input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};
 }
 static unsigned sample_count;
-static int tracing,wait_for_pistol;
+enum { TRACE_NOW,TRACE_PISTOL,TRACE_AMMO };
+static int tracing,trace_trigger;
 void gpu_trace_init(void) {
     FILE *marker=fopen("D:\\frame-trace.on","rb");
     if (marker) {
         char trigger[8]={0};
         fread(trigger,1,sizeof(trigger)-1,marker);
         fclose(marker);
-        wait_for_pistol=strncmp(trigger,"pistol",6)==0;
+        if (!strncmp(trigger,"pistol",6)) trace_trigger=TRACE_PISTOL;
+        if (!strncmp(trigger,"ammo",4)) trace_trigger=TRACE_AMMO;
         tracing=1;
     }
     marker=fopen("D:\\duel-trace.on","rb");
@@ -910,8 +914,9 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     if (work_count<32) ++work_count;
     unsigned address=(unsigned)pb_back_buffer() & 0x03ffffff;
     unsigned signature=0;
-    if (wait_for_pistol && v->phase==PLAYING && v->bot_pistol) wait_for_pistol=0;
-    if (tracing && !wait_for_pistol && (v->phase==PLAYING || sample_count)) {
+    if (v->phase==PLAYING && ((trace_trigger==TRACE_PISTOL && v->bot_pistol) ||
+                              (trace_trigger==TRACE_AMMO && v->bot_supply>=0))) trace_trigger=TRACE_NOW;
+    if (tracing && trace_trigger==TRACE_NOW && (v->phase==PLAYING || sample_count)) {
         // Sample the completed scene on both sides of the reticle, above the weapon.
         const uint32_t *row=(const uint32_t *)pb_back_buffer()+
             (pb_back_buffer_height()*9/20)*(pb_back_buffer_pitch()/4);
@@ -933,11 +938,13 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
         if (file) { fwrite(duel_frames,sizeof(*duel_frames),duel_count,file); fclose(file); }
         duel_count=0;
     }
-    if (tracing && !wait_for_pistol && (v->phase==PLAYING || sample_count)) {
+    if (tracing && trace_trigger==TRACE_NOW && (v->phase==PLAYING || sample_count)) {
         input_times[sample_count][0]=sample_tick;
         input_times[sample_count][1]=work_ticks[(work_index-1)%32];
         input_times[sample_count][2]=signature;
         aim_frames[sample_count]=(AimFrame){v->bot_yaw,v->bot_tilt*4,v->health,v->bot_sound};
+        ammo_frames[sample_count]=(AmmoFrame){v->bot_supply,v->bot_rifle_mag,v->bot_rifle_ammo,
+                                             v->bot_pistol_mag,v->bot_pistol_ammo};
         impact_counts[sample_count]=v->mark_count;
         tracking_frames[sample_count]=tracking_frame(v,input,aimed);
         FrameSample *sample=&samples[sample_count++];
@@ -968,6 +975,8 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
             if (file) { fwrite(aim_frames,sizeof(aim_frames),1,file); fclose(file); }
             file=fopen("D:\\impacts.bin","wb");
             if (file) { fwrite(impact_counts,sizeof(impact_counts),1,file); fclose(file); }
+            file=fopen("D:\\bot-ammo.bin","wb");
+            if (file) { fwrite(ammo_frames,sizeof(ammo_frames),1,file); fclose(file); }
             tracing=0;
         }
     }
