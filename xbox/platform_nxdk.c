@@ -8,6 +8,7 @@
 #include <string.h>
 #include "gpu_render.h"
 #include "controllers.h"
+#include "ambience.h"
 
 extern const uint8_t shot_audio[] __asm__("_auto"), shot_end[] __asm__("_auto_end");
 extern const uint8_t auto_reload[], auto_reload_end[];
@@ -66,6 +67,7 @@ static void mix_audio(void *unused, Uint8 *out, int len) {
     for (int frames=len/4;frames>0;) {
         int mix[256][2]={{0}};
         unsigned count=frames>256 ? 256 : (unsigned)frames;
+        ambience_mix(mix,count);
         for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
             Voice *v=&voices[i];
             for (unsigned j=0;j<count && (v->remaining || v->loop);) {
@@ -101,6 +103,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
     const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
     SDL_LockAudioDevice(audio_device);
+    ambience_update(v->px,v->py,v->eye,v->angle);
     for (unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i) {
         if (effects[i]==SILENT) continue;
         const Clip *clip=&clips[effects[i]];

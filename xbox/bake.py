@@ -15,6 +15,38 @@ OUT = ROOT / "generated"
 OUT.mkdir(exist_ok=True)
 
 
+def bake_ambience(config, entities):
+    slots = re.findall(rb'^mapsound "([^"]+)" (-?\d+)', config, re.M)
+    bank = bytearray()
+    clips = []
+    for slot, maxuses in slots:
+        if int(maxuses)!=-1:
+            raise ValueError("Expected unrestricted ac_desert sound slots")
+        samples, rate = soundfile.read(PKG/"audio"/slot.decode(), always_2d=True)
+        if samples.shape[1] not in (1,2) or not len(samples):
+            raise ValueError(f"Expected nonempty mono or stereo audio in {slot!r}")
+        positions = np.arange(0, len(samples), rate/48000)
+        pcm = np.column_stack([np.interp(positions, np.arange(len(samples)), channel)
+                               for channel in samples.T])
+        # Mu-law keeps the stereo wind and long quiet tails in half the PCM space.
+        encoded = np.rint(np.sign(pcm)*127*np.log1p(255*np.minimum(1,abs(pcm)))/np.log(256))
+        clips.append((len(bank), len(pcm), pcm.shape[1]))
+        bank.extend((128+encoded).astype(np.uint8).tobytes())
+    emitters = [(x,y,z,slot,outer,inner,volume) for x,y,z,slot,kind,outer,inner,volume
+                in entities if kind==14]
+    if any(not 0<=e[3]<len(clips) for e in emitters):
+        raise ValueError("Map sound references a missing slot")
+    def rows(name, kind, values):
+        return f"static const {kind} {name}[] = {{\n"+''.join(
+            '    {'+','.join(map(str,row))+'},\n' for row in values)+'};\n'
+    codes=np.clip((np.arange(256)-128)/127,-1,1)
+    decoded=np.rint(np.sign(codes)*np.expm1(abs(codes)*np.log(256))/255*24000).astype(int)
+    (OUT/"ambience.bin").write_bytes(bank)
+    (OUT/"ambience.h").write_text(rows("ambient_clips","AmbientClip",clips)+
+        rows("emitters","SoundEmitter",emitters)+"static const short decoded[256] = {"+
+        ','.join(map(str,decoded))+"};\n")
+
+
 def bake():
     data = gzip.decompress((PKG / "maps/official/ac_desert.cgz").read_bytes())
     magic, version, offset, factor, count = struct.unpack_from("<4s4i", data)
@@ -88,6 +120,7 @@ def bake():
         "".join(f"    {{{x}, {y}, {height}, {kind}}},\n" for x, y, height, kind in pickups) + "};\n")
     from bake_gpu import bake_gpu
     entities = [struct.unpack_from("<4h4B", data, offset+16*i) for i in range(count)]
+    bake_ambience(config, entities)
     from bake_lighting import model_lighting
     lighting = model_lighting(cells, entities, *struct.unpack_from("<ii", data, 924))
     (OUT / "cell_light.bin").write_bytes(lighting.tobytes())
