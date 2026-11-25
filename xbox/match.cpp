@@ -12,6 +12,7 @@ namespace {
 struct ItemLocation { int x, y, height_tenths, kind; };
 #include "generated/starts.h"
 #include "generated/items.h"
+#include "generated/water.h"
 constexpr int start_count = sizeof(starts)/sizeof(starts[0]);
 constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
@@ -31,7 +32,8 @@ struct Fighter {
 Fighter player, bot;
 float feet_z, stance, jump_speed, air_seconds, sway_vertical;
 unsigned sway_ms;
-bool grounded, held_jump;
+bool grounded, held_jump, in_water;
+unsigned last_splash;
 unsigned clock_ms, next_route, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
@@ -85,6 +87,7 @@ void spawn(Fighter &f, int index) {
         hurt_until=0;
         feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=air_seconds=0;
         grounded=true; held_jump=false;
+        in_water=false; last_splash=0;
         sway_ms=0; sway_vertical=0;
         step_distance=0;
     }
@@ -281,25 +284,30 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         bool climbing=!in->crouch && ladder_space(player.x,player.y,feet_z,&ladder_top);
         float target=fminf(in->crouch?2.7f:3.6f,ceiling-feet_z-.9f);
         stance+=fmaxf(-8*dt,fminf(8*dt,target-stance));
-        if (grounded && !climbing && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
-            grounded=false; jump_speed=32; air_seconds=0;
-            movement_sound=PLAYER_JUMP;
+        bool swimming=player.eye_height<WATER_LEVEL+.5f;
+        if (swimming && !in_water) jump_speed=0;
+        if ((grounded || swimming) && !climbing && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
+            grounded=false; jump_speed=swimming?16:32; air_seconds=0;
+            if (swimming) { player.velocity_x/=8; player.velocity_y/=8; }
+            else movement_sound=PLAYER_JUMP;
         }
         held_jump=in->jump;
         float speed=(stance<3.59f?6.4f:16.f)/fmaxf(1,hypotf(in->move,in->strafe));
+        if (swimming) speed*=.5f;
         float c=cosf(player.yaw), s=sinf(player.yaw);
         float forward=climbing && !grounded && in->move<0 ? 0 : in->move;
+        if (swimming) forward*=cosf(player.pitch);
         float dx=(forward*c-in->strafe*s)*speed-player.velocity_x;
         float dy=(forward*s+in->strafe*c)*speed-player.velocity_y;
         float change=hypotf(dx,dy);
         float acceleration=(in->move || in->strafe) ? 128.f : 240.f;
-        float fraction=change>0 ? fminf(1,acceleration*dt/change) : 0;
+        float fraction=swimming ? fminf(1,dt/.4f) : change>0 ? fminf(1,acceleration*dt/change) : 0;
         player.velocity_x+=dx*fraction;
         player.velocity_y+=dy*fraction;
         float old_x=player.x,old_y=player.y;
         walk_body(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt,
                   feet_z,stance+.9f,grounded||climbing?1.5f:0.f);
-        if (grounded && !in->crouch) {
+        if (grounded && !swimming && !in->crouch) {
             step_distance+=distance(old_x,old_y,player.x,player.y);
             if (step_distance>=5.6f) { step_distance-=5.6f; movement_sound=PLAYER_STEP; }
         }
@@ -312,9 +320,15 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float old_feet=feet_z;
         if (feet_z>floor+.01f) grounded=false;
         if (climbing) {
-            feet_z=fminf(fminf(ladder_top,ceiling-stance-.9f),feet_z+16*in->move*dt);
+            feet_z=fminf(fminf(ladder_top,ceiling-stance-.9f),feet_z+(swimming?8:16)*in->move*dt);
             air_seconds=jump_speed=0;
             grounded=feet_z<=floor;
+        } else if (swimming) {
+            float desired=8*in->move*sinf(player.pitch);
+            jump_speed+=(desired-jump_speed)*fraction;
+            feet_z=fminf(ceiling-stance-.9f,feet_z+(jump_speed-2.5f)*dt);
+            grounded=feet_z<=floor;
+            air_seconds=0;
         } else if (!grounded) {
             // PC air friction and its time-in-air-dependent downward step.
             air_seconds+=dt;
@@ -329,6 +343,14 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float delta=feet_z+stance-player.eye_height;
         player.eye_height+=grounded?fmaxf(-12*dt,fminf(12*dt,delta)):delta;
         player.eye_height=fmaxf(floor+.1f,fminf(ceiling-.1f,player.eye_height));
+        if (swimming!=in_water) {
+            if (!swimming) movement_sound=WATER_EXIT;
+            else if (!last_splash || clock_ms-last_splash>500) {
+                movement_sound=WATER_ENTER;
+                last_splash=clock_ms;
+            }
+            in_water=swimming;
+        }
         if (grounded) sway_ms+=elapsed;
         if (dt>0) sway_vertical+=(1-powf(.7f,100*dt))*((feet_z-old_feet)/(16*dt)-sway_vertical);
         if (switch_end) {

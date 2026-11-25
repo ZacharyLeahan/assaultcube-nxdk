@@ -67,7 +67,7 @@ def bake():
     wet=[(i%256,i//256) for i,(k,f,*_) in enumerate(struct.iter_unpack("<Bbb5B",cells))
          if k>=2 and f<surface]
     patches=sorted({(x//4*4,y//4*4) for x,y in wet})
-    (OUT/"water.h").write_text(f"#define WATER_SURFACE ({surface:.3f}f)\n"+
+    (OUT/"water.h").write_text(f"#define WATER_LEVEL ({water/10:.3f}f)\n#define WATER_SURFACE (WATER_LEVEL-.3f)\n"+
         f"static const unsigned char water_color[4] = {{{r},{g},{b},{a}}};\n"+
         "static const short water_patches[][2] = {"+
         ",".join(f"{{{x},{y}}}" for x,y in patches)+"};\n")
@@ -84,7 +84,7 @@ def bake():
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots)
     sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
             "player/jump","player/land","player/step",*(f"player/pain{i}" for i in range(1,7)),
-            "player/die1","player/die2",
+            "player/die1","player/die2","player/splash1","player/splash2",
             "misc/pickup_ammo_clip","misc/pickup_health","misc/pickup_helmet","misc/pickup_armour","misc/change_gun")
     for sound in sounds:
         name=sound.split("/")[-1]

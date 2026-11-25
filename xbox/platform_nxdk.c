@@ -18,11 +18,13 @@ DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(step); DECLARE_CLIP(pain1);
 DECLARE_CLIP(change_gun);
 DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
 DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
+DECLARE_CLIP(splash1); DECLARE_CLIP(splash2);
 DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup_helmet); DECLARE_CLIP(pickup_armour);
 #define CLIP(n) {n,n##_end}
 static const Clip clips[] = {
     [RIFLE_SHOT]={shot_audio,shot_end}, [RIFLE_RELOAD]=CLIP(auto_reload),
     [WEAPON_CHANGE]=CLIP(change_gun),
+    [WATER_ENTER]=CLIP(splash2), [WATER_EXIT]=CLIP(splash1),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
     [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land), [PLAYER_STEP]=CLIP(step),
     [PLAYER_PAIN]=CLIP(pain6), [PLAYER_DEATH]=CLIP(die1), [ALT_DEATH]=CLIP(die2),

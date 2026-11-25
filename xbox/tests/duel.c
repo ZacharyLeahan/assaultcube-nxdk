@@ -99,12 +99,19 @@ static void test_well_ladder(void) {
     in=(MatchInput){.move=-1,.jump=1};
     for (int i=0;i<32;++i) match_update(&in,16,.016f);
     in=(MatchInput){0};
-    for (int i=0;i<65;++i) match_update(&in,16,.016f);
-    match_view(&v); assert(v.eye < -8);
+    int entered=0,exited=0;
+    for (int i=0;i<100;++i) {
+        match_update(&in,16,.016f); match_view(&v);
+        entered+=v.movement_sound==WATER_ENTER;
+    }
+    assert(v.eye < -9 && entered==1);
     in.move=1;
-    for (int i=0;i<40;++i) match_update(&in,16,.016f);
+    for (int i=0;i<150 && v.eye < -3;++i) {
+        match_update(&in,16,.016f); match_view(&v);
+        exited+=v.movement_sound==WATER_EXIT;
+    }
     match_view(&v); float halfway=v.eye;
-    assert(halfway>-8 && halfway<3);
+    assert(halfway>=-3 && halfway<0 && exited==1);
     in.move=0;
     for (int i=0;i<12;++i) match_update(&in,16,.016f);
     match_view(&v); assert(fabsf(v.eye-halfway)<.001f);

@@ -26,6 +26,8 @@ asset pain5
 asset pain6
 asset die1
 asset die2
+asset splash1
+asset splash2
 asset pickup_ammo_clip
 asset pickup_health
 asset pickup_helmet
