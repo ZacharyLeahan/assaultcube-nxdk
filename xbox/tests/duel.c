@@ -49,6 +49,25 @@ static void test_strafe_reversal(unsigned hz) {
     }
 }
 
+static void test_weapon_sway(int crouch) {
+    MatchInput in={.start=1};
+    MatchView v;
+    match_prepare(); match_update(&in,0,0);
+    in=(MatchInput){.strafe=.5f,.move=.25f,.look=.3f,.crouch=crouch};
+    float velocity=0,filtered=0;
+    for (int ms=20;ms<=200;ms+=20) {
+        for (int tick=0;tick<4;++tick) velocity+=(1-velocity)/24;
+        filtered=.49f*filtered+.51f*velocity;
+        match_update(&in,20,.020f); match_view(&v);
+        float bob=.025f*hypotf(in.strafe,in.move)*velocity*(crouch?.75f:1);
+        float side=1.5f/16*in.strafe*filtered+bob*sinf(ms/105.f)*cosf(v.pitch);
+        float up=-bob*fabsf(cosf(ms/105.f)),forward=1.5f/16*in.move*filtered;
+        assert(fabsf(v.gun_side-side)<.00001f);
+        assert(fabsf(v.gun_up-(up*cosf(v.pitch)-forward*sinf(v.pitch)))<.00001f);
+        assert(fabsf(v.gun_forward-(up*sinf(v.pitch)+forward*cosf(v.pitch)))<.00001f);
+    }
+}
+
 static void test_rifle_recoil(unsigned hz,int crouch) {
     MatchView v;
     MatchInput in={.start=1};
@@ -422,6 +441,8 @@ int main(void) {
     test_incoming_fire(0);
     test_incoming_fire(1);
     test_strafe_reversal(60);
+    test_weapon_sway(0);
+    test_weapon_sway(1);
     test_strafe_reversal(50);
     test_rifle_recoil(60,0);
     test_rifle_recoil(60,1);

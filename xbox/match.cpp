@@ -441,7 +441,6 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float travel_y=(target_y*dt+dy*carry)*speed;
         player.velocity_x-=dx*fraction;
         player.velocity_y-=dy*fraction;
-        float old_x=player.x,old_y=player.y;
         walk_body(&player.x,&player.y,travel_x,travel_y,
                   feet_z,stance+.9f,grounded||climbing?1.5f:0.f);
         if (was_crouching!=bool(in->crouch)) {
@@ -453,13 +452,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             if (!wading || WATER_LEVEL-map_cube((int)player.x,(int)player.y)->floor<=stance)
                 step_sound=in->crouch?(wading?WATER_CROUCH_STEPS:CROUCH_STEPS):(wading?WATER_STEPS:FOOTSTEPS);
         }
-        if (dt>0) {
-            float gain=1-powf(.7f,100*dt);
-            player.sway_x+=gain*((player.x-old_x)/(16*dt)-player.sway_x);
-            player.sway_y+=gain*((player.y-old_y)/(16*dt)-player.sway_y);
-        }
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
-        float old_feet=feet_z;
         if (feet_z>floor+.01f) grounded=false;
         if (climbing) {
             feet_z=fminf(fminf(ladder_top,ceiling-stance-.9f),feet_z+(swimming?8:16)*in->move*dt);
@@ -498,8 +491,13 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             }
             in_water=swimming;
         }
-        if (grounded) sway_ms+=elapsed;
-        if (dt>0) sway_vertical+=(1-powf(.7f,100*dt))*((feet_z-old_feet)/(16*dt)-sway_vertical);
+        if (grounded || climbing || swimming) sway_ms+=elapsed;
+        // hudgun.h follows the physics velocity before crouch and water scale travel.
+        float gain=1-powf(.7f,100*dt);
+        float vertical=climbing?in->move:jump_speed/(swimming?8.f:16.f);
+        player.sway_x+=gain*(player.velocity_x-player.sway_x);
+        player.sway_y+=gain*(player.velocity_y-player.sway_y);
+        sway_vertical+=gain*(vertical-sway_vertical);
         if (switch_end) {
             if (clock_ms+switch_ms/2>switch_end) player.state.gunselect=next_gun;
             if (clock_ms>switch_end) switch_end=0;
@@ -646,12 +644,15 @@ void match_view(MatchView *v) {
         lower=sinf(3.14159265f*(switch_end-clock_ms)/switch_ms);
     }
     v->weapon_kick=0;
-    float speed=fminf(1,hypotf(player.sway_x,player.sway_y));
-    float step=sway_ms/105.f, bob=(v->reload || switch_end)?0:.025f*speed*(stance<3.59f?.75f:1);
+    float speed=fminf(1,hypotf(player.velocity_x,player.velocity_y));
+    float step=sway_ms/105.f, bob=(v->reload || switch_end)?0:.025f*speed*(was_crouching?.75f:1);
+    float cp=cosf(player.pitch),sp=sinf(player.pitch);
+    float forward=(1.5f/16)*(player.sway_x*cosf(player.yaw)+player.sway_y*sinf(player.yaw));
+    float up=(.4f/16)*sway_vertical-bob*fabsf(cosf(step));
     v->gun_side=(1.5f/16)*(player.sway_y*cosf(player.yaw)-player.sway_x*sinf(player.yaw))
-                -bob*sinf(step);
-    v->gun_up=(.4f/16)*sway_vertical-bob*fabsf(cosf(step));
-    v->gun_forward=(1.5f/16)*(player.sway_x*cosf(player.yaw)+player.sway_y*sinf(player.yaw));
+                +bob*sinf(step)*cp;
+    v->gun_up=up*cp-forward*sp;
+    v->gun_forward=forward*cp+up*sp;
     v->gun_rotation=-90*lower; v->gun_back=0;
     v->gun_pose=v->next_gun_pose=0;
     v->flash=0;
