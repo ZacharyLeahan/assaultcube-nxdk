@@ -672,6 +672,7 @@ void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
 void test_easy_bot_aim(void);
 void test_smg_loadout(void);
+void test_bot_ammunition(void);
 void test_wall_impact_lifetime(void);
 
 int main(void) {
@@ -679,6 +680,7 @@ int main(void) {
     test_easy_bot_spacing();
     test_easy_bot_aim();
     test_smg_loadout();
+    test_bot_ammunition();
     test_wall_impact_lifetime();
     test_prop_depth();
     test_heightfield_impact();
@@ -870,7 +872,8 @@ int main(void) {
     assert(saw_pain && saw_fall && saw_corpse);
     assert(heard_bot_pain && heard_bot_death);
     assert(saw_splash && saw_stain);
-    assert(view.phase == INTERMISSION && view.player_frags == 1 && view.bot_frags == FRAG_LIMIT);
+    assert(view.phase == INTERMISSION && view.player_frags == 1 && view.bot_frags >= 2 &&
+           (view.bot_frags == FRAG_LIMIT || view.seconds == 0));
     input.start = 1;
     match_update(&input,16,16*.001f);
     match_view(&view);

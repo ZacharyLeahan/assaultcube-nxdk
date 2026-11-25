@@ -59,6 +59,7 @@ typedef struct {
     unsigned seconds;
     MatchPhase phase;
     int classic_assist,selected_smg,smg;
+    int bot_supply,bot_rifle_mag,bot_rifle_ammo,bot_pistol_mag,bot_pistol_ammo;
     MatchSound bot_sound, movement_sound, pickup_sound, pain_sound, bot_voice;
     MatchSound footsteps,bot_footsteps,stance_sound;
     PositionalSound air,impact;

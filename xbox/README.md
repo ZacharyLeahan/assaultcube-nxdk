@@ -21,7 +21,7 @@ The easy bot backs away when you close inside its preferred rifle range. It look
 
 Controllers can be plugged in or replaced while the game is running. Any of the four ports can control the duel. The title and result screens show the number of connected controllers.
 
-The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot can collect them too.
+The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot also collects pickups. When low on ammunition, it seeks a reachable supply and switches back to the rifle after restocking.
 
 The radar and overhead map show the well water and map models, including barrels and crates. The player marker pulses briefly when you fire, reload, or switch weapons.
 
@@ -69,7 +69,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | `gpu_render.c` | NV2A world and model drawing, skybox, HUD, and vblank presentation through pbGL and pbkit |
 | `bake.py`, `bake_gpu.py`, `bake_lighting.py`, `assets.s` | Import and embed the original map, lighting, models, textures, and sounds |
 
-The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The playable loadout is the rifle and pistol.
+The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The player can choose the rifle or SMG and carries the pistol and knife.
 
 ## Verification
 
@@ -133,7 +133,7 @@ On unobstructed ground, movement now follows the PC friction curve. Holding the 
 
 The Xbox port shares some of the visible opponent's angular motion during small two-stick corrections. Build `6ddbe28b` gives this assistance a constant gain near the torso and gradually fades it near the edge of the aiming cone. Full horizontal stick immediately selects the ordinary turn rate.
 
-The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. For a sidearm encounter, write `pistol` into the marker to start the capture when the bot equips its pistol. The `impacts.bin` file stores one little-endian 16-bit live bullet-hole count per frame. The companion `bot-aim.bin` records the bot’s yaw and pitch in radians, player health, and the bot’s weapon sound for each frame (little-endian `<2f2i`). Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
+The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. For a sidearm encounter, write `pistol` into the marker to start the capture when the bot equips its pistol. The `impacts.bin` file stores one little-endian 16-bit live bullet-hole count per frame. Write `ammo` into the marker to start recording when the bot seeks ammunition. Each five-byte `bot-ammo.bin` row contains the signed pickup index (-1 when idle), then the rifle magazine, rifle reserve, pistol magazine and pistol reserve as unsigned bytes. The companion `bot-aim.bin` records the bot’s yaw and pitch in radians, player health, and the bot’s weapon sound for each frame (little-endian `<2f2i`). Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
 
 | Opening life, visible strafing frames only | Previous run 1 / 2 | Revised run 1 / 2 |
 | --- | --- | --- |

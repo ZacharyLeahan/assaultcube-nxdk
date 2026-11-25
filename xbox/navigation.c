@@ -246,7 +246,8 @@ int visible(float x,float y,float z,float tx,float ty,float tz) {
 static uint8_t next_step[MAP*MAP];
 static uint16_t queue[MAP*MAP];
 static const int vx[] = {1,-1,0,0}, vy[] = {0,0,1,-1};
-static int goal_x = -1, goal_y = -1;
+static int goal_x = -1, goal_y = -1, pickup_goal;
+static float goal_height;
 // The map is immutable. Bake directed arrival edges once so a route refresh
 // during combat only visits bytes and queue entries.
 static uint8_t arrivals[MAP*MAP];
@@ -303,7 +304,8 @@ void route_to(int x, int y) {
             x=nx; y=ny; break;
         }
     }
-    if (goal_x == x && goal_y == y) return;
+    if (!pickup_goal && goal_x == x && goal_y == y) return;
+    pickup_goal=0;
     goal_x = x; goal_y = y;
     memset(next_step, 255, sizeof(next_step));
     int tail = 0, id = y*MAP+x;
@@ -324,6 +326,23 @@ void route_to(int x, int y) {
         if (!visible(nx+.5f,ny+.5f,z,x+.5f,y+.5f,eye-1)) continue;
         queue[tail++]=(uint16_t)candidate;
         next_step[candidate]=4;
+    }
+    spread_route(tail);
+}
+void route_to_pickup(int x,int y,float z) {
+    if (pickup_goal && goal_x==x && goal_y==y && goal_height==z) return;
+    pickup_goal=1; goal_x=x; goal_y=y; goal_height=z;
+    memset(next_step,255,sizeof(next_step));
+    int tail=0;
+    // Seed only cells where the bot can physically collect this item.
+    for (int iy=y-2;iy<=y+2;++iy) for (int ix=x-2;ix<=x+2;++ix) {
+        if ((unsigned)ix>=MAP || (unsigned)iy>=MAP) continue;
+        int id=iy*MAP+ix;
+        if (!arrivals[id]) continue;
+        float dx=ix+.5f-x,dy=iy+.5f-y,dz=body_floor(ix+.5f,iy+.5f)-z;
+        if (dx*dx+dy*dy+dz*dz>=6.25f) continue;
+        next_step[id]=4;
+        queue[tail++]=(uint16_t)id;
     }
     spread_route(tail);
 }
