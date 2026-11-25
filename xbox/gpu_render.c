@@ -1005,7 +1005,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
         text(hud_width-122,2,20,line);
         if(v->phase==INTERMISSION && !lan_connected())
             text(42,59,23,v->player_frags>v->bot_frags?"You win   /   START for rematch":v->player_frags<v->bot_frags?"Bot wins   /   START for rematch":"Draw   /   START for rematch");
-        else if(v->respawning) text(42,58,22,v->stock_round?"Fragged   /   Tap RT to respawn":"Fragged   /   Respawning");
+        else if(v->respawning) text(42,58,22,(lan_connected() || v->stock_round)?"Fragged   /   Tap RT to respawn":"Fragged   /   Respawning");
         else if(v->reload) text(hud_width*.33f,620,18,"Reloading");
     }
     for (unsigned i=0;i<3 && v->frag_messages[i].text;++i) {

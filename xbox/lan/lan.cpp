@@ -16,7 +16,7 @@ ENetHost *host;
 ENetPeer *peer;
 ENetAddress address;
 int own=-1,life,remote=-1,remote_life;
-bool ready,alive,remote_alive;
+bool ready,alive,remote_alive,joining;
 bool intermission;
 struct GrenadeId { unsigned game,wire; };
 GrenadeId grenade_ids[8];
@@ -166,7 +166,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
             memset(grenade_ids,0,sizeof(grenade_ids));
             memset(deaths,0,sizeof(deaths));
-            ready=true;alive=remote_alive=intermission=false;
+            ready=joining=true;alive=remote_alive=intermission=false;
             remote_weapon=GUN_ASSAULT;match_lan_map(now);
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
@@ -181,7 +181,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(!r.valid || !ready || !supported_primary(primary) ||
                (gun!=primary && gun!=GUN_PISTOL)) return;
             m.word(SV_SPAWN);m.word(life);m.word(gun);m.transmit();
-            sent_weapon=gun;alive=true;
+            sent_weapon=gun;alive=true;joining=false;
             match_lan_spawn(hp,armour,primary,gun,ammo,mag);
             match_lan_remote_weapon(remote_weapon);
             snprintf(status,sizeof(status),"LAN  ac_desert    Waiting for PC");break;
@@ -234,7 +234,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
                 match_lan_frag(victim==own,victim==actor,gun,type==SV_GIBDIED,name);
             }
             if(actor==own || actor==remote) match_lan_score(actor==own,frags);
-            if(victim==own) {alive=false;next_spawn=now+2200;match_lan_health(0,0);}
+            if(victim==own) {alive=joining=false;next_spawn=now+2000;match_lan_health(0,0);}
             if(victim==remote) {remote_alive=false;match_lan_remote_death(type==SV_GIBDIED);}
             break;
         }
@@ -246,7 +246,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         }
         case SV_FORCEDEATH: {
             int cn=r.integer();
-            if(cn==own) alive=false;
+            if(cn==own && alive) {alive=false;next_spawn=now+2000;match_lan_health(0,0);}
             if(cn==remote) {remote_alive=false;match_lan_hide();}
             break;
         }
@@ -430,7 +430,9 @@ void lan_poll(unsigned now) {
     }
     if(!peer)return;
     if(!ready && now-connect_start>18000) {stop("server timed out");return;}
-    if(ready && !intermission && !alive && (int)(now-next_spawn)>=0) {command(SV_TRYSPAWN);next_spawn=now+1500;}
+    if(ready && !intermission && !alive && (joining || match_lan_take_respawn()) && (int)(now-next_spawn)>=0) {
+        command(SV_TRYSPAWN);next_spawn=now+(joining?1500:1000);
+    }
     if(ready && now-last_ping>=500){Message m;m.word(SV_PING);m.word(now);m.transmit();last_ping=now;}
 }
 

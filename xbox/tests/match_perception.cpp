@@ -612,6 +612,15 @@ extern "C" void test_lan_ffa_starts(void) {
     match_lan_hide();
     spawn_cycle=start_count-2;
     assert(next_ffa_start(4,nullptr)==2);
+    match_lan_health(0,0);
+    MatchInput trigger={};trigger.fire=1;
+    match_update(&trigger,100,.016f);trigger.fire=0;match_update(&trigger,100,.016f);
+    assert(!match_lan_take_respawn());
+    for(int i=0;i<160;++i) match_update(&trigger,16,.016f);
+    assert(player.respawn_at && !match_lan_take_respawn());
+    trigger.fire=1;match_update(&trigger,16,.016f);assert(!match_lan_take_respawn());
+    trigger.fire=0;match_update(&trigger,16,.016f);
+    assert(match_lan_take_respawn() && !match_lan_take_respawn() && player.respawn_at);
     match_lan_score(1,4);
     match_lan_time(0);
     MatchInput restart={};restart.start=1;

@@ -50,7 +50,7 @@ constexpr int start_count = sizeof(starts)/sizeof(starts[0]);
 constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
 constexpr unsigned bot_match_duration=15*60*1000;
-bool stock_round,respawn_trigger;
+bool stock_round,respawn_trigger,request_respawn;
 int last_bot_gun;
 unsigned bot_scope_since;
 unsigned bot_switch_after,bot_akimbo_until;
@@ -410,7 +410,7 @@ void begin(MatchPhase initial) {
     combat_move_until=next_enemy_search = next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
-    respawn_trigger=false;
+    respawn_trigger=request_respawn=false;
     if(stock_round && !lan_match) {
         aim_state=random_state=menu_time;
         offline_bot_name=bot_names[random_number()%(sizeof(bot_names)/sizeof(bot_names[0]))];
@@ -1261,6 +1261,7 @@ void match_lan_map(unsigned seed) {
 }
 void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const int *mag) {
     if (!lan_match) match_lan_map(0);
+    request_respawn=false;
     player.state.nextprimary=primary;
     unsigned visits=4;
     if(initial_spawn_cycles) --initial_spawn_cycles;
@@ -1273,6 +1274,9 @@ void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const
     memcpy(player.state.ammo,ammo,sizeof(player.state.ammo));
     memcpy(player.state.mag,mag,sizeof(player.state.mag));
     player.state.health=hp; player.state.armour=armour;
+}
+int match_lan_take_respawn(void) {
+    bool request=request_respawn;request_respawn=false;return request;
 }
 int match_lan_selected_weapon(void) { return switch_end ? -1 : player.state.gunselect; }
 unsigned match_lan_shot_time(unsigned now) { return now-player_shot_delay_ms; }
@@ -1521,8 +1525,11 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     }
     update_blood(elapsed);
     if (!lan_match && clock_ms >= (stock_round?bot_match_duration:duration)) { phase = INTERMISSION; return; }
-    if (!lan_match && player.respawn_at && player.respawn_at <= clock_ms &&
-        (!stock_round || (respawn_trigger && !in->fire))) respawn_near(player,bot);
+    if(player.respawn_at && clock_ms>player.respawn_at && (respawn_trigger && !in->fire)) {
+        if(lan_match) request_respawn=true;
+        else respawn_near(player,bot);
+    } else if(!lan_match && !stock_round && player.respawn_at && player.respawn_at<=clock_ms)
+        respawn_near(player,bot);
     respawn_trigger=in->fire;
     if (bot.respawn_at && bot.respawn_at <= clock_ms) {
         if(lan_match) hide_bot=true;

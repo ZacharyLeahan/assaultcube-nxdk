@@ -19,6 +19,7 @@ void lan_toggle_primary(unsigned now);
 void match_lan_map(unsigned seed);
 void match_lan_spawn(int health,int armour,int primary,int gun,const int *ammo,const int *mag);
 int match_lan_selected_weapon(void);
+int match_lan_take_respawn(void);
 unsigned match_lan_shot_time(unsigned now);
 void match_lan_remote_spawn(int gun);
 void match_lan_remote_weapon(int gun);
