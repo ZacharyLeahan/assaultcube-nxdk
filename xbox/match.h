@@ -42,7 +42,8 @@ static inline MatchPoint mix_point(MatchPoint a,MatchPoint b,float t) {
 }
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt;
-    MatchPoint bot_head;
+    MatchPoint bot_head,camera;
+    float camera_yaw,camera_pitch,player_floor,death_frame;
     int health, armour, magazine, reserve, pistol, knife, player_frags, bot_frags, bot_alive;
     const GibView *gibs; unsigned gib_count; int hide_bot, gib_sound;
     BotPose current_pose,previous_pose;
@@ -52,7 +53,7 @@ typedef struct {
     unsigned bot_flash_end_ms,player_light,bot_light;
     int respawning, reload, hide_crosshair, flash, wide_crosshair;
     float damage_alpha;
-    int bot_shot_pending,bot_respawn_pending,empty_click;
+    int bot_shot_pending,respawn_work_pending,empty_click;
     const unsigned *damage_directions;
     unsigned seconds;
     MatchPhase phase;

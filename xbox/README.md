@@ -1,6 +1,6 @@
 # AssaultCube on original Xbox
 
-Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and Arghvark. Press Start to begin. Reach three frags to win, or lead when the 90-second clock expires. A tied score at time produces a draw. Both fighters respawn after two seconds.
+Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and Arghvark. Press Start to begin. Reach three frags to win, or lead when the 90-second clock expires. A tied score at time produces a draw. Both fighters respawn after two seconds. When you are fragged, the camera pulls back to show your fall. The right stick lets you look around until first-person play resumes.
 
 | Control | Action |
 | --- | --- |
