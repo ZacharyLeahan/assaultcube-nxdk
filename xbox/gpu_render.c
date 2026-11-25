@@ -19,6 +19,7 @@
 
 typedef struct { unsigned offset, bytes, width, height, mip, indexed, unpacked, grayscale; } ImageInfo;
 typedef struct { unsigned texture, first, count, primitive; } Batch;
+typedef struct { unsigned batch,offset,idle,indices,vertices; } HudFrame;
 typedef struct { int x, y, w, h; } Glyph;
 typedef struct { int x,y; unsigned first,count; } PropLightSpan;
 #include "generated/gpu.h"
@@ -45,7 +46,7 @@ static Vertex *geometry;
 typedef struct { float u,v; } LightUV;
 static LightUV *world_light_uv;
 typedef MatchPoint Position;
-extern const Position bot_poses[];
+extern const Position bot_poses[],hud_poses[];
 static Position *pose_positions;
 // Each silhouette edge emits at most one triangle to the shadow tip.
 #define MAX_COUNT(a,b) ((a)>(b)?(a):(b))
@@ -151,7 +152,7 @@ int gpu_init(int width, int height) {
     for (unsigned i=0;i<sizeof(weapon_art)/sizeof(weapon_art[0]);++i) {
         const WeaponArt *art=weapon_art+i;
         unsigned count=0;
-        for (unsigned j=0;j<art->surfaces;++j) count+=batches[art->poses[0]+j].count;
+        for (unsigned j=0;j<art->surfaces;++j) count+=batches[hud_frames[art->poses[0]+j].batch].count;
         extra=MAX_COUNT(extra,count);
         if (art->death_batch) extra=MAX_COUNT(extra,batches[BODY_BATCH].count+batches[art->death_batch].count);
     }
@@ -275,21 +276,22 @@ static void batch(unsigned n) {
 // Pose pairs share topology and UVs. Read positions from cached XBE memory
 // and write each mesh to its own GPU span until this frame has finished.
 static void animated_batch(unsigned current,unsigned next,float blend) {
-    const Batch *b=&batches[current];
-    if (blend<=0) {
-        bind_vertices(geometry);
-        batch(current);
+    const HudFrame *frame=&hud_frames[current],*other=&hud_frames[next];
+    const Batch *b=&batches[frame->batch];
+    if(frame->idle && (blend<=0 || other->idle)) {
+        batch(frame->batch);
         return;
     }
-    const Vertex *source=(const Vertex *)gpu_vertices;
-    const Vertex *a=source+b->first, *z=source+batches[next].first;
+    const Position *a=hud_poses+frame->offset,*z=hud_poses+other->offset;
     Position *out=pose_positions+pose_cursor;
     pose_cursor+=b->count;
-    for (unsigned i=0;i<b->count;++i) {
-        out[i]=(Position){a[i].x+(z[i].x-a[i].x)*blend,
-                          a[i].y+(z[i].y-a[i].y)*blend,
-                          a[i].z+(z[i].z-a[i].z)*blend};
+    static Position mixed[HUD_MAX_VERTICES];
+    if(blend>0 && frame->offset!=other->offset) {
+        for(unsigned i=0;i<frame->vertices;++i) mixed[i]=mix_point(a[i],z[i],blend);
+        a=mixed;
     }
+    const unsigned short *indices=hud_indices+frame->indices;
+    for(unsigned i=0;i<b->count;++i) out[i]=a[indices[i]];
     bind_vertices(geometry+b->first);
     glVertexPointer(3,GL_FLOAT,sizeof(Position),out);
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);

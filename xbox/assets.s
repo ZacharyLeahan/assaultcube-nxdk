@@ -12,6 +12,7 @@ asset deltas
 asset cell_light
 asset ambience
 asset gpu_vertices
+asset hud_poses
 asset bot_poses
 asset gpu_textures
 asset knife

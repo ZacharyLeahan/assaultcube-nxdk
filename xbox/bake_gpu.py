@@ -192,9 +192,13 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     for side in ("ft","rt","bk","lf","up","dn"):
         texture(Image.open(packages/f"textures/skymaps/makke/sand_{side}.jpg"),(256,256),False)
 
+    model_textures={}
     def model_skin(path,size):
-        with Image.open(path) as skin:
-            return texture(skin,size)
+        key=(path,size)
+        if key not in model_textures:
+            with Image.open(path) as skin:
+                model_textures[key]=texture(skin,size)
+        return model_textures[key]
 
     bot_frames=(*range(58),68,*range(135,173),*range(178,190))
     bot_positions=bytearray()
@@ -305,6 +309,10 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("WORLD_WEAPON_MAX_INDICES",max(indices for _,indices in world_counts))
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
+    hud_positions=bytearray()
+    hud_frames=[]
+    hud_indices=[]
+    max_hud_vertices=0
     hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
     for name in ("assault","pistol","knife","subgun","carbine","sniper","shotgun"):
         folder=packages/"models/weapons"/name
@@ -316,20 +324,29 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         start,count=map(int,shoot.groups())
         poses=(0,*range(start,start+count))
         pose_batches=[]
-        unique={}
+        unique_positions={}
+        idle_offsets=[]
+        index_offsets=[]
+        base=len(batches)
         mark(name.upper()+"_SURFACES",header[6])
         for pose in poses:
             for tag in range(header[5]):
                 label,*origin=struct.unpack_from("<64s3f",d,header[-3]+112*(pose*header[5]+tag))
                 if label.rstrip(b"\0")==b"tag_muzzle": muzzle.append(tuple(origin))
-            surfaces=list(md3_surfaces(d,header,pose))
-            # The MD3 topology, materials and UVs are shared by every pose.
-            key=tuple(pos.tobytes() for _,pos,_,_ in surfaces)
-            if key not in unique:
-                unique[key]=len(batches)
-                for label,pos,uv,tri in surfaces:
+            pose_batches.append(len(hud_frames))
+            for surface,(label,pos,uv,tri) in enumerate(md3_surfaces(d,header,pose)):
+                raw=pos.astype("<f4").tobytes()
+                if raw not in unique_positions:
+                    unique_positions[raw]=len(hud_positions)//12
+                    hud_positions.extend(raw)
+                offset=unique_positions[raw]
+                if pose==0:
                     model_batch(hands if label==b"hands" else tex,pos,uv,tri,tri)
-            pose_batches.append(unique[key])
+                    idle_offsets.append(offset)
+                    index_offsets.append(len(hud_indices))
+                    hud_indices.extend(tri.flatten().tolist())
+                    max_hud_vertices=max(max_hud_vertices,len(pos))
+                hud_frames.append((base+surface,offset,int(offset==idle_offsets[surface]),index_offsets[surface],len(pos)))
         symbols.append(f"static const unsigned short {name}_batches[] = {{"+
                        ",".join(map(str,pose_batches))+"};\n")
         if name=="knife": continue
@@ -510,8 +527,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     glyphs=re.findall(r"^fontchar\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)",
                       (packages.parent/"config/font_default.cfg").read_text(),re.M)[:94]
     mark("VERTEX_BYTES",len(vertices))
+    mark("HUD_MAX_VERTICES",max_hud_vertices)
+    symbols.append("static const unsigned short hud_indices[]={"+",".join(map(str,hud_indices))+"};\n")
+    (out/"hud_poses.bin").write_bytes(hud_positions)
     (out/"gpu_textures.bin").write_bytes(blob)
     (out/"gpu_vertices.bin").write_bytes(vertices)
     def rows(name,kind,data):
         return f"static const {kind} {name}[] = {{\n"+ "".join("    {"+",".join(map(str,r))+"},\n" for r in data)+"};\n"
-    (out/"gpu.h").write_text("".join(symbols)+rows("images","ImageInfo",textures)+rows("batches","Batch",batches)+rows("glyphs","Glyph",glyphs))
+    (out/"gpu.h").write_text("".join(symbols)+rows("hud_frames","HudFrame",hud_frames)+rows("images","ImageInfo",textures)+rows("batches","Batch",batches)+rows("glyphs","Glyph",glyphs))
