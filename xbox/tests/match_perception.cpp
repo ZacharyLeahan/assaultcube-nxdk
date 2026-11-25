@@ -225,3 +225,29 @@ extern "C" void test_smg_loadout(void) {
     match_prepare(); match_view(&v);
     assert(!v.smg && v.magazine==20);
 }
+
+extern "C" void test_bot_ammunition(void) {
+    start_perception_test();
+    int box=0;
+    while (locations[box].kind!=I_AMMO) ++box;
+    bot.x=123.2f; bot.y=127.2f;
+    bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+    bot.state.mag[GUN_ASSAULT]=bot.state.ammo[GUN_ASSAULT]=0;
+    bot.state.mag[GUN_PISTOL]=bot.state.ammo[GUN_PISTOL]=0;
+    for (int i=0;i<item_count;++i) unavailable_until[i]=duration;
+    assert(find_ammunition(false,true)==-1);
+    unavailable_until[box]=0;
+    assert(find_ammunition(false,true)==box);
+    MatchInput in={};
+    for (int i=0;i<1800 && !bot.state.mag[GUN_ASSAULT];++i)
+        match_update(&in,16,.016f);
+    assert(unavailable_until[box]>clock_ms);
+    assert(bot.state.gunselect==GUN_ASSAULT && bot.state.mag[GUN_ASSAULT]==20);
+    assert(bot.state.ammo[GUN_ASSAULT]==20 && bot.reload_at>clock_ms);
+
+    // Resolve the score limit independently of the route the bot took for supplies.
+    bot.frags=FRAG_LIMIT-1;
+    player.state.health=1; player.state.armour=0;
+    damage(player,bot,GUN_ASSAULT,1,0,0);
+    assert(phase==INTERMISSION && bot.frags==FRAG_LIMIT);
+}

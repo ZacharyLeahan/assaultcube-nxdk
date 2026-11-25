@@ -47,6 +47,8 @@ unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned radar_action_until;
+int supply_index=-1;
+unsigned next_supply_check;
 unsigned unavailable_until[item_count], random_state, aim_state;
 int bot_pose;
 float stride_phase,stride_rate;
@@ -204,7 +206,7 @@ void spawn(Fighter &f, int index) {
         sway_ms=0; sway_vertical=0;
         was_crouching=false; step_sound=stance_sound=SILENT;
     }
-    if (&f==&bot) { hide_bot=false; current_clip={}; previous_clip={}; }
+    if (&f==&bot) { supply_index=-1; next_supply_check=0; hide_bot=false; current_clip={}; previous_clip={}; }
     f.velocity_x=f.velocity_y=f.turn_boost=0;
     f.sway_x=f.sway_y=0;
     f.pitch_velocity=0; f.shots=f.shot_until=0;
@@ -255,6 +257,7 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
     }
     spawn(f,best >= 0 ? best : fallback);
     aim_at_opponent(f,opponent);
+    supply_index=-1; next_supply_check=0;
     next_enemy_search = next_route = 0; bot_attack_at = clock_ms+1200; bot.shots=0;
     bot_saw_player = false;
     combat_move_until=0;
@@ -559,6 +562,40 @@ float bot_aim_step(float current,float target,bool vertical,float dt) {
     float limit=speed*radians*dt;
     return current+fmaxf(-limit,fminf(limit,desired));
 }
+bool has_rounds(int gun) {
+    return bot.state.mag[gun] || bot.state.ammo[gun];
+}
+int find_ammunition(bool sees,bool empty) {
+    int gun=bot.state.gunselect;
+    bool wants_primary=bot.state.ammo[bot.state.primary]<=6;
+    bool wants_clips=gun==GUN_PISTOL && bot.state.ammo[GUN_PISTOL]<=6;
+    if (!wants_primary && !wants_clips) return -1;
+    float scores[item_count]={};
+    for (int i=0;i<item_count;++i) {
+        const ItemLocation &p=locations[i];
+        if (unavailable_until[i]>clock_ms) continue;
+        if (!(p.kind==I_AMMO && wants_primary) && !(p.kind==I_CLIPS && wants_clips)) continue;
+        float z=ground(p.x,p.y)+p.height_tenths*.1f+PLAYER_EYE_HEIGHT;
+        float dist=hypotf(distance(bot.x,bot.y,p.x,p.y),eye(bot)-z);
+        bool clear=visible(bot.x,bot.y,eye(bot),p.x,p.y,z);
+        // Windows combat item searches use a 25-unit radius and one-unit height limit.
+        if (!empty && (dist>25 || (sees && (fabsf(eye(bot)-z)>1 || !clear)))) continue;
+        int weapon=p.kind==I_AMMO?bot.state.primary:GUN_PISTOL;
+        int percent=100*bot.state.ammo[weapon]/ammostats[weapon].max;
+        scores[i]=(100-percent)/2+(100-(int)fminf(dist,100))/2+(clear?30:15);
+    }
+    for (;;) {
+        int best=-1;
+        for (int i=0;i<item_count;++i)
+            if (scores[i]>0 && (best<0 || scores[i]>scores[best])) best=i;
+        if (best<0) return -1;
+        const ItemLocation &p=locations[best];
+        route_to_pickup(p.x,p.y,ground(p.x,p.y)+p.height_tenths*.1f);
+        float tx,ty;
+        if (route_next(bot.x,bot.y,&tx,&ty)) return best;
+        scores[best]=0;
+    }
+}
 void update_bot(float dt) {
     bot_pose = 0;
     if (bot.respawn_at || player.respawn_at || clock_ms < 1000) {
@@ -566,7 +603,10 @@ void update_bot(float dt) {
         return;
     }
     int gun=bot.state.gunselect;
-    if (gun!=GUN_PISTOL && !bot.state.mag[gun] && !bot.state.ammo[gun]) {
+    if (gun==GUN_PISTOL && has_rounds(bot.state.primary) && clock_ms>=bot.ready_at) {
+        bot.state.gunselect=bot.state.primary;
+        bot.shots=0; combat_move_until=0;
+    } else if (gun!=GUN_PISTOL && !has_rounds(gun)) {
         bot.state.gunselect=GUN_PISTOL;
         combat_move_until=0;
     }
@@ -582,9 +622,21 @@ void update_bot(float dt) {
             sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player));
         if (!sees) next_enemy_search=clock_ms+300+random_number()%61;
     }
+    if (clock_ms>=next_supply_check || (supply_index>=0 && unavailable_until[supply_index]>clock_ms)) {
+        int previous=supply_index;
+        supply_index=find_ammunition(sees,!has_rounds(bot.state.gunselect));
+        if (previous!=supply_index || supply_index<0) next_route=0;
+        next_supply_check=clock_ms+450;
+    }
+    bool collecting=supply_index>=0;
+    int equipped=bot.state.gunselect;
+    if (!sees && !bot.state.mag[equipped] && bot.state.ammo[equipped] && clock_ms>=bot.ready_at) {
+        bot_sound=trigger(bot,false,true);
+        bot.shots=0;
+    }
     float old_x=bot.x,old_y=bot.y;
     bool retreat=false;
-    if (sees) {
+    if (sees && !collecting) {
         if (!bot_saw_player || clock_ms>=combat_move_until) choose_combat_move(d,range);
         float c=cosf(bot.yaw),s=sinf(bot.yaw);
         retreat=combat_forward<0;
@@ -592,7 +644,7 @@ void update_bot(float dt) {
         else advance_bot_velocity(c*combat_forward-s*combat_side,s*combat_forward+c*combat_side,dt);
     } else {
         advance_bot_velocity(0,0,dt);
-        if (clock_ms >= next_route) {
+        if (!collecting && clock_ms >= next_route) {
             route_to((int)player.x,(int)player.y);
             next_route = clock_ms+450;
         }
@@ -600,7 +652,7 @@ void update_bot(float dt) {
         if (route_next(bot.x,bot.y,&tx,&ty)) {
             float mx=tx-bot.x,my=ty-bot.y,length=hypotf(mx,my);
             if (length>.001f) {
-                turn_bot_toward(atan2f(my,mx),dt);
+                if (!sees) turn_bot_toward(atan2f(my,mx),dt);
                 float step=fminf(length,11*dt);
                 move_bot(mx/length*step,my/length*step);
                 bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
@@ -608,7 +660,7 @@ void update_bot(float dt) {
         }
     }
     float traveled=distance(old_x,old_y,bot.x,bot.y);
-    if (traveled>.001f && dt>0 && (!sees || combat_forward || combat_side)) {
+    if (traveled>.001f && dt>0 && (collecting || !sees || combat_forward || combat_side)) {
         float advance=traveled*(retreat?-1.5f:1.5f);
         stride_rate=advance/(dt*1000);
         stride_phase=fmodf(stride_phase+advance,6.f);
@@ -996,6 +1048,9 @@ void match_view(MatchView *v) {
     v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
     v->camera_yaw=player.respawn_at?death_yaw:player.yaw;
     v->camera_pitch=player.respawn_at?death_pitch:player.pitch;
+    v->bot_supply=supply_index;
+    v->bot_rifle_mag=bot.state.mag[GUN_ASSAULT]; v->bot_rifle_ammo=bot.state.ammo[GUN_ASSAULT];
+    v->bot_pistol_mag=bot.state.mag[GUN_PISTOL]; v->bot_pistol_ammo=bot.state.ammo[GUN_PISTOL];
     v->radar_active=clock_ms<radar_action_until;
     v->player_floor=feet_z;
     v->death_frame=player.respawn_at?fminf(5,(now+player_respawn_ms-player.respawn_at)/100.f):0;
