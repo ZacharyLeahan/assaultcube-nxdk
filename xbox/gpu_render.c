@@ -33,6 +33,7 @@ typedef struct {
     const char *choice;
 } WeaponArt;
 static const WeaponArt weapon_art[]={
+    [VIEW_GRENADE]={grenade_batches,GRENADE_SURFACES,GRENADE_DEATH_BATCH,NULL,0,3,1,NULL},
     [VIEW_RIFLE]={assault_batches,ASSAULT_SURFACES,0,assault_muzzle,.75f,2,1,"Y   Primary: MTP-57 rifle"},
     [VIEW_SHOTGUN]={shotgun_batches,SHOTGUN_SURFACES,SHOTGUN_DEATH_BATCH,shotgun_muzzle,.75f,3,0,"Y   Primary: V-19 CS shotgun"},
     [VIEW_SMG]={subgun_batches,SUBGUN_SURFACES,SUBGUN_DEATH_BATCH,subgun_muzzle,.55f,0,1,"Y   Primary: A-ARD/10 SMG"},
@@ -59,6 +60,7 @@ typedef struct {
 } WorldWeapon;
 #define WORLD_MODEL(id,name,muzzle,radius) {id##_BATCH,id##_POSE_BASE,id##_VERTICES,name##_indices,name##_neighbors,muzzle,radius}
 static const WorldWeapon world_weapons[]={
+    [VIEW_GRENADE]=WORLD_MODEL(WORLD_GRENADE,world_grenade,NULL,0),
     [VIEW_RIFLE]=WORLD_MODEL(BOT_GUN,bot_gun,bot_gun_muzzle,.525f),
     [VIEW_PISTOL]=WORLD_MODEL(WORLD_PISTOL,world_pistol,world_pistol_muzzle,.175f),
     [VIEW_KNIFE]=WORLD_MODEL(WORLD_KNIFE,world_knife,NULL,0),
@@ -930,7 +932,8 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
         equipment(8,2,3,v->health,-1);
         if (v->armour) equipment(196,(v->armour-1)/25,2,v->armour,-1);
         const WeaponArt *art=&weapon_art[v->weapon];
-        equipment(384,art->icon_x,art->icon_y,v->weapon==VIEW_KNIFE?-1:v->magazine,v->reserve);
+        equipment(384,art->icon_x,art->icon_y,v->weapon==VIEW_KNIFE?-1:v->magazine,v->weapon==VIEW_GRENADE?-1:v->reserve);
+        if(v->grenade_ammo && v->weapon!=VIEW_GRENADE) equipment(590,3,1,v->grenade_ammo,-1);
     }
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);

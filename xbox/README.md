@@ -17,6 +17,7 @@ Barrels and crates can break the bot's sightline and stop its shots. The easy bo
 | Left trigger | Hold to scope the AD-81 at a 50-degree horizontal FOV with reduced stick sensitivity. Release to return to the normal 90-degree view. |
 | Y | Before a match, cycle through the MTP-57 rifle, A-ARD/10 SMG, TMP-M&A carbine, AD-81 sniper rifle and V-19 shotgun. During play, switch between the chosen primary and the MK-77 pistol |
 | D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
+| D-pad right | Equip a collected grenade. Hold RT to pull the pin and release to throw. The two-second fuse starts at the pin pull |
 | Start | Begin a match, pause during play, or play again from the result screen |
 | D-pad Up | Open the system menu from any screen |
 | LT + RT + Back + Black | Hold for one second to reboot |

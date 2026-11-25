@@ -17,9 +17,9 @@ typedef struct {
     int8_t floor, ceil;
     uint8_t wall, ground, roof, upper, tag;
 } Cube;
-typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select, scope; } MatchInput;
+typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select, scope, grenade_select; } MatchInput;
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
-typedef enum { VIEW_RIFLE,VIEW_SMG,VIEW_CARBINE,VIEW_PISTOL,VIEW_KNIFE,VIEW_SNIPER,VIEW_SHOTGUN } MatchWeapon;
+typedef enum { VIEW_RIFLE,VIEW_SMG,VIEW_CARBINE,VIEW_PISTOL,VIEW_KNIFE,VIEW_SNIPER,VIEW_SHOTGUN,VIEW_GRENADE } MatchWeapon;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     PLAYER_JUMP, PLAYER_LAND, PLAYER_PAIN, PLAYER_DEATH,
     PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR, WEAPON_CHANGE,
@@ -52,7 +52,7 @@ typedef struct {
     MatchPoint player_velocity;
     int on_floor,on_ladder,crouching;
     struct { const char *text; unsigned age; } frag_messages[3];
-    int health, armour, magazine, reserve, player_frags, bot_frags, bot_alive, radar_active;
+    int health, armour, magazine, reserve, grenade_ammo, player_frags, bot_frags, bot_alive, radar_active;
     MatchWeapon bot_weapon;
     GrenadeView grenades[8]; unsigned grenade_count;
     const ExplosionView *explosions; unsigned explosion_count;

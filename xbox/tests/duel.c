@@ -671,6 +671,7 @@ static void test_prop_depth(void) {
 void test_lan_sidearm(void);
 void test_lan_knife(void);
 void test_lan_hitpush(void);
+void test_grenade_controls(void);
 void test_remote_grenade(void);
 void test_grenade_pickups(void);
 void test_lan_stance(void);
@@ -694,6 +695,7 @@ int main(void) {
     test_lan_sidearm();
     test_lan_knife();
     test_lan_hitpush();
+    test_grenade_controls();
     test_remote_grenade();
     test_grenade_pickups();
     test_lan_stance();

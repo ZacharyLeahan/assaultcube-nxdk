@@ -17,6 +17,9 @@ ENetPeer *peer;
 ENetAddress address;
 int own=-1,life,remote=-1,remote_life;
 bool ready,alive,remote_alive;
+struct GrenadeId { unsigned game,wire; };
+GrenadeId grenade_ids[8];
+unsigned next_grenade_id;
 unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
 char player_names[MAXCLIENTS][16];
@@ -157,7 +160,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             char map[48];r.string(map,sizeof(map));
             int mode=r.integer();r.skip(3);
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
-            memset(player_names,0,sizeof(player_names));ready=true;alive=false;remote_alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
+            memset(grenade_ids,0,sizeof(grenade_ids));memset(player_names,0,sizeof(player_names));ready=true;alive=false;remote_alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
             next_spawn=now+1200;
@@ -370,8 +373,41 @@ void lan_poll(unsigned now) {
     if(ready && now-last_ping>=500){Message m;m.word(SV_PING);m.word(now);m.transmit();last_ping=now;}
 }
 
+static void send_grenades(unsigned now) {
+    const GrenadeEvent *events;
+    int count=match_lan_grenade_events(&events);
+    for(int i=0;i<count;++i) {
+        const GrenadeEvent &e=events[i];
+        Message m;
+        if(e.action==NADE_PRIME) {
+            // The game clock can pause or restart. Retain the original wire ID
+            // until the explosion, even when the shooter has already respawned.
+            grenade_ids[next_grenade_id++%8]={e.id,now};
+            m.word(SV_SHOOT);m.word(now);m.word(GUN_GRENADE);
+            m.word(0);m.word(0);m.word(0);m.word(0);
+        } else if(e.action==NADE_RELEASE) {
+            m.word(SV_THROWNADE);
+            m.word(nearest(e.position.x*DNF));m.word(nearest(e.position.y*DNF));m.word(nearest(e.position.z*DNF));
+            m.word(nearest(e.velocity.x*DNF));m.word(nearest(e.velocity.y*DNF));m.word(nearest(e.velocity.z*DNF));m.word(e.cooked);
+        } else {
+            unsigned id=0;
+            for(GrenadeId &g:grenade_ids) if(g.game==e.id && g.wire) {id=g.wire;g={};break;}
+            if(!id) continue;
+            m.word(SV_EXPLODE);m.word(now);m.word(GUN_GRENADE);m.word(id);m.word(e.hit_count);
+            for(int j=0;j<e.hit_count;++j) {
+                const GrenadeHit &h=e.hits[j];
+                m.word(h.local?own:remote);m.word(h.local?life:remote_life);m.word((int)(h.distance*DMF));
+                MatchPoint dir=h.local?MatchPoint{}:h.direction;
+                m.word((int)(dir.x*DNF));m.word((int)(dir.y*DNF));m.word((int)(dir.z*DNF));
+            }
+        }
+        m.transmit();
+    }
+}
 void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsigned now) {
-    if(!alive || !peer || !ready)return;
+    if(!peer || !ready)return;
+    send_grenades(now);
+    if(!alive)return;
     if(now-last_pos>=40) {
         last_pos=now;Message m;m.word(SV_POS);m.word(own);
         m.natural(nearest(v->px*DMF));m.natural(nearest(v->py*DMF));

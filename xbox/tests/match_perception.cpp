@@ -650,3 +650,28 @@ extern "C" void test_remote_grenade(void) {
     assert(hypotf(view.explosions[0].pos.x-120.4f,view.explosions[0].pos.y-117.f)<.2f);
     match_lan_stop();
 }
+
+extern "C" void test_grenade_controls(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};mag[GUN_GRENADE]=1;
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    MatchInput in={};in.grenade_select=1;match_update(&in,16,.016f);
+    in={};for(int i=0;i<26;++i) match_update(&in,16,.016f);
+    assert(match_lan_selected_weapon()==GUN_GRENADE);
+    in.fire=1;assert(match_attack(&in)==GRENADE_PULL && player.state.mag[GUN_GRENADE]==0);
+    const GrenadeEvent *events;
+    assert(match_lan_grenade_events(&events)==1 && events[0].action==NADE_PRIME);
+    unsigned id=events[0].id;
+    in.fire=0;match_update(&in,300,.016f);assert(match_attack(&in)==SILENT);
+    match_update(&in,350,.016f);assert(match_attack(&in)==GRENADE_THROW);
+    assert(match_lan_grenade_events(&events)==1 && events[0].action==NADE_RELEASE);
+    assert(events[0].id==id && events[0].cooked==650);
+    for(int i=0;i<90;++i) {match_update(&in,16,.016f);match_attack(&in);}
+    assert(match_lan_grenade_events(&events)==1 && events[0].action==NADE_BLAST && events[0].id==id);
+    assert(!active_grenade_count && player.state.gunselect==GUN_ASSAULT && player.state.health==100);
+    match_lan_stop();
+    begin(PLAYING);player.state.mag[GUN_GRENADE]=1;player.state.gunselect=GUN_GRENADE;
+    in.fire=1;assert(match_attack(&in)==GRENADE_PULL);
+    for(int i=0;i<128;++i) {match_update(&in,16,.016f);match_attack(&in);}
+    assert(player.respawn_at && player.frags==-1);
+    MatchView v={};match_view(&v);assert(!strcmp(v.frag_messages[0].text,"you suicided!"));
+}

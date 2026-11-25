@@ -295,12 +295,12 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     player=packages/"models/playermodels"
     md2(player,player/"CLA/01.jpg",(256,256),"BODY")
     world_models=(("assault","bot_gun"),("pistol","world_pistol"),("knife","world_knife"),
-                  ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"),("shotgun","world_shotgun"))
+                  ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"),("shotgun","world_shotgun"),("grenade","world_grenade"))
     world_counts=[]
     for weapon,name in world_models:
         mark(name.upper()+"_BATCH",len(batches))
         gun=packages/"models/weapons"/weapon/"world"
-        muzzle=None if weapon=="knife" else []
+        muzzle=None if weapon in ("knife","grenade") else []
         world_counts.append(md2(gun,gun/"skin.jpg",(128,64),name.upper(),muzzle))
         if muzzle:
             symbols.append(f"static const float {name}_muzzle[][3] = {{"+
@@ -314,7 +314,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     hud_indices=[]
     max_hud_vertices=0
     hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
-    for name in ("assault","pistol","knife","subgun","carbine","sniper","shotgun"):
+    for name in ("assault","pistol","knife","subgun","carbine","sniper","shotgun","grenade"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
         tex=weapon_skin(folder/"skin_weapon.jpg")
@@ -323,6 +323,10 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         shoot=re.search(r'^md3anim "gun shoot" (\d+) (\d+)',(folder/"md3.cfg").read_text(),re.M)
         start,count=map(int,shoot.groups())
         poses=(0,*range(start,start+count))
+        if name=="grenade":
+            throw=re.search(r'^md3anim "gun throw" (\d+) (\d+)',(folder/"md3.cfg").read_text(),re.M)
+            first,length=map(int,throw.groups())
+            poses+=tuple(range(first,first+length))
         pose_batches=[]
         unique_positions={}
         idle_offsets=[]
@@ -349,13 +353,13 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 hud_frames.append((base+surface,offset,int(offset==idle_offsets[surface]),index_offsets[surface],len(pos)))
         symbols.append(f"static const unsigned short {name}_batches[] = {{"+
                        ",".join(map(str,pose_batches))+"};\n")
-        if name=="knife": continue
+        if name in ("knife","grenade"): continue
         if len(muzzle)!=len(poses): raise ValueError(f"Missing muzzle tag for {name}")
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
     mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
-    for name in ("knife","subgun","carbine","sniper","shotgun"):
+    for name in ("knife","subgun","carbine","sniper","shotgun","grenade"):
         folder=packages/"models/weapons"/name/"world"
         mark(name.upper()+"_DEATH_BATCH",len(batches))
         md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))

@@ -28,6 +28,8 @@ On original hardware, the Xbox timestamped all 30 shots in an SMG magazine 80 ms
 
 In a V-19 shotgun duel on `ac_desert`, the stock server registered a miss, a partial pellet hit, and a close-range frag from each client. Partial hits dealt 33 damage from Xbox and 41 from Windows. At close range, both landed all 63 pellets for 155 damage.
 
+Press D-pad Right to equip a collected grenade. Hold RT to pull the pin and release to throw. In a courtyard exchange, the stock server credited the Xbox throw with 36 damage to Windows and 39 to the thrower. A cooked Windows throw dealt 10 damage to Xbox and killed the thrower.
+
 Ammo and health pickups use the stock server's item list. If the other player takes a box first, the Xbox hides it and keeps its current inventory until the server awards another pickup.
 
 Click the right stick to draw the knife or return to your previous firearm. Tap RT once per swing. The stock knife deals 50 damage to an unarmoured player and takes 500 ms to recover.

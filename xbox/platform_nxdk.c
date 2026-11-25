@@ -241,7 +241,7 @@ int main(void) {
         int classic=0, tuned=0;
         unsigned buttons=0;
         int scope=0, jump=0, crouch=0, showmap=0;
-        int knife_select=0, lan_knife=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
+        int grenade_select=0, knife_select=0, lan_knife=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
             Pad *pad = &pads[i];
             SDL_GameController *p = pad->handle;
@@ -269,7 +269,8 @@ int main(void) {
             pad->previous_knife=down;
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
             classic |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_LEFT);
-            tuned |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+            int right=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+            tuned|=right;grenade_select|=right && !pad->previous_grenade;pad->previous_grenade=right;
             swap |= y && !pad->previous_swap;
             start |= menu && !pad->previous_start;
             pad->previous_swap = y;
@@ -315,7 +316,7 @@ int main(void) {
         if (releasing && !buttons && !fire) releasing=0;
         MatchInput input = {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
-            .scope = scope, .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .start = start,
+            .scope = scope, .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .grenade_select=grenade_select, .start = start,
             .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
         };
         int aimed=0;

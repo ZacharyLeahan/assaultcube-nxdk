@@ -21,12 +21,14 @@ const WeaponFeedback feedback[]={
     {PISTOL_SHOT,PISTOL_RELOAD,"busted"},
     {KNIFE_SWING,SILENT,"slashed"},
     {SNIPER_SHOT,SNIPER_RELOAD,"punctured"},
-    {SHOTGUN_SHOT,SHOTGUN_RELOAD,"peppered"}
+    {SHOTGUN_SHOT,SHOTGUN_RELOAD,"peppered"},
+    {GRENADE_PULL,SILENT,"gibbed"}
 };
 MatchWeapon view_weapon(int gun) {
     switch (gun) {
     case GUN_PISTOL: return VIEW_PISTOL;
     case GUN_KNIFE: return VIEW_KNIFE;
+    case GUN_GRENADE: return VIEW_GRENADE;
     case GUN_SHOTGUN: return VIEW_SHOTGUN;
     case GUN_SUBGUN: return VIEW_SMG;
     case GUN_SNIPER: return VIEW_SNIPER;
@@ -201,16 +203,26 @@ void spark_splash(float x,float y,float z) {
 }
 struct ActiveGrenade {
     GrenadeFlight flight;
-    unsigned expires;
+    unsigned expires,id;
+    bool local;
 };
+enum GrenadeState { GRENADE_IDLE,GRENADE_HELD,GRENADE_RELEASING };
+GrenadeState grenade_state;
+unsigned primed_at,thrown_at;
+GrenadeEvent grenade_events[16];
+int event_count;
 ActiveGrenade active_grenades[8];
 unsigned active_grenade_count;
 ExplosionView explosions[8];
 unsigned explosion_count;
-void throw_grenade(MatchPoint from,MatchPoint velocity,unsigned cooked) {
+void queue_grenade(const GrenadeEvent &event) {
+    if(lan_match && event_count<16) grenade_events[event_count++]=event;
+}
+void resolve_blast(const ActiveGrenade &g);
+void throw_grenade(MatchPoint from,MatchPoint velocity,unsigned cooked,bool local=false) {
     if(active_grenade_count==8) return;
     ActiveGrenade &g=active_grenades[active_grenade_count++];
-    g={{from,velocity,0,0,false},clock_ms+2000-cooked};
+    g={{from,velocity,0,0,false},clock_ms+2000-cooked,clock_ms-cooked,local};
 }
 void update_grenades(unsigned previous) {
     for(unsigned i=0;i<explosion_count;) {
@@ -236,6 +248,7 @@ void update_grenades(unsigned previous) {
             next_spark=(next_spark+1)%64;
             if(spark_count<64) ++spark_count;
         }
+        if(g.local) resolve_blast(g);
         active_grenades[i]=active_grenades[--active_grenade_count];
     }
 }
@@ -277,7 +290,7 @@ void spawn(Fighter &f, int index, float offset=.5f) {
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
-        scoped=false;
+        scoped=false; grenade_state=GRENADE_IDLE;
         radar_action_until=0;
         release_after_switch=false;switch_end=0; previous_firearm=f.state.nextprimary;
         memset(damage_directions,0,sizeof(damage_directions));
@@ -303,7 +316,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.pitch = atan2f(eye(opponent)-1-eye(f),fmaxf(1,distance(f.x,f.y,opponent.x,opponent.y)));
 }
 void begin(MatchPhase initial) {
-    active_grenade_count=explosion_count=0;
+    active_grenade_count=explosion_count=0; grenade_state=GRENADE_IDLE;event_count=0;
     first_mark=mark_count=0;
     bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
     intermission_age=0;
@@ -451,16 +464,16 @@ void actor_blood(const Fighter &victim,int amount) {
         if(blood_count<64) ++blood_count;
     }
 }
-void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz,bool headshot=false,int pellet_damage=0,bool pellet_gib=false) {
+void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz,bool headshot=false,int spread_damage=0,bool spread_gib=false) {
     float length=sqrtf(dx*dx+dy*dy+dz*dz);
-    int base_damage=gun==GUN_SHOTGUN?pellet_damage:guns[gun].damage;
+    int base_damage=(gun==GUN_SHOTGUN || gun==GUN_GRENADE)?spread_damage:guns[gun].damage;
     if (length>0) impulse(victim,dx/length,dy/length,dz/length,base_damage*.01f*guns[gun].pushfactor);
     int dealt=victim.state.dodamage(base_damage*(headshot?3:1),gun);
     victim.pain_until=clock_ms+300;
     bool dead=victim.state.health<=0;
     MatchSound death=dead && effect_random(2) ? ALT_DEATH : PLAYER_DEATH;
     if (&victim == &player) {
-        player_damage_feedback(dealt,true);
+        player_damage_feedback(dealt,&victim!=&attacker);
         pain_sound=dead ? death : PLAYER_PAIN;
         if (dead) { place_death_camera(); switch_end=0; player.pitch_velocity=0; }
     } else {
@@ -468,14 +481,71 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
         actor_blood(victim,base_damage);
     }
     if (victim.state.health > 0) return;
-    if (&victim==&bot && (gun==GUN_KNIFE || pellet_gib || headshot)) spawn_gibs(victim);
+    if (&victim==&bot && (gun==GUN_KNIFE || spread_gib || headshot)) spawn_gibs(victim);
     victim.state.health = 0;
-    bool local_frag=&attacker==&player;
-    record_frag(!local_frag,false,gun,headshot || pellet_gib,"Bot");
-    victim.respawn_at=clock_ms+(local_frag?bot_respawn_ms:player_respawn_ms);
+    record_frag(&victim==&player,&victim==&attacker,gun,headshot || spread_gib,"Bot");
+    victim.respawn_at=clock_ms+(&victim==&bot?bot_respawn_ms:player_respawn_ms);
     victim.flash_until = 0;
-    attacker.frags+=(gun==GUN_KNIFE || headshot)?2:1;
+    attacker.frags+=&attacker==&victim?-1:(gun==GUN_KNIFE || headshot)?2:1;
     if (attacker.frags >= FRAG_LIMIT) phase = INTERMISSION;
+}
+void resolve_blast(const ActiveGrenade &g) {
+    GrenadeEvent event={NADE_BLAST,g.id};
+    Fighter *victims[]={&player,&bot};
+    for(Fighter *victim:victims) {
+        bool own=victim==&player;
+        if(victim->respawn_at || (!own && hide_bot)) continue;
+        float height=own?stance:lan_match?remote_stance:PLAYER_EYE_HEIGHT;
+        MatchPoint dir={victim->x-g.flight.position.x,victim->y-g.flight.position.y,
+                        eye(*victim)+(PLAYER_ABOVE_EYE-height)*.5f-g.flight.position.z};
+        float dist=sqrtf(dir.x*dir.x+dir.y*dir.y+dir.z*dir.z);
+        if(dist>=EXPDAMRAD) continue;
+        if(dist>.00001f) {dir.x/=dist;dir.y/=dist;dir.z/=dist;}
+        event.hits[event.hit_count++]={own,dist,dir};
+        int amount=(int)(guns[GUN_GRENADE].damage*(1-dist/EXPDAMRAD));
+        if(!lan_match) damage(*victim,player,GUN_GRENADE,dir.x,dir.y,dir.z,false,amount,true);
+        else if(own) impulse(player,dir.x,dir.y,dir.z,amount*.01f*guns[GUN_GRENADE].pushfactor);
+    }
+    queue_grenade(event);
+}
+void release_grenade(bool drop) {
+    MatchPoint velocity={};
+    if(!drop) {
+        float speed=1.5f*cosf(player.pitch);
+        velocity={truncf(speed*cosf(player.yaw)*DNF)/DNF,truncf(speed*sinf(player.yaw)*DNF)/DNF,
+                  truncf(1.5f*sinf(player.pitch)*DNF)/DNF};
+    }
+    // moveoutsidebbox advances ten 10 ms steps, with ten collision probes each.
+    GrenadeFlight start={{player.x,player.y,eye(player)},velocity};
+    ActorBounds other={bot.x,bot.y,eye(bot)-(lan_match?remote_stance:PLAYER_EYE_HEIGHT),eye(bot)+PLAYER_ABOVE_EYE};
+    for(int i=0;i<10;++i) grenade_step(start,&other,!hide_bot && !bot.respawn_at,10,10);
+    MatchPoint p=start.position;
+    p={truncf(p.x*DNF)/DNF,truncf(p.y*DNF)/DNF,truncf(p.z*DNF)/DNF};
+    unsigned cooked=clock_ms-primed_at;
+    throw_grenade(p,velocity,cooked,true);
+    queue_grenade({NADE_RELEASE,primed_at,cooked,p,velocity});
+    thrown_at=clock_ms; grenade_state=GRENADE_RELEASING;
+}
+MatchSound use_grenade(bool fire) {
+    if(grenade_state==GRENADE_HELD) {
+        if(clock_ms-primed_at>=2000 || player.respawn_at) {release_grenade(true);release_after_switch=true;return GRENADE_THROW;}
+        if(!fire && clock_ms-primed_at>=(unsigned)attackdelay(GUN_GRENADE)) {release_grenade(false);return GRENADE_THROW;}
+    } else if(grenade_state==GRENADE_RELEASING) {
+        if(clock_ms-thrown_at>=325) {
+            grenade_state=GRENADE_IDLE;
+            if(!player.state.mag[GUN_GRENADE]) {
+                next_gun=player.state.primary;player.state.gunselect=next_gun;
+                switch_end=clock_ms+switch_ms/2;
+            }
+        }
+    } else if(fire && !player.respawn_at && player.state.mag[GUN_GRENADE]>0 && player.ready_at<=clock_ms) {
+        --player.state.mag[GUN_GRENADE];
+        primed_at=clock_ms; player.ready_at=clock_ms+attackdelay(GUN_GRENADE);
+        grenade_state=GRENADE_HELD;
+        queue_grenade({NADE_PRIME,primed_at});
+        return GRENADE_PULL;
+    }
+    return SILENT;
 }
 MatchSound trigger(Fighter &f, bool fire, bool refill) {
     int gun = f.state.gunselect;
@@ -925,7 +995,7 @@ void match_lan_remote_death(int gib) {
 static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,MatchView *target);
 void match_lan_shot(int gun,float x,float y,float z) {
     if(!lan_match || hide_bot) return;
-    if(gun==GUN_GRENADE) {lan_shot_sound=GRENADE_PULL;return;}
+    if(gun==GUN_GRENADE) {bot.state.gunselect=gun;lan_shot_sound=GRENADE_PULL;return;}
     bot.state.gunselect=gun;
     bot.flash_until=clock_ms+90;
     bot.light_until=gun==GUN_KNIFE?0:clock_ms+100;
@@ -945,11 +1015,14 @@ int match_lan_take_jump(void) {
     bool jumped=lan_jump; lan_jump=false;
     return jumped;
 }
+int match_lan_grenade_events(const GrenadeEvent **events) {
+    *events=grenade_events;int count=event_count;event_count=0;return count;
+}
 void match_lan_throw(MatchPoint from,MatchPoint velocity,int cooked) {
-    if(!lan_match || cooked<=0 || cooked>2000 ||
+    if(!lan_match || cooked<=0 ||
        from.x<0 || from.x>=MAP || from.y<0 || from.y>=MAP || fabsf(from.z)>256 ||
        fabsf(velocity.x)>2 || fabsf(velocity.y)>2 || fabsf(velocity.z)>2) return;
-    throw_grenade(from,velocity,cooked);
+    throw_grenade(from,velocity,cooked>2000?2000:cooked);
     lan_shot_sound=GRENADE_THROW;
 }
 void match_lan_hitpush(int gun,int damage,float x,float y,float z) {
@@ -1180,9 +1253,13 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             if (clock_ms+switch_ms/2>switch_end) player.state.gunselect=next_gun;
             if (clock_ms>switch_end) switch_end=0;
         }
-        if ((in->swap || in->knife_select) && !switch_end && player.reload_at<=clock_ms) {
+        if ((in->swap || in->knife_select || (in->grenade_select && player.state.mag[GUN_GRENADE])) &&
+            grenade_state==GRENADE_IDLE && !switch_end && !player.respawn_at && player.reload_at<=clock_ms) {
             int current=player.state.gunselect;
-            if (current==GUN_KNIFE) next_gun=previous_firearm;
+            if(in->grenade_select && current!=GUN_GRENADE) {
+                if(current!=GUN_KNIFE) previous_firearm=current;
+                next_gun=GUN_GRENADE;
+            } else if (current==GUN_KNIFE || current==GUN_GRENADE) next_gun=previous_firearm;
             else if (in->knife_select) { previous_firearm=current; next_gun=GUN_KNIFE; }
             else next_gun=current==GUN_PISTOL ? player.state.primary : GUN_PISTOL;
             radar_action_until=clock_ms+500;
@@ -1244,7 +1321,7 @@ static void bot_view(MatchView *v) {
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-v->bot_height; v->bot_alive = !bot.respawn_at;
     v->bot_weapon=view_weapon(bot.state.gunselect);
     if (!lan_match && v->bot_weapon==VIEW_PISTOL && clock_ms<bot.shot_until) v->bot_weapon=VIEW_RIFLE;
-    v->bot_flash_end_ms = v->bot_weapon!=VIEW_KNIFE && bot.flash_until>=40 ? bot.flash_until-40 : 0;
+    v->bot_flash_end_ms = v->bot_weapon!=VIEW_KNIFE && v->bot_weapon!=VIEW_GRENADE && bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     unsigned now=clock_ms+intermission_age;
     bool crouch=lan_match && remote_pose.crouching;
@@ -1346,6 +1423,8 @@ MatchSound match_attack(const MatchInput *in) {
     empty_click=false;
     if (!in->fire) semi_trigger_used=release_after_switch=false;
     bool fire = in->fire && !release_after_switch && (guns[player.state.gunselect].isauto || !semi_trigger_used);
+    if(phase==PLAYING && player.state.gunselect==GUN_GRENADE && !switch_end)
+        return use_grenade(in->fire && !release_after_switch);
     if (switch_end && !player.respawn_at && phase==PLAYING)
         return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
     // PC gun::attack only observes a trigger release after gunwait expires.
@@ -1488,7 +1567,14 @@ void match_view(MatchView *v) {
     v->gun_rotation=-90*lower; v->gun_back=0;
     v->gun_pose=v->next_gun_pose=0;
     v->flash=0; v->flash_angle=flash_angle;
-    if (!v->reload && player.shot_until>clock_ms) {
+    v->grenade_ammo=player.state.mag[GUN_GRENADE];
+    if(gun==GUN_GRENADE && grenade_state!=GRENADE_IDLE) {
+        unsigned first=grenade_state==GRENADE_HELD?1:14;
+        float frame=fminf(12,(now-(grenade_state==GRENADE_HELD?primed_at:thrown_at))/25.f);
+        v->gun_pose=first+(unsigned)frame;
+        v->next_gun_pose=first+(unsigned)fminf(12,frame+1);
+        v->gun_pose_blend=frame-floorf(frame);
+    } else if (gun!=GUN_GRENADE && !v->reload && player.shot_until>clock_ms) {
         unsigned age=attackdelay(gun)-(player.shot_until-clock_ms);
         float t=age/(float)attackdelay(gun);
         // renderhudmodel samples the MD3 shoot loop every 40 ms.

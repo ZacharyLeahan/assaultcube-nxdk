@@ -25,6 +25,16 @@ typedef struct {
 void match_lan_remote(const LanPose *pose);
 void match_lan_hide(void);
 void match_lan_remote_death(int gib);
+typedef enum { NADE_PRIME,NADE_RELEASE,NADE_BLAST } GrenadeAction;
+typedef struct { int local; float distance; MatchPoint direction; } GrenadeHit;
+typedef struct {
+    GrenadeAction action;
+    unsigned id,cooked;
+    MatchPoint position,velocity;
+    int hit_count;
+    GrenadeHit hits[2];
+} GrenadeEvent;
+int match_lan_grenade_events(const GrenadeEvent **events);
 void match_lan_throw(MatchPoint from,MatchPoint velocity,int cooked);
 void match_lan_shot(int gun,float x,float y,float z);
 void match_lan_damage(int local_victim,int from_remote,int damage,int health,int armour);
