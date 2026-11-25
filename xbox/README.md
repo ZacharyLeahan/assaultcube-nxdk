@@ -21,6 +21,8 @@ The easy bot backs away when you close inside its preferred rifle range. It look
 
 Controllers can be plugged in or replaced while the game is running. Any of the four ports can control the duel. The title and result screens show the number of connected controllers.
 
+The first-person rifle and SMG use their original 1024x512 textures. The pistol, knife and hands use 512x512 textures. Each has a 256-color palette and offline mipmaps.
+
 The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot also collects pickups. When low on ammunition, it seeks a reachable supply and switches back to the rifle after restocking.
 
 The radar and overhead map show the well water and map models, including barrels and crates. The player marker pulses briefly when you fire, reload, or switch weapons.

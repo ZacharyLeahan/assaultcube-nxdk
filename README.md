@@ -6,6 +6,6 @@ Press Y before a match to choose the MTP-57 rifle or A-ARD/10 SMG. Both primarie
 
 On an original Xbox at 720p, a 720-frame capture of the opening frag reached every refresh. Other combat captures occasionally missed a refresh.
 
-![Facing the bot with the MTP-57 in the ac_desert courtyard on an original Xbox](xbox/ac-desert-xbox.jpg)
+![An opening SMG frag on ac_desert, captured from an original Xbox at 720p](xbox/ac-desert-xbox.jpg)
 
 [Build instructions and controls](xbox/README.md) · [Upstream AssaultCube](https://github.com/assaultcube/AC) · [License](https://assault.cubers.net/docs/license.html)

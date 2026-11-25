@@ -17,12 +17,28 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     vertices = bytearray()
     vertex = struct.Struct("<5f4B")
 
-    def texture(image, size, mip=True):
-        raw = image.convert("RGBA").resize(size, Image.Resampling.LANCZOS).tobytes()
+    def store_texture(raw, size, mip, indexed):
         packed = zlib.compress(raw, 6)
-        textures.append((len(blob), len(packed), *size, int(mip)))
+        textures.append((len(blob), len(packed), *size, int(mip), int(indexed), len(raw)))
         blob.extend(packed)
         return len(textures)-1
+
+    def texture(image, size, mip=True):
+        raw = image.convert("RGBA").resize(size, Image.Resampling.LANCZOS).tobytes()
+        return store_texture(raw, size, mip, False)
+
+    def weapon_skin(path):
+        # Each close-up skin keeps its original texels with its own NV2A palette.
+        with Image.open(path) as source:
+            rgb = source.convert("RGB")
+        indexed = rgb.quantize(256)
+        raw = bytearray(bytes(indexed.getpalette()).ljust(256*3, b"\0"))
+        raw.extend(indexed.tobytes())
+        level = rgb
+        while level.size != (1, 1):
+            level = level.resize(tuple(max(1, n//2) for n in level.size), Image.Resampling.BOX)
+            raw.extend(level.quantize(palette=indexed, dither=Image.Dither.NONE).tobytes())
+        return store_texture(raw, rgb.size, True, True)
 
     def mark(name, value):
         symbols.append(f"#define {name} {value}\n")
@@ -264,7 +280,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
 
     mark("BODY_BATCH",len(batches))
     player=packages/"models/playermodels"
-    md2(player,player/"CLA/01_redvest.jpg",(256,256),"BODY")
+    md2(player,player/"CLA/01.jpg",(256,256),"BODY")
     for weapon,name in (("assault","bot_gun"),("pistol","world_pistol")):
         mark(name.upper()+"_BATCH",len(batches))
         gun=packages/"models/weapons"/weapon/"world"
@@ -274,11 +290,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                        ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in muzzle)+"};\n")
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
-    hands=model_skin(packages/"models/weapons/knife/skin_hands.jpg",(256,256))
+    hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
     for name in ("assault","pistol","knife","subgun"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
-        tex=model_skin(folder/"skin_weapon.jpg",(256,256))
+        tex=weapon_skin(folder/"skin_weapon.jpg")
         header=struct.unpack_from("<4si64s9i",d)
         mark(name.upper()+"_BATCH",len(batches))
         muzzle=[]
