@@ -650,6 +650,7 @@ extern "C" void test_lan_damage_feedback(void) {
     assert(!strcmp(v.frag_messages[1].text,"you peppered Windows"));
     match_lan_frag(1,1,GUN_GRENADE,0,"Windows");match_view(&v);
     assert(!strcmp(v.frag_messages[0].text,"you suicided!"));
+    assert(v.hide_player_body && v.gib_count==6 && !v.hide_bot);
     clock_ms+=3000;match_view(&v);
     assert(!v.frag_messages[0].text);
     match_lan_stop();
@@ -817,4 +818,6 @@ extern "C" void test_grenade_controls(void) {
     for(int i=0;i<128;++i) {match_update(&in,16,.016f);match_attack(&in);}
     assert(player.respawn_at && player.frags==-1);
     MatchView v={};match_view(&v);assert(!strcmp(v.frag_messages[0].text,"you suicided!"));
+    assert(v.respawning && v.hide_player_body && v.gib_count>=6 && !v.hide_bot);
+    respawn_near(player,bot);match_view(&v);assert(!v.hide_player_body);
 }

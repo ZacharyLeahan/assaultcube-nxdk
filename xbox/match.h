@@ -58,7 +58,7 @@ typedef struct {
     MatchWeapon bot_weapon;
     GrenadeView grenades[8]; unsigned grenade_count;
     const ExplosionView *explosions; unsigned explosion_count;
-    const GibView *gibs; unsigned gib_count; int hide_bot, gib_sound;
+    const GibView *gibs; unsigned gib_count; int hide_bot,hide_player_body,gib_sound; MatchPoint gib_origin;
     BotPose current_pose,previous_pose;
     float pose_transition,gun_pose_blend,flash_angle;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;

@@ -159,7 +159,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     ambience_update(v->camera.x,v->camera.y,v->camera.z,v->camera_yaw);
     if (v->gib_sound) {
         float left,right;
-        spatial_gain(v,(MatchPoint){v->tx,v->ty,v->bot_floor+PLAYER_EYE_HEIGHT},&left,&right);
+        spatial_gain(v,v->gib_origin,&left,&right);
         voices[GIB]=(Voice){(const int16_t *)gib,((uintptr_t)gib_end-(uintptr_t)gib)/2,
                             (int)(volume[GIB]*left),(int)(volume[GIB]*right)};
     }

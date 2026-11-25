@@ -541,7 +541,7 @@ static void level(const MatchView *v) {
         glPopMatrix();
     }
     unsigned bot_shadow_count=shadow_count;
-    if (v->respawning) {
+    if (v->respawning && !v->hide_player_body) {
         unsigned frame=(unsigned)v->death_frame,next=frame<5?frame+1:frame;
         float blend=v->death_frame-frame;
         glPushMatrix(); glTranslatef(v->px,v->py,v->player_floor);

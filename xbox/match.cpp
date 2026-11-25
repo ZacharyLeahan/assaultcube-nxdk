@@ -190,7 +190,8 @@ struct Gib {
 Gib gibs[12]; // Two knife frags reach the three-point duel limit.
 GibView gib_views[12];
 unsigned gib_count,gib_remainder;
-bool hide_bot,gib_sound,lan_match,lan_gib_sound;
+bool hide_bot,hide_player_body,gib_sound,lan_match,lan_gib_sound;
+MatchPoint gib_origin;
 unsigned lan_end_ms,scope_since;
 bool scoped;
 MatchSound lan_shot_sound;
@@ -203,7 +204,9 @@ unsigned effect_random(unsigned limit) {
     return (effect_seed>>8)%limit;
 }
 void spawn_gibs(const Fighter &f) {
-    hide_bot=gib_sound=true;
+    if(&f==&player) hide_player_body=true;
+    else hide_bot=true;
+    gib_sound=true;gib_origin={f.x,f.y,f.eye_height};
     for (unsigned i=0;i<6 && gib_count<12;++i) {
         Gib &g=gibs[gib_count++];
         float angle=effect_random(360)*radians;
@@ -367,7 +370,7 @@ void spawn(Fighter &f, int index, float offset=.5f) {
         memset(skip_supply_until,0,sizeof(skip_supply_until));
     }
     if (&f==&player) {
-        scoped=false; grenade_state=GRENADE_IDLE;
+        hide_player_body=false;scoped=false; grenade_state=GRENADE_IDLE;
         akimbo_expires=0;draw_akimbo=akimbo_left=false;
         radar_action_until=0;
         release_after_switch=false;switch_end=0; previous_firearm=f.state.nextprimary;
@@ -581,7 +584,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
         actor_blood(victim,base_damage);
     }
     if (victim.state.health > 0) return;
-    if (&victim==&bot && (gun==GUN_KNIFE || spread_gib || headshot)) spawn_gibs(victim);
+    if (gun==GUN_KNIFE || spread_gib || headshot) spawn_gibs(victim);
     victim.state.health = 0;
     record_frag(&victim==&player,&victim==&attacker,gun,headshot || spread_gib,offline_bot_name);
     ++victim.deaths;
@@ -780,7 +783,8 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     bool head=gun==GUN_SNIPER && target_contact(&ray,reach,false)==2;
     if (contact>=0 || head) {
         reach=head?distance(from.x,from.y,ray.bot_head.x,ray.bot_head.y):contact;
-        damage(player,bot,gun,dx,dy,dz,head);
+        // Stock raydamage only awards the sniper headshot multiplier to player1.
+        damage(player,bot,gun,dx,dy,dz);
     }
     target={from.x+reach*dx,from.y+reach*dy,from.z+reach*dz};
     // PC attackfx still marks a surface within one unit of a struck actor.
@@ -1434,6 +1438,7 @@ void match_lan_damage(int local_victim,int from_remote,int amount,int hp,int arm
 }
 void match_lan_frag(int local_victim,int suicide,int gun,int gib,const char *opponent) {
     record_frag(local_victim,suicide,gun,gib,opponent);
+    if(local_victim && gib) {spawn_gibs(player);lan_gib_sound=true;}
     (local_victim?lan_pain_sound:lan_actor_voice)=effect_random(2)?ALT_DEATH:PLAYER_DEATH;
 }
 void match_lan_time(unsigned remaining_ms) {
@@ -2066,6 +2071,7 @@ void match_view(MatchView *v) {
             v->bot_footsteps=crouched?(wet?WATER_CROUCH_STEPS:CROUCH_STEPS):(wet?WATER_STEPS:FOOTSTEPS);
     }
     v->bot_voice=bot_voice; v->gib_sound=gib_sound; v->hide_bot=hide_bot;
+    v->hide_player_body=hide_player_body;v->gib_origin=gib_origin;
     for (unsigned i=0;i<gib_count;++i) gib_views[i]=gibs[i].view;
     v->grenade_count=active_grenade_count;
     for(unsigned i=0;i<active_grenade_count;++i) v->grenades[i]={active_grenades[i].flight.position,active_grenades[i].flight.rotation};
