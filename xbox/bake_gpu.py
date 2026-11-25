@@ -204,6 +204,20 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         mark(name+"_POSE_BASE",len(bot_positions)//12)
         symbols.append("static const unsigned short "+name.lower()+"_indices[] = {"+
                        ",".join(map(str,faces[:,:3].flatten()))+"};\n")
+        # Match MD2 edges by position index so disconnected UVs still share a silhouette.
+        edges=defaultdict(list)
+        neighbors=np.full((nf,3),65535,dtype=np.uint16)
+        for face,tri in enumerate(faces[:,:3]):
+            for edge in range(3):
+                a,b=tri[edge],tri[(edge+1)%3]
+                if a!=b and edges[b,a]:
+                    other,side=edges[b,a].pop()
+                    neighbors[face,edge]=other
+                    neighbors[other,side]=face
+                else:
+                    edges[a,b].append((face,edge))
+        symbols.append("static const unsigned short "+name.lower()+"_neighbors[] = {"+
+                       ",".join(map(str,neighbors.flatten()))+"};\n")
         for pose in bot_frames:
             off=frame+pose*stride
             scale=np.array(struct.unpack_from("<3f",d,off))
