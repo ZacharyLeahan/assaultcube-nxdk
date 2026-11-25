@@ -309,10 +309,19 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         manual_yaw=yaw_rate*dt;
         player.yaw=fmodf(player.yaw+manual_yaw,6.2831853f);
         float look=fmaxf(-1,fminf(1,in->look));
-        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+(look*105+player.pitch_velocity*16)*radians*dt));
-        player.pitch_velocity*=expf(-25*dt);
-        if (player.pitch_velocity>.001f && player.pitch_velocity<.05f)
-            player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
+        float pitch_change=look*105*dt;
+        // The PC applies recoil on a 5 ms physics clock. Keep stick input on
+        // the display clock so a new aim report affects this rendered frame.
+        unsigned steps=(clock_ms+4)/5-(frame_start_ms+4)/5;
+        float step_gain=.005f*16*(in->crouch?.75f:1);
+        for (unsigned i=0;i<steps && i<20 && player.pitch_velocity!=0;++i) {
+            pitch_change+=player.pitch_velocity*step_gain;
+            player.pitch_velocity*=.875f;
+            if (player.pitch_velocity>.001f && player.pitch_velocity<.05f)
+                player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
+            if (fabsf(player.pitch_velocity)<.000001f) player.pitch_velocity=0;
+        }
+        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+pitch_change*radians));
 
         float floor,ceiling;
         body_space(player.x,player.y,feet_z,&floor,&ceiling);

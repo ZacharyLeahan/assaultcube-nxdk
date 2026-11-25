@@ -4,6 +4,28 @@
 #include <math.h>
 #include <stdio.h>
 
+static void test_rifle_recoil(unsigned hz,int crouch) {
+    MatchView v;
+    MatchInput in={.start=1};
+    match_prepare(); match_update(&in,0,0);
+    in=(MatchInput){.crouch=crouch};
+    for (int i=0;i<10;++i) match_update(&in,20,.02f);
+    match_view(&v); float before=v.pitch;
+    in.fire=1; assert(match_attack(&in)==RIFLE_SHOT); in.fire=0;
+    unsigned previous=0;
+    for (unsigned frame=1;frame<=hz*3/10;++frame) {
+        unsigned now=frame*1000/hz,dt=now-previous;
+        match_update(&in,dt,dt*.001f);
+        if (now==100 || now==300) {
+            // Integrating the Windows rifle at 200 Hz gives these angles.
+            float expected=(now==100?1.555456f:.947958f)*(crouch?.75f:1);
+            match_view(&v);
+            assert(fabsf((v.pitch-before)/.017453293f-expected)<.001f);
+        }
+        previous=now;
+    }
+}
+
 static void test_rifle_cadence(unsigned hz) {
     MatchInput in={.start=1};
     match_prepare();
@@ -146,6 +168,10 @@ static void test_well_ladder(void) {
     match_view(&v); assert(v.px>142 && v.eye>3);
 }
 int main(void) {
+    test_rifle_recoil(60,0);
+    test_rifle_recoil(60,1);
+    test_rifle_recoil(50,0);
+    test_rifle_recoil(50,1);
     test_rifle_cadence(60);
     test_rifle_cadence(50);
     test_well_ladder();
