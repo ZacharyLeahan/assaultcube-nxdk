@@ -46,8 +46,8 @@ bool grounded, held_jump, in_water;
 unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
-unsigned unavailable_until[item_count], random_state;
-int burst, bot_pose;
+unsigned unavailable_until[item_count], random_state, aim_state;
+int bot_pose;
 float stride_phase,stride_rate;
 unsigned combat_move_until;
 float combat_forward,combat_side;
@@ -218,8 +218,8 @@ void begin(MatchPhase initial) {
     memset(frag_messages,0,sizeof(frag_messages));
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
-    clock_ms = frame_start_ms = 0; random_state = 7331; phase = initial;
-    player.frags = bot.frags = burst = bot_pose = 0;
+    clock_ms = frame_start_ms = 0; random_state = 7331; aim_state=7331; phase = initial;
+    player.frags = bot.frags = bot_pose = 0;
     stride_phase=0; idle_ms=0;
     combat_move_until=next_enemy_search = next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
@@ -248,7 +248,7 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
     }
     spawn(f,best >= 0 ? best : fallback);
     aim_at_opponent(f,opponent);
-    next_enemy_search = next_route = 0; bot_attack_at = clock_ms+1200; burst = 0;
+    next_enemy_search = next_route = 0; bot_attack_at = clock_ms+1200; bot.shots=0;
     bot_saw_player = false;
     combat_move_until=0;
 }
@@ -400,21 +400,51 @@ void collect(Fighter &f) {
         unavailable_until[i] = clock_ms+delay;
     }
 }
-void bot_shot_effects(float yaw,bool hit_player) {
-    MatchPoint from={bot.x,bot.y,eye(bot)}, target={player.x,player.y,eye(player)-.8f};
-    float d=fmaxf(.01f,distance(from.x,from.y,target.x,target.y));
-    float dx=cosf(yaw),dy=sinf(yaw),dz=(target.z-from.z)/d;
-    if (!hit_player) {
-        target={from.x+512*dx,from.y+512*dy,from.z+512*dz};
-        SurfaceHit hit;
-        if (trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit)) {
-            target={hit.x,hit.y,hit.z};
-            mark_surface(hit);
-            spark_splash(hit.x,hit.y,hit.z);
-            if (hit.can_mark && hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
-                impact_sound={target,hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
-        }
+// Both volumes use horizontal ray distance as their parameter. Rotating into
+// actor-local space makes the pitched torso an upright finite cylinder.
+static float torso_contact(MatchPoint delta,float yaw,float tilt,float height,float c,float s,float slope,float range) {
+    float cy=cosf(yaw),sy=sinf(yaw),ct=cosf(tilt),st=sinf(tilt);
+    float x=delta.x,y=delta.y,z=delta.z;
+    float forward=x*cy+y*sy,side=y*cy-x*sy,df=c*cy+s*sy,ds=s*cy-c*sy;
+    float ox=forward*ct+z*st,oz=z*ct-forward*st;
+    float dx=df*ct+slope*st,dz=slope*ct-df*st;
+    float speed2=dx*dx+ds*ds,enter=0,exit=range;
+    if (speed2>.000001f) {
+        float closest=-(ox*dx+side*ds)/speed2;
+        float rx=ox+closest*dx,ry=side+closest*ds;
+        float radius2=PLAYER_RADIUS*PLAYER_RADIUS-rx*rx-ry*ry;
+        if (radius2<0) return -1;
+        float half=sqrtf(radius2/speed2);
+        enter=fmaxf(enter,closest-half); exit=fminf(exit,closest+half);
+    } else if (ox*ox+side*side>PLAYER_RADIUS*PLAYER_RADIUS) return -1;
+    if (fabsf(dz)>.000001f) {
+        float bottom=-oz/dz,top=(height-oz)/dz;
+        enter=fmaxf(enter,fminf(bottom,top)); exit=fminf(exit,fmaxf(bottom,top));
+    } else if (oz<0 || oz>height) return -1;
+    return enter<=exit?enter:-1;
+}
+void bot_fire_ray(float yaw,float pitch,int gun) {
+    MatchPoint from={bot.x,bot.y,eye(bot)-.2f};
+    float dx=cosf(yaw),dy=sinf(yaw),dz=tanf(pitch);
+    MatchPoint target={from.x+512*dx,from.y+512*dy,from.z+512*dz};
+    SurfaceHit hit;
+    bool wall=trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit);
+    float reach=512*hit.fraction;
+    MatchPoint delta={from.x-player.x,from.y-player.y,from.z-feet_z};
+    float contact=torso_contact(delta,player.yaw,player.pitch*.25f,stance,dx,dy,dz,reach);
+    if (contact>=0) {
+        reach=contact;
+        damage(player,bot,gun,dx,dy,dz);
     }
+    target={from.x+reach*dx,from.y+reach*dy,from.z+reach*dz};
+    if (wall && contact<0) {
+        target={hit.x,hit.y,hit.z};
+        mark_surface(hit);
+        if (hit.can_mark && hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
+            impact_sound={target,hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
+    }
+    spark_splash(target.x,target.y,target.z);
+    float d=distance(from.x,from.y,player.x,player.y);
     dx=target.x-from.x; dy=target.y-from.y; dz=target.z-from.z;
     float length=sqrtf(dx*dx+dy*dy+dz*dz);
     if (length<1) return;
@@ -479,6 +509,46 @@ void advance_bot_velocity(float target_x,float target_y,float dt) {
     bot.velocity_x-=dx*fraction; bot.velocity_y-=dy*fraction;
     bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
 }
+unsigned physics_steps() { return (clock_ms+4)/5-(frame_start_ms+4)/5; }
+float recoil_degrees(Fighter &fighter,bool crouch) {
+    float pitch_change=0;
+    unsigned steps=physics_steps();
+    float step_gain=.005f*16*(crouch?.75f:1);
+    for (unsigned i=0;i<steps && i<20 && fighter.pitch_velocity!=0;++i) {
+        pitch_change+=fighter.pitch_velocity*step_gain;
+        fighter.pitch_velocity*=.875f;
+        if (fighter.pitch_velocity>.001f && fighter.pitch_velocity<.05f)
+            fighter.pitch_velocity-=guns[fighter.state.gunselect].recoilbackfade*.01f;
+        if (fabsf(fighter.pitch_velocity)<.000001f) fighter.pitch_velocity=0;
+    }
+    return pitch_change;
+}
+void start_recoil(Fighter &fighter,int gun) {
+    const guninfo &g=guns[gun];
+    float ramp=(float)++fighter.shots/g.recoilincrease;
+    fighter.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
+}
+void apply_spread(const Fighter &fighter,int gun,float &dx,float &dy,float &dz) {
+    int spread=guns[gun].spread;
+    if (gun==GUN_ASSAULT) spread=fighter.shots>2?55:spread+(fighter.shots==1?5:15);
+    auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
+    dx+=jitter(); dy+=jitter(); dz+=jitter();
+}
+// Windows SKILL5 AimToIdeal speed and offset depend on angular error.
+float aim_random(float low,float high) {
+    aim_state=aim_state*1664525u+1013904223u;
+    return low+(high-low)*((aim_state>>8)/16777216.f);
+}
+float bot_aim_step(float current,float target,bool vertical,float dt) {
+    float delta=remainderf(target-current,2*3.14159265f),degrees=fabsf(delta)/radians;
+    float speed=vertical?aim_random(60,90):aim_random(80,110);
+    float offset=vertical?aim_random(.35f,.40f):aim_random(.30f,.35f);
+    float desired=delta+fabsf(delta)*(aim_random(0,1)<.5f?offset:-offset);
+    if (fabsf(desired)<=.5f*radians) return current+desired;
+    speed*=degrees>=1?degrees/(vertical?80.f:70.f)+.25f:(vertical?.01f:.015f);
+    float limit=speed*radians*dt;
+    return current+fmaxf(-limit,fminf(limit,desired));
+}
 void update_bot(float dt) {
     bot_pose = 0;
     if (bot.respawn_at || player.respawn_at || clock_ms < 1000) {
@@ -497,7 +567,7 @@ void update_bot(float dt) {
     bool sees=false;
     if (bot_saw_player || clock_ms>=next_enemy_search) {
         float dz=eye(player)-eye(bot);
-        bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*.57357644f; // cos(110° / 2)
+        bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*.57357644f; // cos(110ï¿½ / 2)
         if (bot_saw_player || in_view || dx*dx+dy*dy+dz*dz<16)
             sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player));
         if (!sees) next_enemy_search=clock_ms+300+random_number()%61;
@@ -535,33 +605,31 @@ void update_bot(float dt) {
         if (stride_phase<0) stride_phase+=6;
         bot_pose=1+(int)stride_phase;
     }
-    if (!sees) { bot_saw_player = false; burst = 0; return; }
+    if (!sees) { bot_saw_player = false; bot.shots=0; return; }
     if (!bot_saw_player) {
         // SKILL5 in bot/bot_skill.cfg allows 1.5-2 seconds to acquire a target.
         bot_attack_at = clock_ms+1500+random_number()%501;
         bot_saw_player = true;
     }
     d=fmaxf(.01f,distance(player.x,player.y,bot.x,bot.y));
-    bot.pitch=atan2f(eye(player)-.8f-eye(bot),d);
-    float ideal = atan2f(player.y-bot.y,player.x-bot.x);
-    float delta = turn_bot_toward(ideal,dt);
-    float fire_distance=hypotf(d,eye(player)-eye(bot));
-    if (clock_ms < bot_attack_at || clock_ms<bot.ready_at || fabsf(delta)>.14f ||
-        fire_distance<3 || fire_distance>range.max_fire) return;
-    if (!burst) burst = 1+random_number()%3;
-    // Local bot bursts use the same magazine, reload, damage and armour path as the player.
-    float error = ((int)(random_number()%201)-100)*.00055f;
-    bool on_target = fabsf(delta+error)*d < .95f &&
-        visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)-.8f);
-    MatchSound shot = trigger(bot,true,false);
-    if (shot == RIFLE_SHOT || shot == PISTOL_SHOT) {
+    float dz=eye(player)-eye(bot),fire_distance=hypotf(d,dz);
+    float scale=fmaxf(.1f,fminf(1,fire_distance/60));
+    float ax=player.x-bot.x+aim_random(-20,20)*scale;
+    float ay=player.y-bot.y+aim_random(-20,20)*scale;
+    float az=dz+aim_random(-35,35)*scale;
+    bot.yaw=bot_aim_step(bot.yaw,atan2f(ay,ax),false,dt);
+    bot.pitch=bot_aim_step(bot.pitch,atan2f(az,sqrtf(ax*ax+ay*ay+az*az)),true,dt);
+    bot.pitch=fmaxf(-75*radians,fminf(75*radians,bot.pitch+recoil_degrees(bot,false)*radians));
+    if (clock_ms<bot_attack_at || clock_ms<bot.ready_at || fire_distance<3 || fire_distance>range.max_fire) return;
+    MatchSound shot=trigger(bot,true,false);
+    if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
         int fired=bot.state.gunselect;
-        float yaw=ideal-delta-error,pitch=atan2f(eye(player)-.8f-eye(bot),d);
-        firing_impulse(bot,fired,cosf(pitch)*cosf(yaw),cosf(pitch)*sinf(yaw),sinf(pitch),false);
-        if (on_target) damage(player,bot,fired,player.x-bot.x,player.y-bot.y,eye(player)-.8f-eye(bot));
-        bot_shot_effects(yaw,on_target);
-        if (--burst == 0) bot_attack_at = clock_ms+1500+random_number()%501;
-    }
+        start_recoil(bot,fired);
+        float x=cosf(bot.pitch)*cosf(bot.yaw),y=cosf(bot.pitch)*sinf(bot.yaw),z=sinf(bot.pitch);
+        firing_impulse(bot,fired,x,y,z,false);
+        apply_spread(bot,fired,x,y,z);
+        bot_fire_ray(atan2f(y,x),atan2f(z,hypotf(x,y)),fired);
+    } else if (shot==RIFLE_RELOAD || shot==PISTOL_RELOAD) bot.shots=0;
     bot_sound = shot;
 }
 }
@@ -611,15 +679,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float pitch_change=look*105*dt;
         // The PC applies recoil on a 5 ms physics clock. Keep stick input on
         // the display clock so a new aim report affects this rendered frame.
-        unsigned steps=(clock_ms+4)/5-(frame_start_ms+4)/5;
-        float step_gain=.005f*16*(in->crouch?.75f:1);
-        for (unsigned i=0;i<steps && i<20 && player.pitch_velocity!=0;++i) {
-            pitch_change+=player.pitch_velocity*step_gain;
-            player.pitch_velocity*=.875f;
-            if (player.pitch_velocity>.001f && player.pitch_velocity<.05f)
-                player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
-            if (fabsf(player.pitch_velocity)<.000001f) player.pitch_velocity=0;
-        }
+        pitch_change+=recoil_degrees(player,in->crouch);
         player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+pitch_change*radians));
 
         float floor,ceiling;
@@ -687,6 +747,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         } else if (!grounded) {
             // PC movement computes displacement before assigning the jump impulse.
             // The first moving tick still uses floor friction, then air friction.
+            unsigned steps=physics_steps();
             for (unsigned i=0;i<steps && i<20;++i) {
                 if (jump_start_ticks==2) { --jump_start_ticks; continue; }
                 if (jump_start_ticks) { jump_start_ticks=0; jump_speed*=23.f/24; }
@@ -858,18 +919,14 @@ MatchSound match_attack(const MatchInput *in) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
         if (!g.isauto) semi_trigger_used=true;
-        ++player.shots;
+        start_recoil(player,gun);
         player.shot_until=player.ready_at;
-        float ramp=(float)player.shots/g.recoilincrease;
-        player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
         MatchPoint direction;
         float length=aim_from_weapon(direction);
         float dx=direction.x,dy=direction.y,dz=direction.z,z=eye(player)-.2f;
         SurfaceHit hit;
         firing_impulse(player,gun,dx,dy,dz,in->crouch);
-        int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;
-        auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
-        dx+=jitter(); dy+=jitter(); dz+=jitter();
+        apply_spread(player,gun,dx,dy,dz);
         MatchView ray={};
         ray.px=player.x; ray.py=player.y; ray.eye=z;
         ray.angle=atan2f(dy,dx); ray.pitch=atan2f(dz,hypotf(dx,dy));
@@ -991,29 +1048,6 @@ void match_view(MatchView *v) {
     }
 }
 
-// Both volumes use horizontal ray distance as their parameter. Rotating into
-// bot-local space makes the pitched torso an upright finite cylinder.
-static float torso_contact(const MatchView *v,float c,float s,float slope,float range) {
-    float cy=cosf(v->bot_yaw),sy=sinf(v->bot_yaw),ct=cosf(v->bot_tilt),st=sinf(v->bot_tilt);
-    float x=v->px-v->tx,y=v->py-v->ty,z=v->eye-v->bot_floor;
-    float forward=x*cy+y*sy,side=y*cy-x*sy,df=c*cy+s*sy,ds=s*cy-c*sy;
-    float ox=forward*ct+z*st,oz=z*ct-forward*st;
-    float dx=df*ct+slope*st,dz=slope*ct-df*st;
-    float speed2=dx*dx+ds*ds,enter=0,exit=range;
-    if (speed2>.000001f) {
-        float closest=-(ox*dx+side*ds)/speed2;
-        float rx=ox+closest*dx,ry=side+closest*ds;
-        float radius2=1.1f*1.1f-rx*rx-ry*ry;
-        if (radius2<0) return -1;
-        float half=sqrtf(radius2/speed2);
-        enter=fmaxf(enter,closest-half); exit=fminf(exit,closest+half);
-    } else if (ox*ox+side*side>1.1f*1.1f) return -1;
-    if (fabsf(dz)>.000001f) {
-        float bottom=-oz/dz,top=(PLAYER_EYE_HEIGHT-oz)/dz;
-        enter=fmaxf(enter,fminf(bottom,top)); exit=fminf(exit,fmaxf(bottom,top));
-    } else if (oz<0 || oz>PLAYER_EYE_HEIGHT) return -1;
-    return enter<=exit?enter:-1;
-}
 static int target_contact(const MatchView *v,float range,bool check_geometry) {
     if (!v->bot_alive || v->respawning) return 0;
     float c=cosf(v->angle),s=sinf(v->angle),slope=tanf(v->pitch);
@@ -1022,12 +1056,14 @@ static int target_contact(const MatchView *v,float range,bool check_geometry) {
     float norm=1+slope*slope,closest=(x*c+y*s+z*slope)/norm;
     float rx=x-closest*c,ry=y-closest*s,rz=z-closest*slope;
     float radius2=.4f*.4f-rx*rx-ry*ry-rz*rz;
+    MatchPoint delta={v->px-v->tx,v->py-v->ty,v->eye-v->bot_floor};
+    auto torso=[&](float limit) { return torso_contact(delta,v->bot_yaw,v->bot_tilt,PLAYER_EYE_HEIGHT,c,s,slope,limit); };
     float enter=radius2>=0?closest-sqrtf(radius2/norm):-1;
-    if (enter<0 || enter>range) enter=torso_contact(v,c,s,slope,range);
+    if (enter<0 || enter>range) enter=torso(range);
     else if (check_geometry) {
         // A waist-high prop can separate intersections with the two volumes.
-        float torso=torso_contact(v,c,s,slope,enter);
-        if (torso>=0) enter=torso;
+        float body=torso(enter);
+        if (body>=0) enter=body;
     }
     if (enter<0) return 0;
     if (!check_geometry) return 1;

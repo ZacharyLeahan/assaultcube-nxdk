@@ -106,3 +106,24 @@ extern "C" void test_easy_bot_spacing(void) {
     update_bot(0);
     assert(bot.state.gunselect==GUN_PISTOL && combat_forward==0);
 }
+
+extern "C" void test_easy_bot_aim(void) {
+    start_perception_test();
+    for (int sign=-1;sign<=1;sign+=2) {
+        float pitch=bot_aim_step(0,sign*25*radians,true,.016f);
+        assert(sign*pitch>0 && sign*pitch<1*radians);
+    }
+    float yaw=bot_aim_step(179*radians,-175*radians,false,.016f);
+    assert(yaw>179*radians && yaw<180*radians);
+
+    place_target(0,5);
+    feet_z=eye(bot)-PLAYER_EYE_HEIGHT;
+    player.yaw=player.pitch=0;
+    int health=player.state.health;
+    stance=PLAYER_EYE_HEIGHT/2;
+    bot_fire_ray(0,0,GUN_ASSAULT);
+    assert(player.state.health==health);
+    stance=PLAYER_EYE_HEIGHT;
+    bot_fire_ray(0,0,GUN_ASSAULT);
+    assert(player.state.health<health);
+}
