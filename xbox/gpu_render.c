@@ -276,6 +276,26 @@ static void level(const MatchView *v) {
     glPopMatrix();
     glDisable(GL_STENCIL_TEST);
     glEnable(GL_DEPTH_TEST);
+    if (v->elapsed_ms<v->bot_flash_end_ms && v->bot_alive) {
+        const float *a=bot_muzzle[bot_frame_batch[v->bot_pose]];
+        const float *b=bot_muzzle[bot_frame_batch[v->next_bot_pose]];
+        float p[3];
+        for(int i=0;i<3;++i) p[i]=a[i]+v->bot_pose_blend*(b[i]-a[i]);
+        float bx=cosf(v->bot_yaw),by=sinf(v->bot_yaw);
+        float x=v->tx+bx*p[0]-by*p[1],y=v->ty+by*p[0]+bx*p[1];
+        float z=map_floor(map_cube((int)v->tx,(int)v->ty))+p[2];
+        float angle=(v->bot_flash_end_ms%360)*.017453293f,ca=cosf(angle),sa=sinf(angle);
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR);
+        glBindTexture(GL_TEXTURE_2D,textures[FLASH_TEX]);
+        begin_quads();
+        for(int j=0;j<4;++j) {
+            int u=j==1||j==2,w=j>=2;
+            float right=u?.525f:-.525f,up=w?-.525f:.525f;
+            float r=right*ca-up*sa,h=right*sa+up*ca;
+            vertex(x-s*r-c*sp*h,y+c*r-s*sp*h,z+cp*h,u,1-w);
+        }
+        end_quads();
+    }
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();

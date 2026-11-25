@@ -142,7 +142,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     symbols.append("static const unsigned char bot_frame_batch[198] = {"+
                    ",".join(f"[{pose}]={i}" for i,pose in enumerate(bot_frames))+"};\n")
 
-    def md2(path, skin, size):
+    def md2(path, skin, size, muzzle=None):
         d=(path/"tris.md2").read_bytes()
         _,_,sw,sh,stride,_,nv,nt,nf,_,_,_,st,tr,frame,_,_=struct.unpack_from("<17i",d)
         uv=np.frombuffer(d,"<i2",nt*2,st).reshape(-1,2)/[sw,sh]
@@ -153,6 +153,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
             scale=np.array(struct.unpack_from("<3f",d,off))
             pos=np.frombuffer(d,np.uint8,nv*4,off+40).reshape(-1,4)[:,:3]*scale+struct.unpack_from("<3f",d,off+12)
             pos=(pos+[0,0,24.15])*.086
+            if muzzle is not None:
+                # assault/world/md2.cfg uses "md2tag tag_muzzle X": select
+                # the first maximum-X vertex in frame zero, then track it.
+                if pose==0: muzzle_vertex=np.argmax(pos[:,0])
+                muzzle.append(pos[muzzle_vertex])
             model_batch(tex,pos,uv,faces[:,:3],faces[:,3:])
 
     def model_batch(tex,pos,uv,tri,st):
@@ -180,7 +185,10 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     md2(player,player/"CLA/01_redvest.jpg",(256,256))
     mark("BOT_GUN_BATCH",len(batches))
     gun=packages/"models/weapons/assault/world"
-    md2(gun,gun/"skin.jpg",(128,64))
+    bot_muzzle=[]
+    md2(gun,gun/"skin.jpg",(128,64),bot_muzzle)
+    symbols.append("static const float bot_muzzle[][3] = {"+
+                   ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in bot_muzzle)+"};\n")
 
     hands=model_skin(packages/"models/weapons/knife/skin_hands.jpg",(256,256))
     for name in ("assault","pistol"):

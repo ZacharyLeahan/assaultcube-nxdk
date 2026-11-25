@@ -428,7 +428,8 @@ void match_view(MatchView *v) {
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
-    v->bot_flash = bot.flash_until > clock_ms;
+    // The world rifle's md2emit lasts 50 ms of the 90 ms attack cue.
+    v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     int first=0,count=1;
     float pose=0;
