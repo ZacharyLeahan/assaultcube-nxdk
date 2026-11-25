@@ -157,6 +157,20 @@ bool classic_assist;
 MatchSound bot_sound;
 MatchSound movement_sound, pickup_sound, pain_sound, bot_voice;
 MatchSound step_sound,stance_sound;
+struct ActorSounds {
+    MatchSound effects[8];
+    unsigned count;
+    void add(MatchSound sound) { if(count<8) effects[count++]=sound; }
+};
+ActorSounds actor_sounds,network_sounds;
+// These are the game sounds Windows sends with audiomanager::playsoundc.
+struct NetworkSound { int id;MatchSound effect; };
+constexpr NetworkSound network_effects[]={
+    {S_JUMP,PLAYER_JUMP},{S_SOFTLAND,SOFT_LAND},{S_HARDLAND,PLAYER_LAND},
+    {S_CROUCH,CROUCH_IN},{S_UNCROUCH,CROUCH_OUT},
+    {S_ITEMAMMO,PICKUP_AMMO},{S_ITEMHEALTH,PICKUP_HEALTH},{S_ITEMHELMET,PICKUP_HELMET},
+    {S_ITEMARMOUR,PICKUP_ARMOUR},{S_ITEMAKIMBO,AKIMBO_PICKUP},{S_AKIMBOOUT,AKIMBO_END}
+};
 PositionalSound air_sound,impact_sound;
 ShotLine bot_line;
 bool was_crouching;
@@ -385,7 +399,7 @@ void begin(MatchPhase initial) {
     active_grenade_count=explosion_count=0; grenade_state=GRENADE_IDLE;event_count=0;
     first_mark=mark_count=0;
     bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
-    intermission_age=0;
+    intermission_age=0;actor_sounds.count=network_sounds.count=0;
     memset(frag_messages,0,sizeof(frag_messages));
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
@@ -881,7 +895,7 @@ void update_bot_height() {
     float feet=eye(bot)-PLAYER_EYE_HEIGHT,floor,ceiling;
     body_space(bot.x,bot.y,feet,&floor,&ceiling);
     if(!bot_airborne) {
-        if(bot_jump_request) {bot_airborne=true;bot_vertical=32*23.f/24;bot_air_ms=0;}
+        if(bot_jump_request) {actor_sounds.add(PLAYER_JUMP);bot_airborne=true;bot_vertical=32*23.f/24;bot_air_ms=0;}
         else if(feet>floor+.1f) {bot_airborne=true;bot_vertical=0;bot_air_ms=0;}
         else feet=floor;
     }
@@ -892,7 +906,10 @@ void update_bot_height() {
         if(feet+PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE>=ceiling) {
             feet=ceiling-PLAYER_EYE_HEIGHT-PLAYER_ABOVE_EYE;bot_vertical=fminf(bot_vertical,0);
         }
-        if(feet<=floor) {feet=floor;bot_airborne=false;bot_vertical=0;bot_air_ms=0;}
+        if(feet<=floor) {
+            if(bot_air_ms>200) actor_sounds.add(bot_air_ms>800?PLAYER_LAND:SOFT_LAND);
+            feet=floor;bot_airborne=false;bot_vertical=0;bot_air_ms=0;
+        }
     }
     bot.eye_height=feet+PLAYER_EYE_HEIGHT;
 }
@@ -1071,7 +1088,7 @@ void update_bot(float dt) {
     }
     int gun=bot.state.gunselect;
     if (bot.state.akimbo && clock_ms>=bot_akimbo_until) {
-        bot.state.akimbo=false;
+        bot.state.akimbo=false;actor_sounds.add(AKIMBO_END);
         if(gun==GUN_AKIMBO) bot.state.gunselect=bot.state.primary;
     }
     if (!stock_round && gun==GUN_PISTOL && has_rounds(bot.state.primary) && clock_ms>=bot.ready_at) {
@@ -1439,8 +1456,19 @@ int match_lan_item(int entity,int visible,int picked_by_us) {
     return 0;
 }
 int match_lan_touch_item(void) { return lan_match ? collect(player) : -1; }
+int match_lan_sound_id(MatchSound sound) {
+    for(const NetworkSound &entry:network_effects) if(entry.effect==sound) return entry.id;
+    return -1;
+}
+void match_lan_sound(int id) {
+    if(!lan_match || hide_bot || bot.respawn_at || phase!=PLAYING) return;
+    for(const NetworkSound &entry:network_effects) if(entry.id==id) {
+        network_sounds.add(entry.effect);return;
+    }
+}
 void match_lan_stop(void) { lan_shot_sound=SILENT; if(lan_match) {lan_match=false;begin(READY);} }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
+    actor_sounds=network_sounds;network_sounds.count=0;
     gib_sound=lan_gib_sound; lan_gib_sound=false;
     if (gib_count) update_gibs(elapsed);
     if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
@@ -2019,8 +2047,17 @@ void match_view(MatchView *v) {
     v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;
     v->stance_sound=stance_sound;
     v->footsteps=phase==PLAYING && !player.respawn_at && clock_ms>=player.pain_until ? step_sound:SILENT;
-    v->bot_footsteps=phase==PLAYING && !bot.respawn_at && bot_pose && clock_ms>=bot.pain_until &&
-        hypotf(distance(bot.x,bot.y,player.x,player.y),eye(bot)-eye(player))<20 ? FOOTSTEPS:SILENT;
+    v->actor_effect_count=actor_sounds.count;
+    memcpy(v->actor_effects,actor_sounds.effects,actor_sounds.count*sizeof(MatchSound));
+    v->bot_footsteps=SILENT;
+    bool crouched=lan_match && remote_pose.crouching;
+    if(phase==PLAYING && !hide_bot && !bot.respawn_at && bot_pose && clock_ms>=bot.pain_until &&
+       (lan_match?remote_air_ms:bot_air_ms)<=50 && eye(bot)>=WATER_LEVEL+.5f &&
+       hypotf(distance(bot.x,bot.y,v->camera.x,v->camera.y),eye(bot)-v->camera.z)<(crouched?10:20)) {
+        bool wet=v->bot_floor+.25f<WATER_LEVEL;
+        if(!wet || WATER_LEVEL-ground(bot.x,bot.y)<=v->bot_height)
+            v->bot_footsteps=crouched?(wet?WATER_CROUCH_STEPS:CROUCH_STEPS):(wet?WATER_STEPS:FOOTSTEPS);
+    }
     v->bot_voice=bot_voice; v->gib_sound=gib_sound; v->hide_bot=hide_bot;
     for (unsigned i=0;i<gib_count;++i) gib_views[i]=gibs[i].view;
     v->grenade_count=active_grenade_count;

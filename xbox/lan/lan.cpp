@@ -94,8 +94,8 @@ struct Message {
         byte(x);
     }
     void string(const char *s) {while(*s) word(*s++);word(0);}
-    void transmit(int channel=1) {
-        ENetPacket *p=enet_packet_create(data,n,channel?ENET_PACKET_FLAG_RELIABLE:0);
+    void transmit(int channel=1,bool reliable=true) {
+        ENetPacket *p=enet_packet_create(data,n,channel && reliable?ENET_PACKET_FLAG_RELIABLE:0);
         if(p && enet_peer_send(peer,channel,p)<0) enet_packet_destroy(p);
     }
 };
@@ -353,7 +353,12 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(r.valid && sender>=0 && sender<MAXCLIENTS) pings[sender]=ping;
             break;
         }
-        case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:r.skip(1);break;
+        case SV_SOUND: {
+            int id=r.integer();
+            if(r.valid && sender>=0 && sender==remote && remote_alive) match_lan_sound(id);
+            break;
+        }
+        case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:r.skip(1);break;
         default:return; // Unknown message may have variable length; discard this packet's remainder.
         }
     }
@@ -459,6 +464,16 @@ static void send_grenades(unsigned now) {
         }
         m.transmit();
     }
+}
+void lan_send_sounds(const MatchView *v) {
+    if(!peer || !ready || !alive || intermission) return;
+    Message m;
+    const MatchSound effects[]={v->movement_sound,v->stance_sound,v->pickup_sound};
+    for(MatchSound effect:effects) {
+        int id=match_lan_sound_id(effect);
+        if(id>=0) {m.word(SV_SOUND);m.word(id);}
+    }
+    if(m.n) m.transmit(1,false);
 }
 void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsigned now) {
     if(!peer || !ready || intermission)return;

@@ -694,6 +694,11 @@ extern "C" void test_lan_stance(void) {
     MatchInput in={};MatchView v={};
     match_lan_remote(&pose);match_view(&v);
     float standing_head=v.bot_head.z;
+    assert(match_lan_sound_id(PLAYER_JUMP)==S_JUMP && match_lan_sound_id(WATER_ENTER)<0);
+    match_lan_sound(S_JUMP);match_lan_sound(S_ITEMHELMET);match_lan_sound(S_ASSAULT);
+    match_update(&in,16,.016f);match_view(&v);
+    assert(v.actor_effect_count==2 && v.actor_effects[0]==PLAYER_JUMP && v.actor_effects[1]==PICKUP_HELMET);
+    match_update(&in,16,.016f);match_view(&v);assert(!v.actor_effect_count);
     pose.crouching=1;match_lan_remote(&pose);
     for(int i=0;i<12;++i) {match_update(&in,16,.016f);match_view(&v);}
     assert(v.bot_height==.75f*PLAYER_EYE_HEIGHT && fabsf(v.bot_floor-pose.feet.z)<.001f);

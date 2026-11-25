@@ -6,6 +6,9 @@ extern "C" {
 #endif
 void lan_init(void);
 void lan_poll(unsigned now);
+void lan_send_sounds(const MatchView *v);
+int match_lan_sound_id(MatchSound sound);
+void match_lan_sound(int id);
 void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsigned now);
 const char *lan_status(void);
 int lan_connected(void);

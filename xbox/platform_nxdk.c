@@ -63,16 +63,17 @@ static const Clip clips[] = {
 static SDL_AudioDeviceID audio_device;
 
 enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS, EMPTY_CLICK, GIB };
-typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; } Voice;
+typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; MatchSound effect; } Voice;
 static const int volume[]={96,96,48,70,64,96,85,96,96,40,40,96,96};
 // A rifle sample lasts 626 ms with 120 ms between rounds. Reserve enough
 // voices for both fighters to finish their bursts and begin a reload.
 enum { SHOT_VOLUME=64, WEAPON_VOICES=8, LOCAL_WEAPONS=GIB+1, BOT_WEAPONS=LOCAL_WEAPONS+WEAPON_VOICES };
-static Voice voices[BOT_WEAPONS+WEAPON_VOICES];
+enum { ACTOR_SOUNDS=BOT_WEAPONS+WEAPON_VOICES, ACTOR_VOICES=4 };
+static Voice voices[ACTOR_SOUNDS+ACTOR_VOICES];
 
-static Voice *weapon_voice(unsigned first) {
+static Voice *available_voice(unsigned first,unsigned count) {
     Voice *shortest=&voices[first];
-    for (unsigned i=first;i<first+WEAPON_VOICES;++i) {
+    for (unsigned i=first;i<first+count;++i) {
         if (!voices[i].remaining) return &voices[i];
         if (voices[i].remaining<shortest->remaining) shortest=&voices[i];
     }
@@ -130,6 +131,27 @@ static void spatial_gain(const MatchView *v,MatchPoint pos,float *left,float *ri
     float gain=4/fmaxf(4,distance);
     *left=gain*sqrtf(.5f*(1-pan)); *right=gain*sqrtf(.5f*(1+pan));
 }
+static float actor_fade(MatchSound sound,float distance) {
+    int radius=0;
+    switch(sound) {
+    case SOFT_LAND:case PLAYER_LAND:radius=24;break;
+    case CROUCH_IN:case CROUCH_OUT:radius=14;break;
+    case FOOTSTEPS:case WATER_STEPS:radius=20;break;
+    case CROUCH_STEPS:case WATER_CROUCH_STEPS:radius=10;break;
+    default:break;
+    }
+    return radius?fmaxf(0,1-distance/radius):1.f;
+}
+static int actor_volume(MatchSound sound) {
+    switch(sound) {
+    case PLAYER_JUMP:return 80;
+    case SOFT_LAND:return 90;
+    case PLAYER_LAND:return 95;
+    case CROUCH_IN:return 85;
+    case CROUCH_OUT:return 75;
+    default:return 100;
+    }
+}
 static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
     const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
@@ -150,7 +172,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         int gain=volume[i];
         Voice *voice=&voices[i];
         if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT || effects[i]==SMG_SHOT || effects[i]==CARBINE_SHOT || effects[i]==SNIPER_SHOT || effects[i]==SHOTGUN_SHOT) {
-            voice=weapon_voice(i==LOCAL_GUN?LOCAL_WEAPONS:BOT_WEAPONS);
+            voice=available_voice(i==LOCAL_GUN?LOCAL_WEAPONS:BOT_WEAPONS,WEAPON_VOICES);
             gain=SHOT_VOLUME;
         }
         *voice=(Voice){(const int16_t *)clip->start,
@@ -176,8 +198,22 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     }
     voices[BOT_VOICE].left=(int)(volume[BOT_VOICE]*left+.5f);
     voices[BOT_VOICE].right=(int)(volume[BOT_VOICE]*right+.5f);
-    voices[BOT_STEPS].left=(int)(volume[BOT_STEPS]*left+.5f);
-    voices[BOT_STEPS].right=(int)(volume[BOT_STEPS]*right+.5f);
+    float dist=hypotf(hypotf(v->tx-v->camera.x,v->ty-v->camera.y),v->bot_floor+v->bot_height-v->camera.z);
+    float gain=volume[BOT_STEPS]*actor_fade(voices[BOT_STEPS].loop,dist);
+    voices[BOT_STEPS].left=(int)(gain*left+.5f);
+    voices[BOT_STEPS].right=(int)(gain*right+.5f);
+    for(unsigned i=0;i<v->actor_effect_count;++i) {
+        MatchSound sound=v->actor_effects[i];
+        if(!actor_fade(sound,dist)) continue;
+        const Clip *clip=&clips[sound];
+        Voice *voice=available_voice(ACTOR_SOUNDS,ACTOR_VOICES);
+        *voice=(Voice){.data=(const int16_t *)clip->start,
+            .remaining=((uintptr_t)clip->end-(uintptr_t)clip->start)/2,.effect=sound};
+    }
+    for(unsigned i=ACTOR_SOUNDS;i<ACTOR_SOUNDS+ACTOR_VOICES;++i) if(voices[i].remaining) {
+        gain=actor_volume(voices[i].effect)*actor_fade(voices[i].effect,dist);
+        voices[i].left=(int)(gain*left+.5f);voices[i].right=(int)(gain*right+.5f);
+    }
     SDL_UnlockAudioDevice(audio_device);
 }
 
@@ -347,6 +383,7 @@ int main(void) {
             effect=match_attack(&input);
             match_view(&view);
             update_audio(&view,effect);
+            if(lan_connected()) lan_send_sounds(&view);
         }
         if (lan_connected()) lan_send(&view,&input,effect,now);
         unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected,&system);

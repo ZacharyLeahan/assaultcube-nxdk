@@ -76,6 +76,8 @@ typedef struct {
     int bot_supply,bot_rifle_mag,bot_rifle_ammo,bot_pistol_mag,bot_pistol_ammo;
     MatchSound bot_sound, movement_sound, pickup_sound, pain_sound, bot_voice;
     MatchSound footsteps,bot_footsteps,stance_sound;
+    MatchSound actor_effects[8];
+    unsigned actor_effect_count;
     PositionalSound air,impact;
     ShotLine bot_line;
     MatchPoint shot_end,shot_direction;
