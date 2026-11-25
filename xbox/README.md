@@ -4,7 +4,7 @@ Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and 
 
 Press X on the ready screen to select a 15-minute, one-bot Deathmatch, matching the stock Windows Singleplayer menu default. It uses official free-for-all starts and has no frag limit. After a death, tap and release RT after two seconds to respawn. Press X again at the ready or result screen to select Quick Duel.
 
-Barrels and crates can break the bot's sightline and stop its shots. The easy bot backs away when you close inside its preferred rifle range. It looks for a clear step along a wall and holds position when cornered.
+The 15-minute match uses the Windows Good bot profile and the map's original waypoints. Your opponent picks a name, a CLA uniform and one of the five primaries. It can circle-strafe, jump, hunt a last-seen player and seek supplies. Barrels and crates break its sightline and stop its shots. Quick Duel keeps its easier rifle bot.
 
 | Control | Action |
 | --- | --- |
@@ -31,7 +31,7 @@ Controllers can be plugged in or replaced while the game is running. Any of the 
 
 The first-person rifle, SMG and carbine use their original 1024x512 textures. The pistol, knife and hands use 512x512 textures. Each has a 256-color palette and offline mipmaps.
 
-The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot also collects pickups. When low on ammunition, it seeks a reachable supply and switches back to the rifle after restocking.
+The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. Both fighters can collect supplies. Akimbo gives you dual pistols for 30 seconds. Look directly at the opponent to see their name above the equipment HUD.
 
 The radar and overhead map show the well water and map models, including barrels and crates. The player marker pulses briefly when you fire, reload, or switch weapons.
 
