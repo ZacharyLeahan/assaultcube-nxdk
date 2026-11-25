@@ -175,7 +175,7 @@ constexpr NetworkSound network_effects[]={
     {S_ITEMAMMO,PICKUP_AMMO},{S_ITEMHEALTH,PICKUP_HEALTH},{S_ITEMHELMET,PICKUP_HELMET},
     {S_ITEMARMOUR,PICKUP_ARMOUR},{S_ITEMAKIMBO,AKIMBO_PICKUP},{S_AKIMBOOUT,AKIMBO_END}
 };
-PositionalSound air_sound,impact_sound;
+PositionalSound air_sound,impact_sound,lan_air,lan_impact;
 ShotLine bot_line;
 bool was_crouching;
 ItemView item_views[item_count];
@@ -407,6 +407,7 @@ void begin(MatchPhase initial) {
     first_mark=mark_count=0;
     bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
     intermission_age=0;actor_sounds.count=network_sounds.count=0;
+    lan_air=lan_impact={};
     memset(frag_messages,0,sizeof(frag_messages));
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
@@ -761,6 +762,31 @@ static float torso_contact(MatchPoint delta,float yaw,float tilt,float height,fl
     } else if (oz<0 || oz>height) return -1;
     return enter<=exit?enter:-1;
 }
+MatchPoint listener_position() {
+    return player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
+}
+void incoming_line(MatchPoint from,MatchPoint target,PositionalSound &air) {
+    if(lan_match && !player.respawn_at && effect_random(3)) return;
+    float dx=target.x-from.x,dy=target.y-from.y,dz=target.z-from.z;
+    float length=hypotf(hypotf(dx,dy),dz);
+    if(length<1) return;
+    MatchPoint camera=listener_position();
+    auto point=[&](float t) -> MatchPoint { return {from.x+t*dx,from.y+t*dy,from.z+t*dz}; };
+    float fd=hypotf(distance(from.x,from.y,camera.x,camera.y),from.z-camera.z);
+    float td=hypotf(distance(target.x,target.y,camera.x,camera.y),target.z-camera.z);
+    float start=td<=10?8:5;
+    bot_line={point(.1f+start/length),point((start+2)*.1f),clock_ms+75};
+    if(fd<=8 || td<=8) return;
+    MatchPoint near=point(fd/(fd+td));
+    if(hypotf(distance(near.x,near.y,camera.x,camera.y),near.z-camera.z)<=15)
+        air={near,effect_random(2)?BULLET_AIR1:BULLET_AIR2};
+}
+void incoming_mark(const SurfaceHit &hit,PositionalSound &impact) {
+    mark_surface(hit);
+    MatchPoint camera=listener_position();
+    if(hit.can_mark && hypotf(distance(hit.x,hit.y,camera.x,camera.y),hit.z-camera.z)<=15)
+        impact={{hit.x,hit.y,hit.z},hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
+}
 void bot_fire_ray(float yaw,float pitch,int gun) {
     MatchPoint from={bot.x,bot.y,eye(bot)-.2f};
     float dx=cosf(pitch)*cosf(yaw),dy=cosf(pitch)*sinf(yaw),dz=sinf(pitch);
@@ -796,24 +822,10 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     target={from.x+reach*dx,from.y+reach*dy,from.z+reach*dz};
     // PC attackfx still marks a surface within one unit of a struck actor.
     if (reaches_wall && (contact<0 || wall_depth-contact<=1)) {
-        mark_surface(hit);
-        if (hit.can_mark && hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
-            impact_sound={{hit.x,hit.y,hit.z},hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
+        incoming_mark(hit,impact_sound);
     }
     spark_splash(target.x,target.y,target.z);
-    float d=distance(from.x,from.y,player.x,player.y);
-    dx=target.x-from.x; dy=target.y-from.y; dz=target.z-from.z;
-    float length=sqrtf(dx*dx+dy*dy+dz*dz);
-    if (length<1) return;
-    auto point=[&](float t) -> MatchPoint { return {from.x+t*dx,from.y+t*dy,from.z+t*dz}; };
-    float fd=hypotf(d,from.z-eye(player));
-    float td=hypotf(distance(target.x,target.y,player.x,player.y),target.z-eye(player));
-    float start=td<=10?8:5;
-    bot_line={point(.1f+start/length),point((start+2)*.1f),clock_ms+75};
-    if (fd<=8 || td<=8) return;
-    MatchPoint near=point(fd/(fd+td));
-    if (hypotf(distance(near.x,near.y,player.x,player.y),near.z-eye(player))<=15)
-        air_sound={near,effect_random(2)?BULLET_AIR1:BULLET_AIR2};
+    incoming_line(from,target,air_sound);
 }
 void move_bot(float dx,float dy) {
     ActorBounds opponent={player.x,player.y,feet_z,feet_z+stance+PLAYER_ABOVE_EYE};
@@ -1446,15 +1458,22 @@ void match_lan_shot(int gun,float x,float y,float z) {
     bot.light_until=gun==GUN_KNIFE?0:clock_ms+100;
     lan_shot_sound=feedback[view_weapon(gun)].shot;
     if(gun==GUN_KNIFE) return;
-    MatchPoint from={bot.x,bot.y,eye(bot)-.2f};
-    if(gun==GUN_SHOTGUN) {
-        MatchPoint delta={x-from.x,y-from.y,z-from.z};
-        float length=sqrtf(delta.x*delta.x+delta.y*delta.y+delta.z*delta.z);
-        if(length>.001f) shotgun_pattern(from,{delta.x/length,delta.y/length,delta.z/length},length,nullptr);
-        return;
+    // SV_SHOTFX supplies the quantized endpoint. Windows starts remote
+    // effects at the shooter's eye and compares the endpoint to the map hit.
+    MatchPoint from={bot.x,bot.y,eye(bot)},to={x,y,z};
+    MatchPoint d={x-from.x,y-from.y,z-from.z};
+    float length=hypotf(hypotf(d.x,d.y),d.z);
+    if(length*length>.07f) {
+        float scale=(length+1)/length;
+        SurfaceHit hit;
+        if(trace_surface(from.x,from.y,from.z,from.x+d.x*scale,from.y+d.y*scale,from.z+d.z*scale,&hit)
+           && fabsf((length+1)*hit.fraction-length)<=1)
+            incoming_mark(hit,lan_impact);
+        if(gun!=GUN_SHOTGUN) incoming_line(from,to,lan_air);
     }
-    bot_line={from,{x,y,z},clock_ms+75};
-    spark_splash(x,y,z);
+    if(gun==GUN_SHOTGUN) {
+        if(length>.001f) shotgun_pattern(from,{d.x/length,d.y/length,d.z/length},length,nullptr);
+    } else spark_splash(x,y,z);
 }
 int match_lan_take_jump(void) {
     bool jumped=lan_jump; lan_jump=false;
@@ -1543,7 +1562,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     lan_pain_sound=lan_actor_voice=SILENT;
     pickup_sound=lan_match?lan_pickup_sound:SILENT;lan_pickup_sound=SILENT;
     step_sound=stance_sound=SILENT;
-    air_sound.sound=impact_sound.sound=SILENT;
+    air_sound=lan_air;impact_sound=lan_impact;lan_air=lan_impact={};
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<frag_message_ms) intermission_age+=elapsed;
         if(lan_match) return;
@@ -2026,7 +2045,7 @@ void match_view(MatchView *v) {
     v->classic_assist=classic_assist; v->selected_primary=view_weapon(player.state.nextprimary);
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
-    v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
+    v->camera=listener_position();
     v->camera_yaw=player.respawn_at?death_yaw:player.yaw;
     v->camera_pitch=player.respawn_at?death_pitch:player.pitch;
     if((lan_match || stock_round) && phase==INTERMISSION) {

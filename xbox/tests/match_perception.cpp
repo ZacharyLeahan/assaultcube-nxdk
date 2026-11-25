@@ -482,6 +482,15 @@ extern "C" void test_lan_hitpush(void) {
     match_view(&view);assert(view.underwater_audio);
     player.eye_height+=.02f;
     match_view(&view);assert(!view.underwater_audio);
+    player.x=121;player.y=121;
+    player.eye_height=ground(121,121)+PLAYER_EYE_HEIGHT;
+    bot.x=124;bot.y=121;bot.eye_height=ground(124,121)+PLAYER_EYE_HEIGHT;
+    hide_bot=false;
+    match_lan_shot(GUN_PISTOL,122,121,ground(122,121));
+    match_update(&in,5,.005f);match_view(&view);
+    assert(view.impact.sound==BULLET_IMPACT && view.mark_count==1);
+    match_update(&in,5,.005f);match_view(&view);
+    assert(view.impact.sound==SILENT && view.mark_count==1);
     match_lan_stop();
 }
 
