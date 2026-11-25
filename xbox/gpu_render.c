@@ -286,10 +286,12 @@ static void weapon(const MatchView *v) {
     // Reserve the front of the depth buffer for the view weapon.
     // The view weapon uses the PC's separate 75-degree vertical field of view.
     projection(.30f,.30f*.76732699f);
-    const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 4,-1,-10,1};
+    const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1};
     glLoadMatrixf(camera);
     glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up);
     glRotatef(v->gun_rotation,1,0,0);
+    // PC MD3 units are 1/16 of a cube, and weapon::renderhudmodel uses scale 1.28.
+    glScalef(.08f,.08f,.08f);
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
     int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;

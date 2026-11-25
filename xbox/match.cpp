@@ -29,7 +29,8 @@ struct Fighter {
     unsigned respawn_at, ready_at, reload_at, flash_until;
 };
 Fighter player, bot;
-float feet_z, stance, jump_speed, air_seconds;
+float feet_z, stance, jump_speed, air_seconds, sway_vertical;
+unsigned sway_ms;
 bool grounded, held_jump;
 unsigned clock_ms, next_route, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
@@ -83,6 +84,7 @@ void spawn(Fighter &f, int index) {
         hurt_until=0;
         feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=air_seconds=0;
         grounded=true; held_jump=false;
+        sway_ms=0; sway_vertical=0;
         step_distance=0;
     }
     f.velocity_x=f.velocity_y=f.turn_boost=0;
@@ -298,6 +300,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             player.sway_y+=gain*((player.y-old_y)/(16*dt)-player.sway_y);
         }
         body_space(player.x,player.y,&floor,&ceiling);
+        float old_feet=feet_z;
         if (feet_z>floor+.01f) grounded=false;
         if (!grounded) {
             // PC air friction and its time-in-air-dependent downward step.
@@ -313,6 +316,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float delta=feet_z+stance-player.eye_height;
         player.eye_height+=grounded?fmaxf(-12*dt,fminf(12*dt,delta)):delta;
         player.eye_height=fmaxf(floor+.1f,fminf(ceiling-.1f,player.eye_height));
+        if (grounded) sway_ms+=elapsed;
+        if (dt>0) sway_vertical+=(1-powf(.7f,100*dt))*((feet_z-old_feet)/(16*dt)-sway_vertical);
         if (switch_end) {
             if (clock_ms+switch_ms/2>switch_end) player.state.gunselect=next_gun;
             if (clock_ms>switch_end) switch_end=0;
@@ -405,11 +410,11 @@ void match_view(MatchView *v) {
     }
     v->weapon_kick=0;
     float speed=fminf(1,hypotf(player.sway_x,player.sway_y));
-    float step=clock_ms/105.f;
-    v->gun_side=.55f*(player.sway_y*cosf(player.yaw)-player.sway_x*sinf(player.yaw))
-                -.26f*speed*sinf(step);
-    v->gun_up=-.28f*speed*fabsf(cosf(step));
-    v->gun_forward=.45f*(player.sway_x*cosf(player.yaw)+player.sway_y*sinf(player.yaw));
+    float step=sway_ms/105.f, bob=(v->reload || switch_end)?0:.025f*speed*(stance<3.59f?.75f:1);
+    v->gun_side=(1.5f/16)*(player.sway_y*cosf(player.yaw)-player.sway_x*sinf(player.yaw))
+                -bob*sinf(step);
+    v->gun_up=(.4f/16)*sway_vertical-bob*fabsf(cosf(step));
+    v->gun_forward=(1.5f/16)*(player.sway_x*cosf(player.yaw)+player.sway_y*sinf(player.yaw));
     v->gun_rotation=-90*lower; v->gun_back=0;
     v->gun_pose=v->next_gun_pose=0;
     v->flash=0;
@@ -422,6 +427,7 @@ void match_view(MatchView *v) {
         v->flash=age<(unsigned)attackdelay(gun)/4;
         float phase=1.5f*t-1.5f;
         float kick=-sinf(phase*phase*phase);
+        if (stance<3.59f) kick*=.75f;
         v->gun_rotation=guns[gun].mdl_kick_rot*kick;
         v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
