@@ -226,30 +226,38 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         if points: add_batch(tex,points,3)
     mark("PROP_END",len(batches))
     icons = Image.open(packages/"misc/items.png").convert("RGBA")
-    # Top-down floor material and elevation, in the same XY coordinates as the duel.
-    tiles=np.array([np.asarray(Image.open(packages/"textures"/n.decode()).convert("RGB").resize((16,16)))
-                    for n in names])
-    heights=world[:,:,1].view(np.int8).astype(float)
-    yy,xx=np.indices((512,512))
-    slot=world[yy//2,xx//2,4]
-    scale=np.asarray(world_uv)[slot]
-    u=(xx*8*scale[:,:,0]).astype(int)%16
-    v=(yy*8*scale[:,:,1]).astype(int)%16
-    terrain=tiles[slot,v,u]
-    terrain=np.clip(terrain*(1+np.clip(heights[yy//2,xx//2],-8,8)[:,:,None]/30),0,255)
-    terrain[world[yy//2,xx//2,0]<2]=(30,30,30)
-    mark("RADAR_TEX",len(textures))
-    texture(Image.fromarray(terrain.astype(np.uint8)),(512,512),False)
+    # The PC renders a square overhead view of the occupied map bounds.
     ys,xs=np.nonzero(world[:,:,0])
     width,height=int(xs.max()-xs.min()+1),int(ys.max()-ys.min()+1)
     span=max(width,height)
+    left=float(xs.min())-(span-width)*.5
+    top=float(ys.min())-(span-height)*.5
     mark("MAP_SPAN",span)
-    mark("MAP_LEFT",float(xs.min())-(span-width)*.5)
-    mark("MAP_TOP",float(ys.min())-(span-height)*.5)
+    mark("MAP_LEFT",left)
+    mark("MAP_TOP",top)
+    tiles=np.array([np.asarray(Image.open(packages/"textures"/n.decode()).convert("RGB").resize((16,16)))
+                    for n in names])
+    yy,xx=np.indices((512,512))
+    px=left+(xx+.5)*span/512
+    py=top+(yy+.5)*span/512
+    x,y=px.astype(int),py.astype(int)
+    slot=world[y,x,4]
+    scale=np.asarray(world_uv)[slot]
+    u=(px*16*scale[:,:,0]).astype(int)%16
+    v=(py*16*scale[:,:,1]).astype(int)%16
+    fx,fy=(px-x)[:,:,None],(py-y)[:,:,None]
+    light=((1-fy)*((1-fx)*lighting[y,x]+fx*lighting[y,x+1])
+            + fy*((1-fx)*lighting[y+1,x]+fx*lighting[y+1,x+1]))
+    terrain=np.minimum(255,tiles[slot,v,u]*light*(2/255))
+    terrain[world[y,x,0]<2]=0
+    mark("RADAR_TEX",len(textures))
+    texture(Image.fromarray(terrain.astype(np.uint8)),(512,512),False)
     mark("RADAR_ICONS",len(textures))
     texture(Image.open(packages/"misc/radaricons.png"),(128,128),False)
     mark("RADAR_RING",len(textures))
-    texture(Image.open(packages/"misc/radaroverlays.png").crop((0,128,128,256)),(128,128),False)
+    texture(Image.open(packages/"misc/compass-base.png"),(256,256),False)
+    mark("RADAR_COMPASS",len(textures))
+    texture(Image.open(packages/"misc/compass-rose.png"),(256,256),False)
     mark("BULLET_TEX",len(textures))
     # AssaultCube decal textures encode neutral at 128, shadows below and highlights above.
     gray=np.asarray(Image.open(packages/"misc/bullethole.png").convert("L")).astype(int)
