@@ -164,10 +164,10 @@ static int upload_texture(unsigned i,unsigned slot) {
     return glGetError()==GL_NO_ERROR;
 }
 // Only the two players visible in this duel need resident NV2A skin textures.
-static void update_player_skins(void) {
+static void update_player_skins(const MatchView *v) {
     static int resident[2]={0,4};
     for(int local=0;local<2;++local) {
-        int skin=lan_skin(local);
+        int skin=(!local && v->stock_round)?v->offline_bot_skin:lan_skin(local);
         if(skin==resident[local]) continue;
         glFinish();
         if(upload_texture(FIRST_PLAYER_SKIN+skin,FIRST_PLAYER_SKIN+4*local))
@@ -1115,7 +1115,7 @@ void gpu_trace_init(void) {
 unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected,const SystemMenu *menu) {
     cursor=0;
     pose_cursor=0;
-    update_player_skins();
+    update_player_skins(v);
     update_shot_lighting(v);
     bind_vertices(stream);
     glDepthMask(GL_TRUE);

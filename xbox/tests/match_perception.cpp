@@ -563,6 +563,8 @@ extern "C" void test_stock_bot_round(void) {
     in={};in.start=1;match_update(&in,16,.016f);
     assert(stock_round && phase==PLAYING && player.x==starts[3][0]);
     MatchView v={};match_view(&v);assert(v.seconds==900);
+    int initial_skin=v.offline_bot_skin;
+    assert(initial_skin>=0 && initial_skin<4);
     player.frags=2;bot.state.health=1;
     damage(bot,player,GUN_PISTOL,1,0,0);
     assert(phase==PLAYING && player.frags==3 && bot.deaths==1);
@@ -574,7 +576,7 @@ extern "C" void test_stock_bot_round(void) {
     in.fire=0;match_update(&in,16,.016f);assert(!player.respawn_at);
     clock_ms=bot_match_duration-1;
     match_update(&in,1,.001f);assert(phase==INTERMISSION);
-    match_view(&v);assert(v.bot_deaths==1 && v.player_deaths==1);
+    match_view(&v);assert(v.bot_deaths==1 && v.player_deaths==1 && v.offline_bot_skin==initial_skin);
     begin(PLAYING);match_view(&v);assert(!v.player_deaths && !v.bot_deaths);
     // A surviving bot keeps traversing the map while the player waits to respawn.
     float start_x=bot.x,start_y=bot.y;

@@ -52,7 +52,7 @@ typedef struct {
     MatchPoint player_velocity;
     int on_floor,on_ladder,crouching;
     struct { const char *text; unsigned age; } frag_messages[3];
-    const char *bot_name;
+    const char *bot_name; int offline_bot_skin;
     int player_deaths,bot_deaths;
     int health, armour, magazine, reserve, grenade_ammo, player_frags, bot_frags, bot_alive, radar_active;
     MatchWeapon bot_weapon;

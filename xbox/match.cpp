@@ -62,6 +62,7 @@ struct BotSkill {
 #include "generated/bot_skill.h"
 #include "generated/bot_names.h"
 const char *offline_bot_name="Bot";
+int offline_bot_skin;
 unsigned menu_time;
 constexpr unsigned switch_ms = 400;
 constexpr unsigned player_respawn_ms=2000,bot_respawn_ms=5000;
@@ -435,7 +436,7 @@ void begin(MatchPhase initial) {
     next_blood=blood_count=0;
     clock_ms = frame_start_ms = 0; random_state = 7331; aim_state=7331; phase = initial;
     player.frags = bot.frags = player.deaths = bot.deaths = bot_pose = 0;
-    offline_bot_name="Bot";
+    offline_bot_name="Bot"; offline_bot_skin=0;
     stride_phase=0; idle_ms=0;
     combat_move_until=next_enemy_search = next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
@@ -444,6 +445,7 @@ void begin(MatchPhase initial) {
     if(stock_round && !lan_match) {
         aim_state=random_state=menu_time;
         offline_bot_name=bot_names[random_number()%(sizeof(bot_names)/sizeof(bot_names[0]))];
+        offline_bot_skin=random_number()%4; // The local RVSF player faces one CLA bot.
         spawn_cycle=-1;
         spawn(player,next_ffa_start(4,nullptr),0);
         spawn(bot,next_ffa_start(4,&player),0);
@@ -2099,7 +2101,7 @@ void match_view(MatchView *v) {
     v->on_floor=grounded; v->on_ladder=on_ladder; v->crouching=was_crouching;
     v->death_frame=player.respawn_at?fminf(5,(now+player_respawn_ms-player.respawn_at)/100.f):0;
     bot_view(v);
-    v->bot_name=offline_bot_name;v->player_deaths=player.deaths;v->bot_deaths=bot.deaths;
+    v->offline_bot_skin=offline_bot_skin;v->bot_name=offline_bot_name;v->player_deaths=player.deaths;v->bot_deaths=bot.deaths;
     v->player_frags = player.frags; v->bot_frags = bot.frags;
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;
