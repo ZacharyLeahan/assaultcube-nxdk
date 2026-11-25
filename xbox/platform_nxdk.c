@@ -23,12 +23,13 @@ DECLARE_CLIP(step);
 DECLARE_CLIP(clip_empty);
 DECLARE_CLIP(ric1); DECLARE_CLIP(ric2); DECLARE_CLIP(ric3); DECLARE_CLIP(waterimpact);
 DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
-DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
+DECLARE_CLIP(knife); DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
 DECLARE_CLIP(splash1); DECLARE_CLIP(splash2);
 DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup_helmet); DECLARE_CLIP(pickup_armour);
 #define CLIP(n) {n,n##_end}
 static const Clip clips[] = {
     [RIFLE_SHOT]={shot_audio,shot_end}, [RIFLE_RELOAD]=CLIP(auto_reload),
+    [KNIFE_SWING]=CLIP(knife),
     [WEAPON_CHANGE]=CLIP(change_gun),
     [BULLET_AIR1]=CLIP(ric1), [BULLET_AIR2]=CLIP(ric2),
     [BULLET_IMPACT]=CLIP(ric3), [BULLET_WATER]=CLIP(waterimpact),
@@ -193,7 +194,7 @@ int main(void) {
         float move = 0, strafe = 0, turn = 0, look = 0;
         int classic=0, tuned=0;
         int jump=0, crouch=0, showmap=0;
-        int swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
+        int knife_select=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
             Pad *pad = &pads[i];
             SDL_GameController *p = pad->handle;
@@ -209,6 +210,9 @@ int main(void) {
             refill |= x && !pad->previous_reload;
             pad->previous_reload = x;
             int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
+            int down=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+            knife_select |= down && !pad->previous_knife;
+            pad->previous_knife=down;
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
             classic |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_LEFT);
             tuned |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
@@ -224,7 +228,7 @@ int main(void) {
         }
         MatchInput input = {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
-            .fire = fire, .refill = refill, .swap = swap, .start = start,
+            .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .start = start,
             .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
         };
         match_update(&input, elapsed, refreshes*refresh_period);
