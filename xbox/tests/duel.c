@@ -32,7 +32,7 @@ static void test_rifle_recoil(unsigned hz,int crouch) {
     match_prepare(); match_update(&in,0,0);
     in=(MatchInput){.crouch=crouch};
     for (int i=0;i<10;++i) match_update(&in,20,.02f);
-    match_view(&v); float before=v.pitch;
+    match_view(&v); float before=v.pitch,x=v.px,y=v.py,yaw=v.angle;
     in.fire=1; assert(match_attack(&in)==RIFLE_SHOT); in.fire=0;
     unsigned previous=0;
     for (unsigned frame=1;frame<=hz*3/10;++frame) {
@@ -43,6 +43,13 @@ static void test_rifle_recoil(unsigned hz,int crouch) {
             float expected=(now==100?1.555456f:.947958f)*(crouch?.75f:1);
             match_view(&v);
             assert(fabsf((v.pitch-before)/.017453293f-expected)<.001f);
+            float velocity=-.30f*(crouch?.75f:1),travel=0;
+            for (unsigned tick=0;tick<now/5;++tick) {
+                velocity*=23.f/24;
+                travel+=velocity*.005f*(crouch?6.4f:16.f);
+            }
+            float actual=(v.px-x)*cosf(yaw)+(v.py-y)*sinf(yaw);
+            assert(fabsf(actual-travel)<.002f);
         }
         previous=now;
     }
@@ -142,6 +149,13 @@ static void test_weapon_switch(void) {
     in.fire=1;
     match_update(&in,1,.001f);
     assert(match_attack(&in)==PISTOL_SHOT);
+    MatchView fired;
+    match_view(&fired);
+    in.fire=0;
+    for (int i=0;i<20;++i) match_update(&in,5,.005f);
+    match_view(&v);
+    float backwards=(fired.px-v.px)*cosf(fired.angle)+(fired.py-v.py)*sinf(fired.angle);
+    assert(fabsf(backwards-.1f*16*.115f*(1-powf(23.f/24,20)))<.001f);
 }
 static void test_well_ladder(void) {
     MatchView v;
@@ -208,7 +222,7 @@ static void test_incoming_fire(int strafe) {
     int heard=0;
     for (unsigned f=0;f<1200 && !heard;++f) {
         in=(MatchInput){0};
-        if (strafe && f<60) { in.strafe=.7f; in.move=-.45f; }
+        if (strafe && f<30) { in.strafe=.7f; in.move=.45f; }
         match_update(&in,(f+1)*1000/60-f*1000/60,1.f/60);
         match_view(&v);
         PositionalSound event=strafe?v.air:v.impact;
@@ -229,7 +243,26 @@ static void test_incoming_fire(int strafe) {
     assert(heard);
 }
 
+static void test_bot_hitpush(void) {
+    MatchInput in={.start=1};
+    MatchView before,after;
+    match_prepare(); match_update(&in,0,0); match_view(&before);
+    in=(MatchInput){.fire=1};
+    assert(match_attack(&in)==RIFLE_SHOT);
+    match_view(&after);
+    assert(after.blood_count>0);
+    in.fire=0;
+    for (int i=0;i<20;++i) match_update(&in,5,.005f);
+    match_view(&after);
+    // An MTP-57 hit adds 22/100 velocity. Integrate 20 PC ground ticks.
+    float speed=.22f,travel=0;
+    for (int i=0;i<20;++i) { speed*=23.f/24; travel+=speed*.005f*16; }
+    float forward=(after.tx-before.tx)*cosf(before.angle)+(after.ty-before.ty)*sinf(before.angle);
+    assert(fabsf(forward-travel)<.002f);
+}
+
 int main(void) {
+    test_bot_hitpush();
     test_incoming_fire(0);
     test_incoming_fire(1);
     test_strafe_reversal(60);
