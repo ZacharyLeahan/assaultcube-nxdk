@@ -30,7 +30,7 @@ typedef MatchPoint Position;
 extern const Position bot_poses[];
 static Position *pose_positions;
 // Each silhouette edge emits at most one triangle to the shadow tip.
-enum { SHADOW_CAPACITY=3*(sizeof(body_indices)+sizeof(bot_gun_indices))/sizeof(unsigned short) };
+enum { SHADOW_CAPACITY=3*(2*(sizeof(body_indices)+sizeof(bot_gun_indices)))/sizeof(unsigned short) };
 static Position *shadow_positions, shadow_tip;
 static unsigned shadow_count;
 static unsigned pose_cursor;
@@ -100,7 +100,13 @@ int gpu_init(int width, int height) {
     unsigned pistol=batches[PISTOL_BATCH].count+batches[PISTOL_BATCH+1].count;
     unsigned knife=batches[KNIFE_BATCH].count+batches[KNIFE_BATCH+1].count;
     if (knife>rifle) rifle=knife;
-    unsigned count=batches[BODY_BATCH].count+batches[BOT_GUN_BATCH].count+(rifle>pistol?rifle:pistol);
+    unsigned corpse_gun=batches[BOT_GUN_BATCH].count;
+    if (batches[PISTOL_DEATH_BATCH].count>corpse_gun) corpse_gun=batches[PISTOL_DEATH_BATCH].count;
+    if (batches[KNIFE_DEATH_BATCH].count>corpse_gun) corpse_gun=batches[KNIFE_DEATH_BATCH].count;
+    unsigned extra=batches[BODY_BATCH].count+corpse_gun;
+    if (rifle>extra) extra=rifle;
+    if (pistol>extra) extra=pistol;
+    unsigned count=batches[BODY_BATCH].count+batches[BOT_GUN_BATCH].count+extra;
     pose_positions=pbgl_alloc(count*sizeof(Position));
     if (!pose_positions) return 0;
     shadow_positions=pbgl_alloc(SHADOW_CAPACITY*sizeof(Position));
@@ -252,20 +258,18 @@ static void shadow_edges(const Position *p,const unsigned short *idx,const unsig
     }
 }
 
-static void bot_batch(unsigned batch_id,unsigned base,unsigned count,const unsigned short *indices,const unsigned short *neighbors,
-                      const MatchView *v) {
-    BotPose cur=v->current_pose;
+static void actor_batch(unsigned batch_id,unsigned base,unsigned count,const unsigned short *indices,const unsigned short *neighbors,
+                      BotPose cur,BotPose prev,float transition,unsigned texture) {
     // UV seams duplicate positions in the draw buffer. Mix each MD2 vertex
     // once before expanding to triangle order.
     static Position mixed[BODY_VERTICES>BOT_GUN_VERTICES?BODY_VERTICES:BOT_GUN_VERTICES];
     const Position *poses=bot_poses+base;
     const Position *a=poses+bot_frame_batch[cur.first]*count,*b=poses+bot_frame_batch[cur.second]*count;
     for (unsigned i=0;i<count;++i) mixed[i]=mix_point(a[i],b[i],cur.blend);
-    if (v->pose_transition<1) {
-        BotPose prev=v->previous_pose;
+    if (transition<1) {
         a=poses+bot_frame_batch[prev.first]*count; b=poses+bot_frame_batch[prev.second]*count;
         for (unsigned i=0;i<count;++i)
-            mixed[i]=mix_point(mix_point(a[i],b[i],prev.blend),mixed[i],v->pose_transition);
+            mixed[i]=mix_point(mix_point(a[i],b[i],prev.blend),mixed[i],transition);
     }
     const Batch *mesh=&batches[batch_id];
     shadow_edges(mixed,indices,neighbors,mesh->count/3);
@@ -274,7 +278,7 @@ static void bot_batch(unsigned batch_id,unsigned base,unsigned count,const unsig
     for (unsigned i=0;i<mesh->count;++i) out[i]=mixed[indices[i]];
     bind_vertices(geometry+mesh->first);
     glVertexPointer(3,GL_FLOAT,sizeof(Position),out);
-    glBindTexture(GL_TEXTURE_2D,textures[mesh->texture]);
+    glBindTexture(GL_TEXTURE_2D,textures[texture]);
     glDrawArrays(GL_TRIANGLES,0,mesh->count);
 }
 static void projection(float near,float half_h) {
@@ -345,10 +349,23 @@ static void stencil_reference(unsigned value) {
     p=pb_push1(p,NV097_SET_STENCIL_FUNC_REF,value);
     pb_end(p);
 }
-static void draw_bot_shadow(const MatchView *v) {
+static void draw_shadow_volumes(const MatchView *v,unsigned bot_count) {
+    if (bot_count) {
+        glPushMatrix(); bot_transform(v);
+        glDrawArrays(GL_TRIANGLES,0,bot_count);
+        glPopMatrix();
+    }
+    if (shadow_count>bot_count) {
+        glPushMatrix();
+        glTranslatef(v->px,v->py,v->player_floor);
+        glRotatef(v->angle*57.29578f,0,0,1);
+        glDrawArrays(GL_TRIANGLES,bot_count,shadow_count-bot_count);
+        glPopMatrix();
+    }
+}
+static void draw_actor_shadows(const MatchView *v,unsigned bot_count) {
     if (!shadow_count) return;
     glPushMatrix();
-    bot_transform(v);
     glDisable(GL_TEXTURE_2D);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
@@ -361,10 +378,10 @@ static void draw_bot_shadow(const MatchView *v) {
     glEnable(GL_CULL_FACE);
     glCullFace(GL_FRONT);
     glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
-    glDrawArrays(GL_TRIANGLES,0,shadow_count);
+    draw_shadow_volumes(v,bot_count);
     glCullFace(GL_BACK);
     glStencilOp(GL_KEEP,GL_KEEP,GL_DECR);
-    glDrawArrays(GL_TRIANGLES,0,shadow_count);
+    draw_shadow_volumes(v,bot_count);
     glDisable(GL_CULL_FACE);
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
     glDisable(GL_DEPTH_TEST);
@@ -390,13 +407,13 @@ static void draw_bot_shadow(const MatchView *v) {
     glPopMatrix();
 }
 static void level(const MatchView *v) {
-    float c=cosf(v->angle),s=sinf(v->angle);
-    float cp=cosf(v->pitch), sp=sinf(v->pitch);
+    float c=cosf(v->camera_yaw),s=sinf(v->camera_yaw);
+    float cp=cosf(v->camera_pitch), sp=sinf(v->camera_pitch);
     const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
     // PC world FOV is horizontal: tan(90 degrees / 2) == 1.
     projection(.15f,.15f/aspect);
     glLoadMatrixf(camera);
-    glTranslatef(-v->px,-v->py,-v->eye);
+    glTranslatef(-v->camera.x,-v->camera.y,-v->camera.z);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
     bind_vertices(geometry);
     // The map uses +Y to the camera's right, reversing projected winding.
@@ -440,8 +457,33 @@ static void level(const MatchView *v) {
         float forward=10*(cy+sy),down=-14.142136f;
         shadow_tip=(Position){ct*forward+st*down,10*(cy-sy),-st*forward+ct*down};
         stencil_reference(192);
-        bot_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,v);
-        bot_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,v);
+        actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
+                    v->current_pose,v->previous_pose,v->pose_transition,batches[BODY_BATCH].texture);
+        actor_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,
+                    v->current_pose,v->previous_pose,v->pose_transition,batches[BOT_GUN_BATCH].texture);
+        stencil_reference(64);
+        glPopMatrix();
+    }
+    unsigned bot_shadow_count=shadow_count;
+    if (v->respawning) {
+        unsigned frame=(unsigned)v->death_frame,next=frame<5?frame+1:frame;
+        float blend=v->death_frame-frame;
+        glPushMatrix(); glTranslatef(v->px,v->py,v->player_floor);
+        glRotatef(v->angle*57.29578f,0,0,1);
+        model_color(v->px,v->py);
+        float cy=cosf(v->angle),sy=sinf(v->angle);
+        shadow_tip=(Position){10*(cy+sy),10*(cy-sy),-14.142136f};
+        BotPose pose={184+(int)frame,184+(int)next,blend};
+        stencil_reference(192);
+        actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
+                    pose,pose,1,PLAYER_SKIN);
+        if (v->pistol || v->knife) {
+            unsigned gun=v->knife?KNIFE_DEATH_BATCH:PISTOL_DEATH_BATCH;
+            animated_batch(gun+frame,gun+next,blend);
+        } else {
+            actor_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,
+                        pose,pose,1,batches[BOT_GUN_BATCH].texture);
+        }
         stencil_reference(64);
         glPopMatrix();
     }
@@ -457,7 +499,7 @@ static void level(const MatchView *v) {
     bind_vertices(geometry);
     for (int i=0;i<v->item_count;++i) {
         const ItemView *p=v->items+i;
-        if ((p->x-v->px)*c+(p->y-v->py)*s < -3) continue;
+        if ((p->x-v->camera.x)*c+(p->y-v->camera.y)*s < -3) continue;
         glPushMatrix();
         glTranslatef(p->x,p->y,p->base+1+.05f*sinf(v->elapsed_ms*.01f+p->x+p->y));
         glRotatef(v->elapsed_ms*.1f,0,0,1);
@@ -479,7 +521,7 @@ static void level(const MatchView *v) {
     glPopMatrix();
     glDisable(GL_STENCIL_TEST);
     glEnable(GL_DEPTH_TEST);
-    draw_bot_shadow(v);
+    draw_actor_shadows(v,bot_shadow_count);
     if (v->bot_line.expires>v->elapsed_ms) {
         const ShotLine *line=&v->bot_line;
         glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
@@ -658,7 +700,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-    if (v->eye<WATER_SURFACE) {
+    if (v->camera.z<WATER_SURFACE) {
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
         glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
         color(water_color[0]/255.f,water_color[1]/255.f,water_color[2]/255.f,.4f);
@@ -849,7 +891,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
         tracking_frames[sample_count]=tracking_frame(v,input,aimed);
         FrameSample *sample=&samples[sample_count++];
         *sample=(FrameSample){(unsigned)KeQueryPerformanceCounter(),pb_get_vbl_counter(),
-                              prior,address,v->angle,v->eye,v->respawning};
+                              prior,address,v->camera_yaw,v->camera.z,v->respawning};
         if (sample_count==sizeof(samples)/sizeof(samples[0])) {
             unsigned hz=(unsigned)KeQueryPerformanceFrequency();
             FILE *file=fopen("D:\\frame-trace.bin","wb");

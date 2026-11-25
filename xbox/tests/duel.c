@@ -307,6 +307,30 @@ static void test_weapon_switch(void) {
     assert(match_attack(&in)==SILENT);
 }
 
+static void test_death_camera(void) {
+    MatchInput in={.start=1};
+    MatchView v;
+    match_prepare(); match_update(&in,16,.016f);
+    in=(MatchInput){0};
+    for (int i=0;i<3000;++i) {
+        match_update(&in,16,.016f); match_view(&v);
+        if (v.respawning) break;
+    }
+    assert(v.respawning && v.camera_pitch<0 && v.death_frame==0);
+    float back=(v.px-v.camera.x)*cosf(v.camera_yaw)+(v.py-v.camera.y)*sinf(v.camera_yaw);
+    assert(back>4 && back<8 && visible(v.px,v.py,v.eye,v.camera.x,v.camera.y,v.camera.z));
+    MatchPoint camera=v.camera;
+    float yaw=v.angle;
+    in.turn=.5f; in.look=-.2f; in.move=1;
+    for (int i=0;i<40;++i) {
+        match_update(&in,16,.016f); match_view(&v);
+        assert(v.respawning && v.camera.x==camera.x && v.camera.y==camera.y);
+    }
+    assert(v.angle==yaw && v.camera_yaw!=yaw && v.camera_pitch<0 && v.death_frame==5);
+    in=(MatchInput){0};
+    for (int i=0;i<100 && v.respawning;++i) { match_update(&in,16,.016f); match_view(&v); }
+    assert(!v.respawning && v.camera.x==v.px && v.camera.y==v.py && v.camera.z==v.eye);
+}
 static void test_knife(void) {
     MatchInput in={.start=1};
     MatchView v;
@@ -348,7 +372,7 @@ static void test_knife(void) {
     for (int i=0;i<510;++i) {
         match_update(&in,16,.016f);
         match_view(&v);
-        if (v.bot_respawn_pending) {
+        if (v.respawn_work_pending && !v.bot_alive) {
             assert(!v.bot_alive && v.hide_bot);
             saw_respawn_warning=1;
         }
@@ -640,6 +664,7 @@ int main(void) {
     test_well_ladder();
     test_weapon_switch();
     test_knife();
+    test_death_camera();
     test_fighter_contact();
     test_rifle_trigger(0);
     test_rifle_trigger(1);

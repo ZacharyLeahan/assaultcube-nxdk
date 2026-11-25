@@ -36,6 +36,8 @@ float feet_z, stance, jump_speed, sway_vertical;
 unsigned air_ms,jump_start_ticks;
 unsigned sway_ms;
 float flash_angle;
+MatchPoint death_camera;
+float death_yaw,death_pitch;
 bool grounded, held_jump, in_water;
 unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, bot_attack_at, hurt_until;
@@ -254,6 +256,52 @@ void firing_impulse(Fighter &f,int gun,float dx,float dy,float dz,bool crouched)
     float recoil=guns[gun].recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
     impulse(f,dx,dy,dz,-.01f*recoil*(crouched?.75f:1));
 }
+static MatchPoint retreat_camera(float yaw) {
+    float x=player.x,y=player.y,feet=feet_z;
+    float back_x=-cosf(yaw),back_y=-sinf(yaw),velocity=0;
+    bool on_floor=false;
+    // recomputecamera backs up for ten 50 ms movement steps with a reset velocity.
+    for (int i=0;i<10;++i) {
+        bool water=feet+stance<WATER_LEVEL-.5f;
+        float friction=water?20.f:on_floor?6.f:30.f;
+        velocity+=(1-velocity)*2.5f/friction;
+        float travel=(water?.4f:.8f)*velocity;
+        walk_body(&x,&y,back_x*travel,back_y*travel,feet,stance+PLAYER_ABOVE_EYE,1.25f);
+        float floor,ceil;
+        body_space(x,y,feet,&floor,&ceil);
+        feet=fminf(ceil-stance-PLAYER_ABOVE_EYE,fmaxf(floor,feet-(water?.125f:.475f)));
+        on_floor=feet<=floor+.01f;
+    }
+    return {x,y,feet+stance};
+}
+static bool camera_sees_body(MatchPoint p) {
+    float chest=feet_z+stance*.5f;
+    return visible(p.x,p.y,p.z,player.x,player.y,chest) &&
+           prop_depth(p,{player.x-p.x,player.y-p.y,chest-p.z},1)>=1;
+}
+void place_death_camera() {
+    death_camera=retreat_camera(player.yaw);
+    float d=distance(death_camera.x,death_camera.y,player.x,player.y);
+    if (!camera_sees_body(death_camera)) {
+        death_camera={player.x,player.y,player.eye_height};
+        d=0;
+    }
+    // If a wall pins the rear camera inside the model, use a clear side of the
+    // same spot. Test the camera hull, including the level's solid prop bounds.
+    if (d<4) {
+        const float offsets[]={90,-90,180};
+        for (float offset : offsets) {
+            MatchPoint p=retreat_camera(player.yaw+offset*radians);
+            float next=distance(p.x,p.y,player.x,player.y);
+            if (next>d && camera_sees_body(p)) {
+                death_camera=p; d=next;
+            }
+            if (d>=5) break;
+        }
+    }
+    death_yaw=d>.01f?atan2f(player.y-death_camera.y,player.x-death_camera.x):player.yaw;
+    death_pitch=atan2f(feet_z+stance*.5f-death_camera.z,fmaxf(1,d));
+}
 void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz) {
     float length=sqrtf(dx*dx+dy*dy+dz*dz);
     if (length>0) impulse(victim,dx/length,dy/length,dz/length,guns[gun].damage*.01f*guns[gun].pushfactor);
@@ -268,6 +316,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
         int sector=(int)floorf(relative/(45*radians)+.5f);
         damage_directions[(unsigned)sector%8]=clock_ms+1000;
         pain_sound=dead ? death : PLAYER_PAIN;
+        if (dead) { place_death_camera(); switch_end=0; player.pitch_velocity=0; }
     } else {
         bot_voice=dead ? death : (MatchSound)(BOT_PAIN1+effect_random(5));
         for (int i=0;i<guns[gun].damage/10;++i) {
@@ -462,7 +511,15 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     float dt = fminf(.10f,motion_seconds);
     float old_dx=bot.x-player.x, old_dy=bot.y-player.y;
     float manual_yaw=0;
-    if (!player.respawn_at) {
+    MatchInput neutral={};
+    if (player.respawn_at) {
+        death_yaw=fmodf(death_yaw+in->turn*150*radians*dt,6.2831853f);
+        death_pitch=fmaxf(-75*radians,fminf(75*radians,death_pitch+in->look*105*radians*dt));
+        // Keep knockback, drag and gravity on the body while stick input controls the camera.
+        neutral.crouch=was_crouching;
+        in=&neutral;
+    }
+    {
         float turn=fmaxf(-1,fminf(1,in->turn));
         int direction=(turn>0)-(turn<0);
         if (direction!=player.turn_direction || fabsf(turn)<.85f) player.turn_boost=0;
@@ -562,7 +619,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             }
         }
         if (feet_z<=floor && !jump_start_ticks) {
-            if (air_ms>200) movement_sound=air_ms>800?PLAYER_LAND:SOFT_LAND;
+            if (air_ms>200 && !player.respawn_at) movement_sound=air_ms>800?PLAYER_LAND:SOFT_LAND;
             feet_z=floor; grounded=true; jump_speed=0; air_ms=0;
         }
         float delta=feet_z+stance-player.eye_height;
@@ -766,6 +823,11 @@ void match_view(MatchView *v) {
     v->classic_assist=classic_assist;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
+    v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
+    v->camera_yaw=player.respawn_at?death_yaw:player.yaw;
+    v->camera_pitch=player.respawn_at?death_pitch:player.pitch;
+    v->player_floor=feet_z;
+    v->death_frame=player.respawn_at?fminf(5,(now+2000-player.respawn_at)/100.f):0;
     bot_view(v);
     v->player_frags = player.frags; v->bot_frags = bot.frags;
     v->health = player.state.health; v->armour = player.state.armour;
@@ -818,9 +880,10 @@ void match_view(MatchView *v) {
     }
     v->wide_crosshair = gun==GUN_ASSAULT && player.shots>3;
     v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
-    v->bot_respawn_pending=bot.respawn_at && bot.respawn_at<=clock_ms+40;
     v->bot_shot_pending=phase==PLAYING && bot_saw_player && !bot.respawn_at &&
                         bot_attack_at<=clock_ms+40 && bot.ready_at<=clock_ms+40;
+    v->respawn_work_pending=(bot.respawn_at && bot.respawn_at<=clock_ms+40) ||
+                           (v->bot_shot_pending && v->health<=guns[bot.state.gunselect].damage);
     v->damage_directions=damage_directions;
     v->phase = phase; v->bot_sound = bot_sound;
     v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;

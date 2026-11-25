@@ -171,12 +171,12 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         with Image.open(path) as skin:
             return texture(skin,size)
 
-    bot_frames=(*range(58),*range(178,184))
+    bot_frames=(*range(58),*range(178,190))
     bot_positions=bytearray()
     symbols.append("static const unsigned char bot_frame_batch[198] = {"+
                    ",".join(f"[{pose}]={i}" for i,pose in enumerate(bot_frames))+"};\n")
 
-    def md2(path, skin, size, name, muzzle=None):
+    def md2(path, skin, size, name, muzzle=None, frames=(0,)):
         d=(path/"tris.md2").read_bytes()
         _,_,sw,sh,stride,_,nv,nt,nf,_,_,_,st,tr,frame,commands,_=struct.unpack_from("<17i",d)
         cfg=(path/"md2.cfg").read_text()
@@ -192,7 +192,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
             pos=np.frombuffer(d,np.uint8,nv*4,off+40).reshape(-1,4)[:,:3]*scale+struct.unpack_from("<3f",d,off+12)
             return (pos+translate)*[model_scale,-model_scale,model_scale]
         if name is None:
-            model_batch(tex,positions(0),uv,faces[:,:3],faces[:,3:])
+            for pose in frames: model_batch(tex,positions(pose),uv,faces[:,:3],faces[:,3:])
             return
         heads=[]
         # md2tag indices address the PC loader's unique (UV, vertex)
@@ -291,6 +291,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
+    mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
+    for name in ("pistol","knife"):
+        folder=packages/"models/weapons"/name/"world"
+        mark(name.upper()+"_DEATH_BATCH",len(batches))
+        md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
     mark("GIB_BATCH",len(batches))
     for i in range(1,4):
         folder=packages/f"models/misc/gib0{i}"

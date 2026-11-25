@@ -186,7 +186,7 @@ int main(void) {
     gpu_trace_init();
     match_prepare();
     for (;;) {
-        gpu_begin_input(refresh_hz,view.respawning || view.bot_respawn_pending,view.bot_shot_pending);
+        gpu_begin_input(refresh_hz,view.respawning || view.respawn_work_pending,view.bot_shot_pending);
         SDL_PumpEvents();
         SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
         refresh_pads(pads);
