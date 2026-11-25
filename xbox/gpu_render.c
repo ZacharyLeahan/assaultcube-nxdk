@@ -1,4 +1,5 @@
 #include "gpu_render.h"
+#include "lan/lan.h"
 #include "geometry.h"
 #include "shot_light.h"
 #include "navigation.h"
@@ -872,7 +873,8 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
         text(42,30,27,"ac_desert   /   Bot Deathmatch");
         text(42,59,23,"START to play    /    First to 3");
     } else {
-        snprintf(line,sizeof(line),"YOU %d    BOT %d",v->player_frags,v->bot_frags);
+        if (lan_connected()) snprintf(line,sizeof(line),"%s",lan_status());
+        else snprintf(line,sizeof(line),"YOU %d    BOT %d",v->player_frags,v->bot_frags);
         text(42,28,22,line);
         snprintf(line,sizeof(line),"%u:%02u",v->seconds/60,v->seconds%60);
         text(hud_width-122,2,20,line);
@@ -893,7 +895,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
     if(v->phase!=PLAYING) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
-        text(42,164,19,"D-pad Up   System menu");
+        text(42,164,19,lan_status()?lan_status():"D-pad Up   System menu");
         text(42,136,19,weapon_art[v->selected_primary].choice);
         text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");

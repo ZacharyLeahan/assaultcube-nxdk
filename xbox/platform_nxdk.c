@@ -9,6 +9,7 @@
 #include <string.h>
 #include "gpu_render.h"
 #include "controllers.h"
+#include "lan/lan.h"
 #include "ambience.h"
 
 extern const uint8_t shot_audio[] __asm__("_auto"), shot_end[] __asm__("_auto_end");
@@ -210,6 +211,7 @@ int main(void) {
     MatchView view = {0};
     gpu_trace_init();
     match_prepare();
+    lan_init();
     match_view(&view);
     SystemMenu system={MENU_CLOSED,0};
     enum { UP=1, DOWN=2, ACCEPT=4, CANCEL=8 };
@@ -222,6 +224,7 @@ int main(void) {
         refresh_pads(pads);
         unsigned now = SDL_GetTicks(), elapsed = now-last;
         last = now;
+        lan_poll(now);
         if (now-sample_start >= 2000) {
             fps10 = (frames*10000u + (now-sample_start)/2)/(now-sample_start);
             sample_start = now;
@@ -304,15 +307,18 @@ int main(void) {
             .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
         };
         int aimed=0;
+        MatchSound effect=SILENT;
+        if(lan_connected()) input.swap=input.knife_select=input.start=0;
         if (system.choice==MENU_CLOSED && !paused) {
             if (releasing) input=(MatchInput){0};
             match_update(&input, elapsed, refreshes*refresh_period);
             match_view(&view);
             aimed=match_targeted(&view);
-            MatchSound effect=match_attack(&input);
+            effect=match_attack(&input);
             match_view(&view);
             update_audio(&view,effect);
         }
+        if (lan_connected()) lan_send(&view,&input,effect,now);
         unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected,&system);
         refreshes=vblank-previous_vblank;
         previous_vblank=vblank;

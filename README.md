@@ -12,4 +12,10 @@ At 720p on an original Xbox, the first prototype missed four refreshes across a 
 
 ![An opening SMG frag on ac_desert, captured from an original Xbox at 720p](xbox/ac-desert-xbox.jpg)
 
+## Private LAN crossplay
+
+In the development build, an original Xbox and a stock Windows client can join the same PC-hosted deathmatch on `ac_desert`. Both players saw the other strafe and fire during the hardware test. [Private LAN setup](xbox/lan/README.md)
+
+![The Xbox view shows the PC player's strafe and tracer. The Windows view shows the Xbox player's strafe and muzzle flash.](xbox/lan/ac-desert-lan-hardware.jpg)
+
 [Build instructions and controls](xbox/README.md) · [Upstream AssaultCube](https://github.com/assaultcube/AC) · [License](https://assault.cubers.net/docs/license.html)
