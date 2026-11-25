@@ -19,7 +19,20 @@ int own=-1,life,remote=-1,remote_life;
 bool ready,alive;
 unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
-int next_primary=GUN_ASSAULT, sent_weapon=-1, remote_weapon=GUN_ASSAULT;
+struct PrimaryChoice { int gun; const char *config,*label; };
+constexpr PrimaryChoice primaries[]={
+    {GUN_ASSAULT,"assault","Next spawn: MTP-57 rifle"},
+    {GUN_SNIPER,"sniper","Next spawn: AD-81 sniper"},
+    {GUN_SUBGUN,"subgun","Next spawn: A-ARD/10 SMG"},
+    {GUN_CARBINE,"carbine","Next spawn: TMP-M&A CB carbine"}
+};
+constexpr unsigned primary_count=sizeof(primaries)/sizeof(primaries[0]);
+unsigned primary_choice;
+int sent_weapon=-1,remote_weapon=GUN_ASSAULT;
+bool supported_primary(int gun) {
+    for(const PrimaryChoice &choice:primaries) if(choice.gun==gun) return true;
+    return false;
+}
 unsigned choice_time;
 const float degrees=57.2957795f;
 int nearest(float value) { return (int)floorf(value + 0.5f); }
@@ -130,7 +143,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         case SV_SERVINFO_CONTD:
             if(r.integer()!=0 || !r.valid) {stop("unsupported authenticated server");return;}
             m.word(SV_CONNECT);m.word(1302);m.word(0);m.string("Xbox");m.string("");m.string("");
-            m.word(0);m.word(next_primary);
+            m.word(0);m.word(primaries[primary_choice].gun);
             m.word(0);m.word(0);m.word(0);m.word(0);m.word(90);m.word(50);
             m.transmit();return;
         case SV_WELCOME:r.skip(1);break;
@@ -149,7 +162,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             int ammo[NUMGUNS],mag[NUMGUNS];
             for(int &value:ammo) value=r.integer();
             for(int &value:mag) value=r.integer();
-            if(!r.valid || !ready || (primary!=GUN_ASSAULT && primary!=GUN_SNIPER) ||
+            if(!r.valid || !ready || !supported_primary(primary) ||
                (gun!=primary && gun!=GUN_PISTOL)) return;
             m.word(SV_SPAWN);m.word(life);m.word(gun);m.transmit();
             sent_weapon=gun;alive=true;
@@ -229,7 +242,13 @@ void messages(Reader &r,unsigned now,int sender=-1) {
                 match_lan_shot(gun,x/DMF,y/DMF,z/DMF);
             break;
         }
-        case SV_HITPUSH:r.skip(5);break;
+        case SV_HITPUSH: {
+            int gun=r.integer(),damage=r.integer();
+            int x=r.integer(),y=r.integer(),z=r.integer();
+            if(r.valid && alive && sender<0 && gun>=0 && gun<NUMGUNS)
+                match_lan_hitpush(gun,damage,x/DNF,y/DNF,z/DNF);
+            break;
+        }
         case SV_WEAPCHANGE: {
             int gun=r.integer();
             if(r.valid && sender>=0 && sender!=own && gun>=0 && gun<NUMGUNS) {
@@ -256,7 +275,8 @@ void lan_init(void) {
     char primary[32];
     if (fgets(primary,sizeof(primary),f)) {
         primary[strcspn(primary," \t\r\n")]=0;
-        if (!strcmp(primary,"sniper")) next_primary=GUN_SNIPER;
+        for(unsigned i=0;i<primary_count;++i)
+            if(!strcmp(primary,primaries[i].config)) primary_choice=i;
     }
     fclose(f);
     text[strcspn(read?text:""," \t\r\n")]=0;
@@ -269,15 +289,15 @@ void lan_init(void) {
 }
 const char *lan_status(void) {
     if(choice_time)
-        return next_primary==GUN_SNIPER?"Next spawn: AD-81 sniper":"Next spawn: MTP-57 rifle";
+        return primaries[primary_choice].label;
     return status[0]?status:nullptr;
 }
 int lan_connected(void) {return ready;}
 void lan_toggle_primary(unsigned now) {
     if (!ready || !peer) return;
-    next_primary=next_primary==GUN_SNIPER?GUN_ASSAULT:GUN_SNIPER;
+    primary_choice=(primary_choice+1)%primary_count;
     Message m;
-    m.word(SV_PRIMARYWEAP); m.word(next_primary); m.transmit();
+    m.word(SV_PRIMARYWEAP); m.word(primaries[primary_choice].gun); m.transmit();
     choice_time=now;
 }
 void lan_poll(unsigned now) {
@@ -328,7 +348,7 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         Message change;change.word(SV_WEAPCHANGE);change.word(gun);change.transmit();
         sent_weapon=gun;
     }
-    if(effect==KNIFE_SWING || effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT) {
+    if(effect==KNIFE_SWING || effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT || effect==SMG_SHOT || effect==CARBINE_SHOT) {
         Message m;m.word(SV_SHOOT);m.word(match_lan_shot_time(now));m.word(gun);
         MatchPoint dir=v->shot_direction;
         m.word(v->shot_end.x*DMF);m.word(v->shot_end.y*DMF);m.word(v->shot_end.z*DMF);
@@ -338,7 +358,7 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
             m.word(dir.x*DNF);m.word(dir.y*DNF);m.word(dir.z*DNF);}
         m.transmit();
     }
-    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==SNIPER_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
+    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
 }
 
 

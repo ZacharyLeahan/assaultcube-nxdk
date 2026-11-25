@@ -262,6 +262,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 "".join("    {"+",".join(f"{a:.7f}f" for a in tags.get(pose,(0,0,0)))+"},\n"
                         for pose in range(max(tags)+1))+"};\n")
 
+        return nv,nf*3
+
     def model_batch(tex,pos,uv,tri,st):
         pts=[]
         for idx,t in zip(tri,st):
@@ -281,16 +283,19 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("BODY_BATCH",len(batches))
     player=packages/"models/playermodels"
     md2(player,player/"CLA/01.jpg",(256,256),"BODY")
-    for weapon,name in (("assault","bot_gun"),("pistol","world_pistol")):
+    world_models=(("assault","bot_gun"),("pistol","world_pistol"),("knife","world_knife"),
+                  ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"))
+    world_counts=[]
+    for weapon,name in world_models:
         mark(name.upper()+"_BATCH",len(batches))
         gun=packages/"models/weapons"/weapon/"world"
-        muzzle=[]
-        md2(gun,gun/"skin.jpg",(128,64),name.upper(),muzzle)
-        symbols.append(f"static const float {name}_muzzle[][3] = {{"+
-                       ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in muzzle)+"};\n")
-    gun=packages/"models/weapons/knife/world"
-    mark("WORLD_KNIFE_BATCH",len(batches))
-    md2(gun,gun/"skin.jpg",(128,64),"WORLD_KNIFE")
+        muzzle=None if weapon=="knife" else []
+        world_counts.append(md2(gun,gun/"skin.jpg",(128,64),name.upper(),muzzle))
+        if muzzle:
+            symbols.append(f"static const float {name}_muzzle[][3] = {{"+
+                           ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in muzzle)+"};\n")
+    mark("WORLD_WEAPON_MAX_VERTICES",max(vertices for vertices,_ in world_counts))
+    mark("WORLD_WEAPON_MAX_INDICES",max(indices for _,indices in world_counts))
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
     hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")

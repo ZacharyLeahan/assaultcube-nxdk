@@ -20,6 +20,7 @@ void match_lan_hide(void);
 void match_lan_remote_death(int gib);
 void match_lan_shot(int gun,float x,float y,float z);
 void match_lan_health(int health,int armour);
+void match_lan_hitpush(int gun,int damage,float x,float y,float z);
 void match_lan_time(unsigned remaining_ms);
 void match_lan_score(int local,int frags);
 void match_lan_reset_items(void);

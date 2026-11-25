@@ -783,6 +783,10 @@ void match_lan_shot(int gun,float x,float y,float z) {
     bot_line={from,{x,y,z},clock_ms+75};
     spark_splash(x,y,z);
 }
+void match_lan_hitpush(int gun,int damage,float x,float y,float z) {
+    if(lan_match && !player.respawn_at && damage>0 && gun>=0 && gun<NUMGUNS)
+        impulse(player,x,y,z,damage/100.f*guns[gun].pushfactor);
+}
 void match_lan_health(int hp,int armour) {
     if(hp<player.state.health) hurt_until=clock_ms+250;
     if(hp<=0 && !player.respawn_at) {
@@ -1039,10 +1043,9 @@ static MatchPoint head_position(BotPose pose) {
 }
 static void bot_view(MatchView *v) {
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-PLAYER_EYE_HEIGHT; v->bot_alive = !bot.respawn_at;
-    v->bot_pistol=bot.state.gunselect==GUN_PISTOL && clock_ms>=bot.shot_until;
-    // Both world model configs use md2emit for 50 ms.
-    v->bot_knife=bot.state.gunselect==GUN_KNIFE;
-    v->bot_flash_end_ms = !v->bot_knife && bot.flash_until>=40 ? bot.flash_until-40 : 0;
+    v->bot_weapon=view_weapon(bot.state.gunselect);
+    if (!lan_match && v->bot_weapon==VIEW_PISTOL && clock_ms<bot.shot_until) v->bot_weapon=VIEW_RIFLE;
+    v->bot_flash_end_ms = v->bot_weapon!=VIEW_KNIFE && bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     unsigned now=clock_ms+intermission_age;
     BotClip clip={0,40,0,now,idle_ms/100.f,.01f};

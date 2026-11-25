@@ -107,11 +107,11 @@ extern "C" void test_easy_bot_spacing(void) {
     bot.shot_until=bot.ready_at=clock_ms+120;
     update_bot(0);
     bot_view(&v);
-    assert(!v.bot_pistol);
+    assert(v.bot_weapon!=VIEW_PISTOL);
     clock_ms=bot.ready_at;
     update_bot(0);
     bot_view(&v);
-    assert(v.bot_pistol && combat_forward==0);
+    assert(v.bot_weapon==VIEW_PISTOL && combat_forward==0);
 }
 
 extern "C" void test_easy_bot_aim(void) {
@@ -425,9 +425,53 @@ extern "C" void test_lan_knife(void) {
     assert(bot.state.health==hp && !player.frags);
     match_lan_shot(GUN_KNIFE,121,121,feet_z);
     MatchView v={};match_view(&v);
-    assert(v.bot_knife && !v.bot_light && !v.bot_flash_end_ms);
+    assert(v.bot_weapon==VIEW_KNIFE && !v.bot_light && !v.bot_flash_end_ms);
     match_lan_remote_death(1);
     in={};match_update(&in,16,.016f);match_view(&v);
     assert(v.hide_bot && v.gib_count==6 && v.gib_sound);
     match_lan_stop();
+}
+
+extern "C" void test_lan_hitpush(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    player.x=121;player.y=121;player.yaw=0;
+    feet_z=ground(player.x,player.y);
+    player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    match_lan_hitpush(GUN_PISTOL,18,1,0,0);
+    MatchInput in={};
+    for(int i=0;i<200;++i) match_update(&in,5,.005f);
+    // Stock floor friction retains 23/24 of velocity every 5 ms.
+    assert(fabsf(player.x-121-.18f*16*.005f*23)<.001f);
+    assert(player.y==121 && player.state.health==100);
+    player.velocity_y=.7f;
+    match_lan_hitpush(GUN_PISTOL,18,-.99f,0,-.1f);
+    assert(fabsf(player.velocity_x+.99f*.18f)<.0001f && player.velocity_y==.7f);
+    match_lan_stop();
+}
+
+extern "C" void test_lan_primary_loadouts(void) {
+    const int weapons[]={GUN_SUBGUN,GUN_CARBINE};
+    for (int gun:weapons) {
+        int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+        mag[gun]=magsize(gun);ammo[gun]=2*magsize(gun);
+        match_prepare();
+        match_lan_spawn(100,0,gun,gun,ammo,mag);
+        MatchInput in={};in.fire=1;
+        MatchWeapon weapon=view_weapon(gun);
+        assert(match_attack(&in)==feedback[weapon].shot);
+        match_update(&in,attackdelay(gun),.016f);
+        assert(match_attack(&in)==(gun==GUN_SUBGUN?SMG_SHOT:SILENT));
+        unsigned fired=gun==GUN_SUBGUN?2:1;
+        assert(player.state.mag[gun]==magsize(gun)-(int)fired);
+        in.fire=0;in.refill=1;
+        assert(match_attack(&in)==feedback[weapon].reload);
+        assert(player.state.mag[gun]==magsize(gun) && player.state.ammo[gun]==2*magsize(gun)-(int)fired);
+        match_lan_remote_weapon(gun);
+        match_lan_remote(124,121,0,0,0,0);
+        MatchView v={};match_view(&v);
+        assert(v.weapon==weapon && v.bot_weapon==weapon);
+        match_lan_stop();
+    }
 }
