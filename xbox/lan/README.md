@@ -24,6 +24,10 @@ This development build joins a stock AssaultCube 1.3.0.2 dedicated server on a P
 
 Ammo and health pickups use the stock server's item list. If the other player takes a box first, the Xbox hides it and keeps its current inventory until the server awards another pickup.
 
+Click the right stick to draw the knife or return to your previous firearm. Tap RT once per swing. The stock knife deals 50 damage to an unarmoured player and takes 500 ms to recover.
+
+In a courtyard test on original hardware, both players hit once, backed out of reach, missed, and stepped in for the frag. Measured between player centers, the Xbox missed at 4.53 map units and finished at 3.17. Windows missed at 5.00 and finished at 2.79. The stock server recorded both frags.
+
 On a stock Windows server, both players scored an MK-77 frag on original-Xbox crossplay. Holding RT fired one round. Reloading took the pistol from 9/50 to 10/49, and switching back preserved the rifle magazine. Windows received the server's shot effects for all 60 Xbox rifle rounds across three magazines.
 
 On original hardware, both players collected the courtyard ammo box on separate spawns. The Xbox stayed at 40 reserve rounds after Windows took it, then reached 60 when the server awarded the next spawn about eight seconds later. A separate health pickup raised Xbox health from 56 to 89. A late Xbox join received an initial item list with the occupied ammo box absent.
