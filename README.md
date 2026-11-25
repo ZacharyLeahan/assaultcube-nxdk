@@ -20,8 +20,8 @@ In the development build, an original Xbox and a stock Windows client can join t
 | --- | --- |
 | ![Windows player strafing and firing, then watching the Xbox player move](xbox/lan/ac-desert-windows.gif) | ![The same exchange from the original Xbox over HDMI](xbox/lan/ac-desert-xbox.gif) |
 
-[Download the synchronized split-screen MP4](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay.mp4) · [Watch the original Xbox microSD recording](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-xbox-microsd.mp4) · [View the screenshot](xbox/lan/ac-desert-lan-hardware.jpg)
+[Discord MP4 (8.6 MB)](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay-discord.mp4) | [Full-resolution MP4](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay.mp4) · [Watch the original Xbox microSD recording](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-xbox-microsd.mp4) · [View the screenshot](xbox/lan/ac-desert-lan-hardware.jpg)
 
-The 60 fps split-screen MP4 shows the Windows player firing wide before the Xbox scores a frag. The header magnifies the Xbox game's live FPS counter. Each view is 1280 x 720. The Xbox picture and stereo audio come directly from HDMI through a Cam Link 4K. The GIFs and Xbox-only clip show the earlier microSD recording.
+In one continuous 23-second take, the Xbox rounds a corner, circles the Windows player and scores the frag. Both 60 fps exports include the live Xbox FPS counter and Cam Link HDMI audio. The full-resolution version preserves both 720p views. The GIFs and Xbox-only clip show the earlier microSD recording.
 
 [Build instructions and controls](xbox/README.md) · [Upstream AssaultCube](https://github.com/assaultcube/AC) · [License](https://assault.cubers.net/docs/license.html)
