@@ -44,7 +44,7 @@ typedef struct {
     MatchPoint bot_head;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
     BotPose current_pose,previous_pose;
-    float pose_transition,weapon_kick;
+    float pose_transition,gun_pose_blend,flash_angle;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     unsigned gun_pose, next_gun_pose;
     unsigned bot_flash_end_ms;
