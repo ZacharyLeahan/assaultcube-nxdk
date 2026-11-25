@@ -2,6 +2,7 @@
 #include "../geometry.h"
 #include "../navigation.h"
 #include "../ambience.h"
+#include "../shot_light.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -50,6 +51,25 @@ static void test_heightfield_impact(void) {
     match_view(&v);
     assert(v.mark_count==0 && v.spark_count==5);
     assert(hypotf(v.sparks[0].x-hit.x,v.sparks[0].y-hit.y)<.2f);
+}
+
+static void test_shot_light(void) {
+    extern const uint8_t cell_light[MAP][MAP][3];
+    ShotLight lights[2]={{129,132,50},{0}};
+    LightPatch dirty[4];
+    shot_light_init();
+    assert(shot_light_update(lights,dirty)==1);
+    unsigned peak=lit_cell(129,132)[0];
+    assert(peak>cell_light[132][129][0]);
+    assert(shot_light_update(lights,dirty)==0);
+    lights[0].strength=10;
+    assert(shot_light_update(lights,dirty)>0 && lit_cell(129,132)[0]<peak);
+    lights[0].x-=2; lights[1]=(ShotLight){130,132,50};
+    assert(shot_light_update(lights,dirty)>0);
+    lights[0].strength=lights[1].strength=0;
+    assert(shot_light_update(lights,dirty)==2);
+    for (int y=125;y<140;++y) for (int x=119;x<137;++x)
+        assert(memcmp(lit_cell(x,y),cell_light[y][x],3)==0);
 }
 
 static void test_wind_playback(void) {
@@ -160,6 +180,7 @@ static void test_firing_pose(int pistol) {
         assert(v.gun_pose==1+age/40 && v.next_gun_pose==2+age/40);
         assert(fabsf(v.gun_pose_blend-(age%40)/40.f)<.00001f);
         assert(v.flash==(age<delay/4) && v.flash_angle==angle);
+        assert(v.player_light==(age<50?50:age<100?100-age:0));
         match_update(&in,1,.001f);
     }
     match_view(&v); assert(v.gun_pose==0 && !v.flash);
@@ -523,6 +544,7 @@ static void test_prop_depth(void) {
 int main(void) {
     test_prop_depth();
     test_heightfield_impact();
+    test_shot_light();
     test_wind_playback();
     test_bot_hitpush();
     test_bot_hit_volumes();

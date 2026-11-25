@@ -26,7 +26,7 @@ Local rifle and pistol impacts use the crosshair depth of the map and its props.
 
 The bot uses the original player model scale and animated head position for hit detection. The rifle and pistol deal their normal damage to both the head and torso.
 
-The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Walls and floors sample the map's baked light grid. The bot, pickups, and first-person models take their lighting from the cell they occupy. The HUD updates its frame counter every two seconds.
+The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Gunfire briefly brightens the baked light grid around either fighter. Walls, floors, props, pickups and both fighters' models use that lighting. The HUD updates its frame counter every two seconds.
 
 ## Build and run
 
