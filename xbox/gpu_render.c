@@ -274,7 +274,7 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
     }
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     color(.03f,.04f,.05f,.78f); begin_quads();
-    quad(28,24,528,v->phase==PLAYING?62:90,0,0,0,0); end_quads();
+    quad(28,24,528,v->phase==PLAYING?62:116,0,0,0,0); end_quads();
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);
     char line[100];
@@ -295,6 +295,7 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
     if(v->phase!=PLAYING) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
+        text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);
     text(hud_width-128,29,22,line);
@@ -313,11 +314,24 @@ typedef struct {
     unsigned live,clear,aimed;
 } TrackingFrame;
 static TrackingFrame tracking_frames[720];
+typedef struct { TrackingFrame tracking; unsigned vblank; } DuelFrame;
+static DuelFrame *duel_frames;
+static unsigned duel_count;
+enum { DUEL_CAPACITY=5500 }; // 90 seconds at 60 Hz plus clock tolerance.
+
+static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,int aimed) {
+    float chest=map_cube((int)v->tx,(int)v->ty)->floor+2.6f;
+    int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
+    return (TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,v->tx,v->ty,chest,
+        input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};
+}
 static unsigned sample_count;
 static int tracing;
 void gpu_trace_init(void) {
     FILE *marker=fopen("D:\\frame-trace.on","rb");
     if (marker) { fclose(marker); tracing=1; }
+    marker=fopen("D:\\duel-trace.on","rb");
+    if (marker) { fclose(marker); duel_frames=malloc(DUEL_CAPACITY*sizeof(*duel_frames)); }
 }
 unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected) {
     cursor=0;
@@ -356,15 +370,18 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     else if (holdoff) --holdoff;
     previous_vblank=vblank;
     last_flip=(unsigned)KeQueryPerformanceCounter();
+    if (duel_frames && v->phase==PLAYING && duel_count<DUEL_CAPACITY) {
+        duel_frames[duel_count++]=(DuelFrame){tracking_frame(v,input,aimed),vblank};
+    } else if (duel_count && v->phase==INTERMISSION) {
+        FILE *file=fopen(v->classic_assist?"D:\\classic.bin":"D:\\tuned.bin","wb");
+        if (file) { fwrite(duel_frames,sizeof(*duel_frames),duel_count,file); fclose(file); }
+        duel_count=0;
+    }
     if (tracing && (v->phase==PLAYING || sample_count)) {
         input_times[sample_count][0]=sample_tick;
         input_times[sample_count][1]=work_ticks[(work_index-1)%32];
         input_times[sample_count][2]=signature;
-        float chest=map_cube((int)v->tx,(int)v->ty)->floor+2.6f;
-        int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
-        tracking_frames[sample_count]=(TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,
-            v->tx,v->ty,chest,input->strafe,input->turn,live,
-            live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};
+        tracking_frames[sample_count]=tracking_frame(v,input,aimed);
         FrameSample *sample=&samples[sample_count++];
         *sample=(FrameSample){(unsigned)KeQueryPerformanceCounter(),pb_get_vbl_counter(),
                               prior,address,v->angle,v->eye,v->respawning};

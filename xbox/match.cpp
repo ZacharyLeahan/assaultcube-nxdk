@@ -31,6 +31,7 @@ int burst, bot_pose;
 float stride_phase;
 bool was_firing, bot_saw_player;
 MatchPhase phase;
+bool classic_assist;
 MatchSound bot_sound;
 ItemView item_views[item_count];
 unsigned random_number() {
@@ -185,6 +186,7 @@ void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     bot_sound = SILENT;
     if (phase != PLAYING) {
+        if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->start) begin(PLAYING);
         return;
     }
@@ -242,11 +244,11 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         // Keep the gain steady across the torso. Fade smoothly through the
         // surrounding cone so crossing its inner edge doesn't change turn speed.
         float edge=fmaxf(0,fminf(1,(.14f-offset)/.10f));
-        float proximity=edge*edge*(3-2*edge);
+        float proximity=classic_assist ? fmaxf(0,1-offset/.14f) : edge*edge*(3-2*edge);
         if (proximity>0 && visible(player.x,player.y,eye(player),bot.x,bot.y,chest)) {
             float bearing_change=atan2f(old_dx*dy-old_dy*dx,old_dx*dx+old_dy*dy);
             float cap=32*radians*dt;
-            float strength=.86f*proximity*fminf(1,(.45f-fabsf(in->turn))/.20f)
+            float strength=(classic_assist ? .65f : .86f)*proximity*fminf(1,(.45f-fabsf(in->turn))/.20f)
                            *fminf(1,fabsf(in->strafe)/.25f);
             player.yaw+=strength*fmaxf(-cap,fminf(cap,bearing_change-manual_yaw));
         }
@@ -258,6 +260,7 @@ MatchSound match_attack(const MatchInput *in, int aimed) {
     return phase == PLAYING ? trigger(player,fire,in->refill,aimed,bot) : SILENT;
 }
 void match_view(MatchView *v) {
+    v->classic_assist=classic_assist;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;

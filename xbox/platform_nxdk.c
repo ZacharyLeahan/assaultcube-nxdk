@@ -90,6 +90,7 @@ int main(void) {
             frames = 0;
         }
         float move = 0, strafe = 0, turn = 0, look = 0;
+        int classic=0, tuned=0;
         int swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
             Pad *pad = &pads[i];
@@ -101,6 +102,8 @@ int main(void) {
             fire |= rt; refill |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_X);
             int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
+            classic |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+            tuned |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
             swap |= y && !pad->previous_swap;
             start |= menu && !pad->previous_start;
             pad->previous_swap = y;
@@ -113,7 +116,7 @@ int main(void) {
         }
         MatchInput input = {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
-            .fire = fire, .refill = refill, .swap = swap, .start = start
+            .fire = fire, .refill = refill, .swap = swap, .start = start, .assist_choice=tuned-classic
         };
         match_update(&input, elapsed, refreshes*refresh_period);
         match_view(&view);
