@@ -171,7 +171,22 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
     next_route = 0; bot_attack_at = clock_ms+1200; burst = 0;
     bot_saw_player = false;
 }
-void damage(Fighter &victim, Fighter &attacker, int gun) {
+void impulse(Fighter &f,float x,float y,float z,float amount) {
+    f.velocity_x+=amount*x;
+    f.velocity_y+=amount*y;
+    if (&f==&player && (!grounded || in_water)) {
+        float speed=(stance<3.59f?6.4f:16.f)*(in_water?.5f:1.f);
+        jump_speed+=amount*z*speed;
+    }
+}
+void firing_impulse(Fighter &f,int gun,float yaw,float pitch,bool crouched) {
+    float recoil=guns[gun].recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
+    float cp=cosf(pitch);
+    impulse(f,cp*cosf(yaw),cp*sinf(yaw),sinf(pitch),-.01f*recoil*(crouched?.75f:1));
+}
+void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz) {
+    float length=sqrtf(dx*dx+dy*dy+dz*dz);
+    if (length>0) impulse(victim,dx/length,dy/length,dz/length,guns[gun].damage*.01f*guns[gun].pushfactor);
     int dealt=victim.state.dodamage(guns[gun].damage,gun);
     victim.pain_until=clock_ms+300;
     bool dead=victim.state.health<=0;
@@ -198,7 +213,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun) {
     ++attacker.frags;
     if (attacker.frags >= FRAG_LIMIT) phase = INTERMISSION;
 }
-MatchSound trigger(Fighter &f, bool fire, bool refill, bool on_target, Fighter &opponent) {
+MatchSound trigger(Fighter &f, bool fire, bool refill) {
     int gun = f.state.gunselect;
     int &mag = f.state.mag[gun], &reserve = f.state.ammo[gun];
     if (f.ready_at > clock_ms || f.respawn_at) return SILENT;
@@ -218,7 +233,6 @@ MatchSound trigger(Fighter &f, bool fire, bool refill, bool on_target, Fighter &
         action=f.ready_at;
     f.ready_at = action+delay;
     f.flash_until = action+90;
-    if (on_target && !opponent.respawn_at) damage(opponent,f,gun);
     return gun == GUN_PISTOL ? PISTOL_SHOT : RIFLE_SHOT;
 }
 void collect(Fighter &f) {
@@ -267,6 +281,14 @@ void bot_shot_effects(float yaw,bool hit_player) {
 }
 void update_bot(float dt) {
     bot_pose = 0;
+    // Bot navigation supplies its own walk speed. Carry shot impulses through
+    // the same ground friction used by the player, including during a fall pose.
+    if (fabsf(bot.velocity_x)+fabsf(bot.velocity_y)>.0001f) {
+        float retain=powf(23.f/24,dt/.005f);
+        float travel=16*.115f*(1-retain);
+        walk(&bot.x,&bot.y,bot.velocity_x*travel,bot.velocity_y*travel);
+        bot.velocity_x*=retain; bot.velocity_y*=retain;
+    }
     if (bot.respawn_at || player.respawn_at || clock_ms < 1000) return;
     float dx = player.x-bot.x, dy = player.y-bot.y;
     float d = fmaxf(.01f,hypotf(dx,dy));
@@ -310,9 +332,13 @@ void update_bot(float dt) {
     float error = ((int)(random_number()%201)-100)*.00055f;
     bool on_target = fabsf(delta+error)*d < .95f &&
         visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)-.8f);
-    MatchSound shot = trigger(bot,true,false,on_target,player);
+    MatchSound shot = trigger(bot,true,false);
     if (shot == RIFLE_SHOT || shot == PISTOL_SHOT) {
-        bot_shot_effects(ideal-delta-error,on_target);
+        int fired=bot.state.gunselect;
+        float yaw=ideal-delta-error,pitch=atan2f(eye(player)-.8f-eye(bot),d);
+        firing_impulse(bot,fired,yaw,pitch,false);
+        if (on_target) damage(player,bot,fired,player.x-bot.x,player.y-bot.y,eye(player)-.8f-eye(bot));
+        bot_shot_effects(yaw,on_target);
         if (--burst == 0) bot_attack_at = clock_ms+1500+random_number()%501;
     }
     bot_sound = shot;
@@ -491,7 +517,7 @@ MatchSound match_attack(const MatchInput *in) {
     if (switch_end && !player.respawn_at && phase==PLAYING)
         return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
     if (!in->fire) player.shots=0;
-    MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill,false,bot) : SILENT;
+    MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill) : SILENT;
     if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
@@ -500,15 +526,7 @@ MatchSound match_attack(const MatchInput *in) {
         float ramp=(float)player.shots/g.recoilincrease;
         player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
         // PC attackphysics applies the impulse along the aim direction before spread.
-        float recoil=g.recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
-        float kick=-.01f*recoil*(in->crouch?.75f:1);
-        float horizontal=kick*cosf(player.pitch);
-        player.velocity_x+=horizontal*cosf(player.yaw);
-        player.velocity_y+=horizontal*sinf(player.yaw);
-        if (!grounded || in_water) {
-            float speed=(stance<3.59f?6.4f:16.f)*(in_water?.5f:1.f);
-            jump_speed+=kick*sinf(player.pitch)*speed;
-        }
+        firing_impulse(player,gun,player.yaw,player.pitch,in->crouch);
         int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;
         auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
         float dx=cosf(player.pitch)*cosf(player.yaw)+jitter();
@@ -518,7 +536,7 @@ MatchSound match_attack(const MatchInput *in) {
         ray.px=player.x; ray.py=player.y; ray.eye=z;
         ray.angle=atan2f(dy,dx); ray.pitch=atan2f(dz,hypotf(dx,dy));
         ray.tx=bot.x; ray.ty=bot.y; ray.bot_alive=!bot.respawn_at;
-        if (match_targeted(&ray)) { damage(bot,player,gun); return shot; }
+        if (match_targeted(&ray)) { damage(bot,player,gun,dx,dy,dz); return shot; }
         SurfaceHit hit;
         if (trace_surface(player.x,player.y,z,player.x+512*dx,player.y+512*dy,z+512*dz,&hit)) {
             mark_surface(hit);
