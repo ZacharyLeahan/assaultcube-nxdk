@@ -312,8 +312,8 @@ int main(void) {
         int aimed=0;
         MatchSound effect=SILENT;
         if(lan_connected()) {
-            if(input.swap && !releasing && !paused && system.choice==MENU_CLOSED) lan_toggle_primary(now);
-            input.swap=input.knife_select=input.start=0;
+            if(input.knife_select && !releasing && !paused && system.choice==MENU_CLOSED) lan_toggle_primary(now);
+            input.knife_select=input.start=0;
         }
         if (system.choice==MENU_CLOSED && !paused) {
             if (releasing) input=(MatchInput){0};

@@ -10,7 +10,10 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
 const char *lan_status(void);
 int lan_connected(void);
 void lan_toggle_primary(unsigned now);
-void match_lan_spawn(int health,int armour,int gun);
+void match_lan_spawn(int health,int armour,int primary,int gun,const int *ammo,const int *mag);
+int match_lan_selected_weapon(void);
+void match_lan_remote_weapon(int gun);
+void match_lan_remote_reload(int gun);
 void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int moving);
 void match_lan_hide(void);
 void match_lan_shot(int gun,float x,float y,float z);

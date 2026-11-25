@@ -668,6 +668,7 @@ static void test_prop_depth(void) {
     assert(fabsf(prop_depth((MatchPoint){105.5f,127.5f,3},down,6)-3.485f)<.002f);
 }
 
+void test_lan_sidearm(void);
 void test_lan_pickups(void);
 void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
@@ -679,6 +680,7 @@ void test_bot_ammunition(void);
 void test_wall_impact_lifetime(void);
 
 int main(void) {
+    test_lan_sidearm();
     test_lan_pickups();
     test_easy_bot_perception();
     test_easy_bot_spacing();

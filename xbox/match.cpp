@@ -85,7 +85,7 @@ struct BotClip {
 BotClip current_clip,previous_clip;
 unsigned clip_switch;
 unsigned idle_ms;
-bool semi_trigger_used,empty_click,bot_saw_player;
+bool release_after_switch,semi_trigger_used,empty_click,bot_saw_player;
 unsigned switch_end;
 unsigned intermission_age;
 int next_gun, previous_firearm;
@@ -226,7 +226,7 @@ void spawn(Fighter &f, int index) {
     if (&f==&player) {
         scoped=false;
         radar_action_until=0;
-        switch_end=0; previous_firearm=f.state.nextprimary;
+        release_after_switch=false;switch_end=0; previous_firearm=f.state.nextprimary;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
         feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
@@ -744,11 +744,21 @@ void update_bot(float dt) {
 }
 
 void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
-void match_lan_spawn(int hp,int armour,int gun) {
+void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const int *mag) {
     if (!lan_match) { begin(PLAYING); hide_bot=true; lan_match=true; }
-    player.state.nextprimary=gun;
+    player.state.nextprimary=primary;
     spawn(player,17);
+    player.state.gunselect=gun;
+    memcpy(player.state.ammo,ammo,sizeof(player.state.ammo));
+    memcpy(player.state.mag,mag,sizeof(player.state.mag));
     player.state.health=hp; player.state.armour=armour;
+}
+int match_lan_selected_weapon(void) { return switch_end ? -1 : player.state.gunselect; }
+void match_lan_remote_weapon(int gun) {
+    if(gun>=0 && gun<NUMGUNS) bot.state.gunselect=gun;
+}
+void match_lan_remote_reload(int gun) {
+    if(lan_match && !hide_bot) lan_shot_sound=feedback[view_weapon(gun)].reload;
 }
 void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int moving) {
     bot.x=x;bot.y=y;bot.eye_height=floor+PLAYER_EYE_HEIGHT;
@@ -971,6 +981,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             else if (in->knife_select) { previous_firearm=current; next_gun=GUN_KNIFE; }
             else next_gun=current==GUN_PISTOL ? player.state.primary : GUN_PISTOL;
             radar_action_until=clock_ms+500;
+            release_after_switch=in->fire;
             switch_end=clock_ms+switch_ms;
             player.ready_at=0;
             player.shots=player.shot_until=0;
@@ -1073,8 +1084,8 @@ static float aim_from_weapon(MatchPoint &direction) {
 }
 MatchSound match_attack(const MatchInput *in) {
     empty_click=false;
-    if (!in->fire) semi_trigger_used=false;
-    bool fire = in->fire && (guns[player.state.gunselect].isauto || !semi_trigger_used);
+    if (!in->fire) semi_trigger_used=release_after_switch=false;
+    bool fire = in->fire && !release_after_switch && (guns[player.state.gunselect].isauto || !semi_trigger_used);
     if (switch_end && !player.respawn_at && phase==PLAYING)
         return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
     // PC gun::attack only observes a trigger release after gunwait expires.
