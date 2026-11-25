@@ -195,7 +195,14 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(r.valid && latency<=10000) {m.word(SV_CLIENTPING);m.word(latency);m.transmit();}
             break;
         }
-        case SV_SHOTFX:case SV_HITPUSH:r.skip(5);break;
+        case SV_SHOTFX:{
+            int shooter=r.integer(),gun=r.integer();
+            int x=r.integer(),y=r.integer(),z=r.integer();
+            if(r.valid && shooter==remote && gun>=0 && gun<NUMGUNS)
+                match_lan_shot(gun,x/DMF,y/DMF,z/DMF);
+            break;
+        }
+        case SV_HITPUSH:r.skip(5);break;
         case SV_RELOAD:case SV_ITEMACC:r.skip(2);break;
         case SV_SERVMSG:case SV_SERVMSGVERB:r.string(nullptr,0);break;
         case SV_ITEMSPAWN:case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:case SV_CLIENTPING:case SV_WEAPCHANGE:r.skip(1);break;
