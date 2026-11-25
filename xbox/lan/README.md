@@ -30,6 +30,10 @@ In a courtyard test on original hardware, both players hit once, backed out of r
 
 On a stock Windows server, both players scored an MK-77 frag on original-Xbox crossplay. Holding RT fired one round. Reloading took the pistol from 9/50 to 10/49, and switching back preserved the rifle magazine. Windows received the server's shot effects for all 60 Xbox rifle rounds across three magazines.
 
+Incoming hits add the server's push to the Xbox player's current velocity. In the flat courtyard, each of three single MK-77 hits moved a stationary Xbox player 0.3125 map units away from the shooter. Swapping roles gave the same result on all three Windows hits. Distances use settled network positions, which resolve to 1/16 of a map unit. The previous Xbox build took 18 damage with no measured displacement.
+
+Both clients also took an 18-damage hit while strafing around the courtyard corner. In a two-second window around the hit, the central gameplay image changed on all 120 consecutive frame comparisons in the Xbox HDMI capture. The equivalent pass without a shot changed on all 119 comparisons.
+
 On original hardware, both players collected the courtyard ammo box on separate spawns. The Xbox stayed at 40 reserve rounds after Windows took it, then reached 60 when the server awarded the next spawn about eight seconds later. A separate health pickup raised Xbox health from 56 to 89. A late Xbox join received an initial item list with the occupied ammo box absent.
 
 The Xbox implementation lives under `xbox/`. Server discovery, Xbox hosting, and full stock gameplay parity are outside this milestone.
