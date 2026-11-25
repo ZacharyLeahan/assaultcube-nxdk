@@ -15,9 +15,10 @@ typedef struct {
 typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap; } MatchInput;
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
-    PLAYER_JUMP, PLAYER_LAND, PLAYER_STEP, PLAYER_PAIN, PLAYER_DEATH,
+    PLAYER_JUMP, PLAYER_LAND, PLAYER_PAIN, PLAYER_DEATH,
     PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR, WEAPON_CHANGE,
-    BOT_PAIN1,BOT_PAIN2,BOT_PAIN3,BOT_PAIN4,BOT_PAIN5,ALT_DEATH,WATER_ENTER,WATER_EXIT } MatchSound;
+    BOT_PAIN1,BOT_PAIN2,BOT_PAIN3,BOT_PAIN4,BOT_PAIN5,ALT_DEATH,WATER_ENTER,WATER_EXIT,
+    FOOTSTEPS,CROUCH_STEPS,WATER_STEPS,WATER_CROUCH_STEPS,CROUCH_IN,CROUCH_OUT } MatchSound;
 typedef struct { int x, y, icon; float base; } ItemView;
 typedef struct { float x,y,z; int axis; unsigned expires; } BulletMark;
 typedef struct {
@@ -41,6 +42,7 @@ typedef struct {
     MatchPhase phase;
     int classic_assist;
     MatchSound bot_sound, movement_sound, pickup_sound, pain_sound, bot_voice;
+    MatchSound footsteps,bot_footsteps,stance_sound;
     const ItemView *items;
     int item_count;
     const BulletMark *marks;

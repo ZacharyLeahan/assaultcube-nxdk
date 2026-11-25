@@ -47,7 +47,8 @@ MatchPhase phase;
 bool classic_assist;
 MatchSound bot_sound;
 MatchSound movement_sound, pickup_sound, pain_sound, bot_voice;
-float step_distance;
+MatchSound step_sound,stance_sound;
+bool was_crouching;
 ItemView item_views[item_count];
 BulletMark marks[64];
 unsigned next_mark, mark_count;
@@ -110,7 +111,7 @@ void spawn(Fighter &f, int index) {
         grounded=true; held_jump=false;
         in_water=false; last_splash=0;
         sway_ms=0; sway_vertical=0;
-        step_distance=0;
+        was_crouching=false; step_sound=stance_sound=SILENT;
     }
     f.velocity_x=f.velocity_y=f.turn_boost=0;
     f.sway_x=f.sway_y=0;
@@ -283,6 +284,7 @@ void update_bot(float dt) {
 void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     bot_sound=movement_sound=pickup_sound=pain_sound=bot_voice=SILENT;
+    step_sound=stance_sound=SILENT;
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<2000) intermission_age+=elapsed;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
@@ -359,9 +361,14 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float old_x=player.x,old_y=player.y;
         walk_body(&player.x,&player.y,travel_x,travel_y,
                   feet_z,stance+.9f,grounded||climbing?1.5f:0.f);
-        if (grounded && !swimming && !in->crouch) {
-            step_distance+=distance(old_x,old_y,player.x,player.y);
-            if (step_distance>=5.6f) { step_distance-=5.6f; movement_sound=PLAYER_STEP; }
+        if (was_crouching!=bool(in->crouch)) {
+            was_crouching=in->crouch;
+            stance_sound=was_crouching?CROUCH_IN:CROUCH_OUT;
+        }
+        if ((grounded || air_seconds<=.05f) && !swimming && (in->move || in->strafe)) {
+            bool wading=feet_z+.25f<WATER_LEVEL;
+            if (!wading || WATER_LEVEL-map_cube((int)player.x,(int)player.y)->floor<=stance)
+                step_sound=in->crouch?(wading?WATER_CROUCH_STEPS:CROUCH_STEPS):(wading?WATER_STEPS:FOOTSTEPS);
         }
         if (dt>0) {
             float gain=1-powf(.7f,100*dt);
@@ -541,6 +548,10 @@ void match_view(MatchView *v) {
     v->damage_directions=damage_directions;
     v->phase = phase; v->bot_sound = bot_sound;
     v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;
+    v->stance_sound=stance_sound;
+    v->footsteps=phase==PLAYING && !player.respawn_at && clock_ms>=player.pain_until ? step_sound:SILENT;
+    v->bot_footsteps=phase==PLAYING && !bot.respawn_at && bot_pose && clock_ms>=bot.pain_until &&
+        hypotf(distance(bot.x,bot.y,player.x,player.y),eye(bot)-eye(player))<20 ? FOOTSTEPS:SILENT;
     v->bot_voice=bot_voice;
     v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;

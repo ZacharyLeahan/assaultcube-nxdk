@@ -14,7 +14,9 @@ extern const uint8_t auto_reload[], auto_reload_end[];
 extern const uint8_t usp[], usp_end[], pistol_reload[], pistol_reload_end[];
 typedef struct { const uint8_t *start,*end; } Clip;
 #define DECLARE_CLIP(n) extern const uint8_t n[], n##_end[]
-DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(step); DECLARE_CLIP(pain1); DECLARE_CLIP(die1);
+DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(pain1); DECLARE_CLIP(die1);
+DECLARE_CLIP(footsteps); DECLARE_CLIP(crouch); DECLARE_CLIP(watersteps); DECLARE_CLIP(watercrouch);
+DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
 DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
 DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
@@ -26,7 +28,10 @@ static const Clip clips[] = {
     [WEAPON_CHANGE]=CLIP(change_gun),
     [WATER_ENTER]=CLIP(splash2), [WATER_EXIT]=CLIP(splash1),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
-    [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land), [PLAYER_STEP]=CLIP(step),
+    [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land),
+    [FOOTSTEPS]=CLIP(footsteps), [CROUCH_STEPS]=CLIP(crouch),
+    [WATER_STEPS]=CLIP(watersteps), [WATER_CROUCH_STEPS]=CLIP(watercrouch),
+    [CROUCH_IN]=CLIP(crouch_in), [CROUCH_OUT]=CLIP(crouch_out),
     [PLAYER_PAIN]=CLIP(pain6), [PLAYER_DEATH]=CLIP(die1), [ALT_DEATH]=CLIP(die2),
     [BOT_PAIN1]=CLIP(pain1), [BOT_PAIN2]=CLIP(pain2), [BOT_PAIN3]=CLIP(pain3),
     [BOT_PAIN4]=CLIP(pain4), [BOT_PAIN5]=CLIP(pain5), [PICKUP_AMMO]=CLIP(pickup_ammo_clip),
@@ -34,11 +39,24 @@ static const Clip clips[] = {
 };
 static SDL_AudioDeviceID audio_device;
 
-enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE };
-typedef struct { const int16_t *data; unsigned remaining; int left,right; } Voice;
-static const int volume[]={96,96,48,70,64,96};
+enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, LOCAL_STEPS, BOT_STEPS };
+typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; } Voice;
+static const int volume[]={96,96,48,70,64,96,85,40,40};
 static Voice voices[sizeof(volume)/sizeof(volume[0])];
 
+static void set_footsteps(unsigned channel,MatchSound sound,unsigned now,int active) {
+    Voice *v=&voices[channel];
+    if (!active) { *v=(Voice){0}; return; }
+    if (sound==v->loop) return;
+    if (sound==SILENT) {
+        if (now-v->started>=200) *v=(Voice){0};
+        return;
+    }
+    const Clip *clip=&clips[sound];
+    unsigned len=((uintptr_t)clip->end-(uintptr_t)clip->start)/2;
+    unsigned offset=((now*2654435761u>>12)%500)*len/500;
+    *v=(Voice){(const int16_t *)clip->start+offset,len-offset,volume[channel],volume[channel],sound,now};
+}
 static void mix_audio(void *unused, Uint8 *out, int len) {
     (void)unused;
     int16_t *stereo=(int16_t *)out;
@@ -47,13 +65,19 @@ static void mix_audio(void *unused, Uint8 *out, int len) {
         unsigned count=frames>256 ? 256 : (unsigned)frames;
         for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
             Voice *v=&voices[i];
-            unsigned n=v->remaining<count ? v->remaining : count;
-            if (!n) continue;
-            for (unsigned j=0;j<n;++j) {
-                mix[j][0]+=v->data[j]*v->left;
-                mix[j][1]+=v->data[j]*v->right;
+            for (unsigned j=0;j<count && (v->remaining || v->loop);) {
+                if (!v->remaining) {
+                    const Clip *clip=&clips[v->loop];
+                    v->data=(const int16_t *)clip->start;
+                    v->remaining=((uintptr_t)clip->end-(uintptr_t)clip->start)/2;
+                }
+                unsigned n=v->remaining<count-j ? v->remaining : count-j;
+                for (unsigned k=0;k<n;++k,++j) {
+                    mix[j][0]+=v->data[k]*v->left;
+                    mix[j][1]+=v->data[k]*v->right;
+                }
+                v->data+=n; v->remaining-=n;
             }
-            v->data+=n; v->remaining-=n;
         }
         for (unsigned j=0;j<count;++j) for (int ch=0;ch<2;++ch) {
             int sample=mix[j][ch]/128;
@@ -64,7 +88,7 @@ static void mix_audio(void *unused, Uint8 *out, int len) {
 }
 static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
-    const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice};
+    const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound};
     SDL_LockAudioDevice(audio_device);
     for (unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i) {
         if (effects[i]==SILENT) continue;
@@ -72,18 +96,23 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         voices[i]=(Voice){(const int16_t *)clip->start,
             ((uintptr_t)clip->end-(uintptr_t)clip->start)/sizeof(int16_t),volume[i],volume[i]};
     }
-    if (voices[BOT_GUN].remaining || voices[BOT_VOICE].remaining) {
+    set_footsteps(LOCAL_STEPS,v->footsteps,v->elapsed_ms,v->phase==PLAYING && !v->respawning);
+    set_footsteps(BOT_STEPS,v->bot_footsteps,v->elapsed_ms,v->phase==PLAYING && v->bot_alive);
+    if (voices[BOT_GUN].remaining || voices[BOT_VOICE].remaining || voices[BOT_STEPS].loop) {
         float dx=v->tx-v->px,dy=v->ty-v->py;
         float dz=map_floor(map_cube((int)v->tx,(int)v->ty))+3.6f-v->eye;
         float distance=sqrtf(dx*dx+dy*dy+dz*dz);
         float pan=(dy*cosf(v->angle)-dx*sinf(v->angle))/fmaxf(.001f,distance);
         pan=fmaxf(-1,fminf(1,pan));
         // Match the PC's inverse-distance rolloff with a four-cube reference distance.
-        float gain=volume[BOT_GUN]*4/fmaxf(4,distance);
-        voices[BOT_GUN].left=(int)(gain*sqrtf(.5f*(1-pan))+.5f);
-        voices[BOT_GUN].right=(int)(gain*sqrtf(.5f*(1+pan))+.5f);
-        voices[BOT_VOICE].left=voices[BOT_GUN].left;
-        voices[BOT_VOICE].right=voices[BOT_GUN].right;
+        float gain=4/fmaxf(4,distance);
+        float left=gain*sqrtf(.5f*(1-pan)),right=gain*sqrtf(.5f*(1+pan));
+        const int channels[]={BOT_GUN,BOT_VOICE,BOT_STEPS};
+        for(unsigned i=0;i<3;++i) {
+            int ch=channels[i];
+            voices[ch].left=(int)(volume[ch]*left+.5f);
+            voices[ch].right=(int)(volume[ch]*right+.5f);
+        }
     }
     SDL_UnlockAudioDevice(audio_device);
 }
