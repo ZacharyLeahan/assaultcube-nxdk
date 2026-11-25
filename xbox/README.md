@@ -104,3 +104,20 @@ Build `c13dff1a` uses a 10% circular aiming deadzone and a progressive response 
 At 720p on the physical Xbox, a 15% stick pan moved 0.070 degrees per refresh, a 47% pan moved 0.702, and the sustained full turn moved 3.666. The previous version measured 0.092, 0.996 and 2.483 respectively. The turn sweep and a separate walking and combat replay each delivered 719 consecutive single-refresh intervals. The longest intervals were 16.97 and 16.71 ms.
 
 Player movement ramps to full speed in 125 ms on unobstructed ground and brakes from full speed in about 67 ms. The bot blends the original six running poses by distance traveled. First-person fire and reload transitions are evaluated each frame.
+
+### Strafe tracking on ac_desert
+
+The Xbox port shares some of the visible opponent's angular motion during small two-stick corrections. Build `6ddbe28b` gives this assistance a constant gain near the torso and gradually fades it near the edge of the aiming cone. Full horizontal stick immediately selects the ordinary turn rate.
+
+The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
+
+| Opening life, visible strafing frames only | Previous run 1 / 2 | Revised run 1 / 2 |
+| --- | --- | --- |
+| Measured frames | 214 / 216 | 219 / 215 |
+| Crosshair intersected the bot | 38.8% / 38.4% | 57.1% / 89.8% |
+| Median projected distance to torso at 720p | 31.4 / 25.4 px | 16.0 / 7.6 px |
+| 90th percentile distance | 119.1 / 125.9 px | 33.2 / 19.7 px |
+
+Each capture recorded 719 consecutive single-refresh intervals. The KVM runs the same sequence in wall-clock time. Input transitions can land on different Xbox frames, so keep the individual results when comparing builds.
+
+In a separate release test, the reticle was on the bot immediately before a full-right input. The camera turned +2.548 degrees on the first presented frame containing that input, and -2.548 degrees on the first frame containing the subsequent full-left input.
