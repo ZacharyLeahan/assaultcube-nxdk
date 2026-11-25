@@ -272,7 +272,7 @@ int main(void) {
     SystemMenu system={MENU_CLOSED,0};
     enum { UP=1, DOWN=2, ACCEPT=4, CANCEL=8 };
     unsigned previous_buttons=0;
-    int releasing=0;
+    int releasing=0,audio_paused=0;
     for (;;) {
         gpu_begin_input(refresh_hz,view.respawning || view.respawn_work_pending,view.bot_shot_pending);
         SDL_PumpEvents();
@@ -337,7 +337,6 @@ int main(void) {
         int paused=system.choice!=MENU_CLOSED;
         if (!paused && ((pressed&UP) || (start && view.phase==PLAYING))) {
             system=(SystemMenu){MENU_RESUME,0};
-            if (audio_device) SDL_PauseAudioDevice(audio_device,1);
         } else if (paused) {
             if ((pressed&CANCEL) || start) {
                 if (system.confirming) system.confirming=0;
@@ -357,10 +356,13 @@ int main(void) {
                 if ((pressed&UP) && system.choice>MENU_RESUME) --system.choice;
                 if ((pressed&DOWN) && system.choice<MENU_SHUTDOWN) ++system.choice;
             }
-            if (system.choice==MENU_CLOSED) {
-                releasing=1;
-                if (audio_device) SDL_PauseAudioDevice(audio_device,0);
-            }
+            if (system.choice==MENU_CLOSED) releasing=1;
+        }
+        int network=lan_connected(),menu_input=paused || system.choice!=MENU_CLOSED;
+        int pause_audio=system.choice!=MENU_CLOSED && !network;
+        if(audio_device && pause_audio!=audio_paused) {
+            SDL_PauseAudioDevice(audio_device,pause_audio);
+            audio_paused=pause_audio;
         }
         if (releasing && !buttons && !fire) releasing=0;
         MatchInput input = {
@@ -370,22 +372,23 @@ int main(void) {
         };
         int aimed=0;
         MatchSound effect=SILENT;
-        if(lan_connected()) {
-            if(input.knife_select && !releasing && !paused && system.choice==MENU_CLOSED) lan_toggle_primary(now);
+        if(network) {
+            if(input.knife_select && !releasing && !menu_input) lan_toggle_primary(now);
             input.knife_select=lan_knife;
             input.start=0;
         }
-        if (system.choice==MENU_CLOSED && !paused) {
-            if (releasing) input=(MatchInput){0};
+        if (network || !menu_input) {
+            // Other players and grenade fuses stay live in the multiplayer menu.
+            if (menu_input || releasing) input=(MatchInput){0};
             match_update(&input, elapsed, refreshes*refresh_period);
             match_view(&view);
             aimed=match_targeted(&view);
             effect=match_attack(&input);
             match_view(&view);
             update_audio(&view,effect);
-            if(lan_connected()) lan_send_sounds(&view);
+            if(network) lan_send_sounds(&view);
         }
-        if (lan_connected()) lan_send(&view,&input,effect,now);
+        if (network) lan_send(&view,&input,effect,now);
         unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected,&system);
         refreshes=vblank-previous_vblank;
         previous_vblank=vblank;

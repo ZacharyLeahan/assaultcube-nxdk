@@ -21,10 +21,11 @@ Barrels and crates can break the bot's sightline and stop its shots. The easy bo
 | D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
 | D-pad right | Equip a collected grenade. Hold RT to pull the pin and release to throw. The two-second fuse starts at the pin pull |
 | Start | Begin a match, pause during play, or play again from the result screen |
+| D-pad left | Hold for the scoreboard in a LAN or 15-minute bot match |
 | D-pad Up | Open the system menu from any screen |
 | LT + RT + Back + Black | Hold for one second to reboot |
 
-The system menu pauses the match and audio. Use D-pad Up/Down and A to select Resume, Return to dashboard, Restart Xbox, or Shut down Xbox. For the last three, release A and press it again to confirm. B cancels or returns to the game.
+The system menu pauses an offline match and its audio. A LAN match continues while the menu is open. Use D-pad Up/Down and A to select Resume, Return to dashboard, Restart Xbox, or Shut down Xbox. For the last three, release A and press it again to confirm. B cancels or returns to the game.
 
 Controllers can be plugged in or replaced while the game is running. Any of the four ports can control the duel. The title and result screens show the number of connected controllers.
 
