@@ -6,6 +6,8 @@ Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and 
 | --- | --- |
 | Left stick | Move and strafe |
 | Right stick | Turn and aim vertically |
+| A | Jump |
+| B | Hold to crouch |
 | Right trigger | Fire. Hold for automatic rifle fire, tap for each pistol shot |
 | X | Reload from reserve ammunition |
 | Y | Switch between the MTP-57 rifle and MK-77 pistol |

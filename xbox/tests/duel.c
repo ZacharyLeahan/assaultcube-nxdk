@@ -27,13 +27,17 @@ static void test_stance(void) {
     MatchInput input={.start=1};
     match_prepare(); match_update(&input,16,1.f/60); match_view(&v);
     float standing=v.eye, peak=standing;
+    int jumps=0, landings=0;
     input=(MatchInput){.jump=1};
     for (int i=0;i<90;++i) {
         match_update(&input,16,1.f/60); match_view(&v);
+        jumps+=v.movement_sound==PLAYER_JUMP;
+        landings+=v.movement_sound==PLAYER_LAND;
         peak=fmaxf(peak,v.eye);
         if (i>60) assert(fabsf(v.eye-standing)<.001f);
     }
     assert(peak>standing+2 && peak<standing+5);
+    assert(jumps==1 && landings==1);
     input=(MatchInput){.crouch=1};
     for (int i=0;i<15;++i) match_update(&input,16,1.f/60);
     match_view(&v); assert(fabsf(v.eye-standing+.9f)<.001f);

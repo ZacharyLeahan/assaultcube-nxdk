@@ -63,8 +63,12 @@ def bake():
     entities = [struct.unpack_from("<4h4B", data, offset+16*i) for i in range(count)]
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
     bake_gpu(OUT, PKG, names, cells, entities, model_slots)
-    for name in ("auto", "auto_reload", "usp", "pistol_reload"):
-        samples, rate = soundfile.read(PKG/"audio/weapon"/(name+".ogg"), always_2d=True)
+    sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
+            "player/jump","player/land","player/step","player/pain1","player/die1",
+            "misc/pickup_ammo_clip","misc/pickup_health","misc/pickup_helmet","misc/pickup_armour")
+    for sound in sounds:
+        name=sound.split("/")[-1]
+        samples, rate = soundfile.read(PKG/"audio"/(sound+".ogg"), always_2d=True)
         mono = samples.mean(axis=1)
         sample = np.interp(np.arange(0, len(mono), rate/48000), np.arange(len(mono)), mono)
         (OUT/(name+".bin")).write_bytes((np.clip(sample,-1,1)*24000).astype("<i2").tobytes())

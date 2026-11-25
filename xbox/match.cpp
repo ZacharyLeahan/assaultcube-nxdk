@@ -38,6 +38,8 @@ bool was_firing, bot_saw_player;
 MatchPhase phase;
 bool classic_assist;
 MatchSound bot_sound;
+MatchSound movement_sound, pickup_sound, pain_sound;
+float step_distance;
 ItemView item_views[item_count];
 BulletMark marks[64];
 unsigned next_mark, mark_count;
@@ -55,6 +57,7 @@ void spawn(Fighter &f, int index) {
     if (&f==&player) {
         feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=air_seconds=0;
         grounded=true; held_jump=false;
+        step_distance=0;
     }
     f.velocity_x=f.velocity_y=f.turn_boost=0;
     f.sway_x=f.sway_y=0;
@@ -104,7 +107,10 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
 }
 void damage(Fighter &victim, Fighter &attacker, int gun) {
     victim.state.dodamage(guns[gun].damage,gun);
-    if (&victim == &player) hurt_until = clock_ms+180;
+    if (&victim == &player) {
+        hurt_until=clock_ms+180;
+        pain_sound=victim.state.health>0 ? PLAYER_PAIN : PLAYER_DEATH;
+    }
     else hit_until = clock_ms+160;
     if (victim.state.health > 0) return;
     victim.state.health = 0;
@@ -140,6 +146,10 @@ void collect(Fighter &f) {
         if (unavailable_until[i] > clock_ms || dx*dx+dy*dy+dz*dz>=6.25f ||
             !f.state.canpickup(p.kind)) continue;
         f.state.pickup(p.kind);
+        if (&f==&player) {
+            pickup_sound=p.kind==I_HEALTH?PICKUP_HEALTH:p.kind==I_HELMET?PICKUP_HELMET:
+                         p.kind==I_ARMOUR?PICKUP_ARMOUR:PICKUP_AMMO;
+        }
         unsigned delay = p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
         unavailable_until[i] = clock_ms+delay;
     }
@@ -181,24 +191,24 @@ void update_bot(float dt) {
     float ideal = atan2f(player.y-bot.y,player.x-bot.x);
     float delta = atan2f(sinf(ideal-bot.yaw),cosf(ideal-bot.yaw));
     bot.yaw += fmaxf(-75*radians*dt,fminf(75*radians*dt,delta));
-    if (clock_ms < bot_attack_at || fabsf(delta)>.14f || d>80) return;
+    if (clock_ms < bot_attack_at || clock_ms<bot.ready_at || fabsf(delta)>.14f || d>80) return;
     int gun = bot.state.gunselect;
     if (!bot.state.mag[gun] && !bot.state.ammo[gun]) bot.state.gunselect = GUN_PISTOL;
-    if (!burst) burst = 2+random_number()%3;
+    if (!burst) burst = 1+random_number()%3;
     // Local bot bursts use the same magazine, reload, damage and armour path as the player.
     float error = ((int)(random_number()%201)-100)*.00055f;
     bool on_target = fabsf(delta+error)*d < .95f &&
         visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)-.8f);
     MatchSound shot = trigger(bot,true,false,on_target,player);
     if ((shot == RIFLE_SHOT || shot == PISTOL_SHOT) && --burst == 0)
-        bot_attack_at = clock_ms+600+random_number()%500;
+        bot_attack_at = clock_ms+1500+random_number()%501;
     bot_sound = shot;
 }
 }
 
 void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
-    bot_sound = SILENT;
+    bot_sound=movement_sound=pickup_sound=pain_sound=SILENT;
     if (phase != PLAYING) {
         if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->start) begin(PLAYING);
@@ -233,6 +243,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         stance+=fmaxf(-8*dt,fminf(8*dt,target-stance));
         if (grounded && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
             grounded=false; jump_speed=32; air_seconds=0;
+            movement_sound=PLAYER_JUMP;
         }
         held_jump=in->jump;
         float speed=(stance<3.59f?6.4f:16.f)/fmaxf(1,hypotf(in->move,in->strafe));
@@ -247,6 +258,10 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float old_x=player.x,old_y=player.y;
         walk_body(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt,
                   feet_z,stance+.9f,grounded?1.5f:0.f);
+        if (grounded && !in->crouch) {
+            step_distance+=distance(old_x,old_y,player.x,player.y);
+            if (step_distance>=5.6f) { step_distance-=5.6f; movement_sound=PLAYER_STEP; }
+        }
         if (dt>0) {
             float gain=1-powf(.7f,100*dt);
             player.sway_x+=gain*((player.x-old_x)/(16*dt)-player.sway_x);
@@ -261,7 +276,10 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             feet_z+=(jump_speed-9.5f-air_seconds*(100.f/3))*dt;
             if (feet_z+stance+.9f>=ceiling) { feet_z=ceiling-stance-.9f; jump_speed=0; }
         }
-        if (feet_z<=floor) { feet_z=floor; grounded=true; jump_speed=air_seconds=0; }
+        if (feet_z<=floor) {
+            if (air_seconds>.2f) movement_sound=PLAYER_LAND;
+            feet_z=floor; grounded=true; jump_speed=air_seconds=0;
+        }
         float delta=feet_z+stance-player.eye_height;
         player.eye_height+=grounded?fmaxf(-12*dt,fminf(12*dt,delta)):delta;
         player.eye_height=fmaxf(floor+.1f,fminf(ceiling-.1f,player.eye_height));
@@ -371,6 +389,7 @@ void match_view(MatchView *v) {
     }
     v->hitflash = hit_until > clock_ms;
     v->hurt = hurt_until > clock_ms; v->phase = phase; v->bot_sound = bot_sound;
+    v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;
     v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
     for (int i = 0; i < item_count; ++i) if (clock_ms >= unavailable_until[i]) {

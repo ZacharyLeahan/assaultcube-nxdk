@@ -14,4 +14,13 @@ asset usp
 asset pistol_reload
 asset auto
 asset auto_reload
+asset jump
+asset land
+asset step
+asset pain1
+asset die1
+asset pickup_ammo_clip
+asset pickup_health
+asset pickup_helmet
+asset pickup_armour
 .set "@feat.00", 1
