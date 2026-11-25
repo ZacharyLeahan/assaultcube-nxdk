@@ -9,6 +9,7 @@ extern "C" {
 enum { MAP = 256, FRAG_LIMIT = 3 };
 #define PLAYER_EYE_HEIGHT 4.5f
 #define PLAYER_ABOVE_EYE .7f
+#define PLAYER_RADIUS 1.1f
 typedef struct {
     uint8_t kind;
     int8_t floor, ceil;
