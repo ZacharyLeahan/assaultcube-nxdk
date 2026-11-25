@@ -366,6 +366,10 @@ static void test_prop_depth(void) {
     assert(prop_depth(eye,aim,2)==2);
     // This ray passes through the barrel's bounding box beside its curved rim.
     assert(prop_depth((MatchPoint){162.33f,154.49f,4},(MatchPoint){0,0,-1},4)==4);
+    // The bench seat and backrest have different depths inside the same box.
+    MatchPoint down={0,0,-1};
+    assert(fabsf(prop_depth((MatchPoint){104.9f,127.5f,3},down,6)-2.636f)<.002f);
+    assert(fabsf(prop_depth((MatchPoint){105.5f,127.5f,3},down,6)-3.485f)<.002f);
 }
 
 int main(void) {
