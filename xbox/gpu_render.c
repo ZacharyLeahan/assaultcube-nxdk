@@ -136,8 +136,10 @@ static void end_quads(void) {
 }
 static void batch(unsigned n) {
     const Batch *b=&batches[n];
+    // Keep NV2A draw indices local even when the packed scene exceeds 65536 vertices.
+    bind_vertices(geometry+b->first);
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
-    glDrawArrays(b->primitive==4?GL_QUADS:GL_TRIANGLES,b->first,b->count);
+    glDrawArrays(b->primitive==4?GL_QUADS:GL_TRIANGLES,0,b->count);
 }
 // Pose pairs share topology and UVs. Read positions from cached XBE memory
 // and write each mesh to its own GPU span until this frame has finished.
