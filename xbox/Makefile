@@ -32,6 +32,7 @@ $(CURDIR)/assets.obj: $(wildcard generated/*.bin)
 
 $(CURDIR)/gpu_render.obj: generated/gpu.h generated/water.h
 $(addprefix $(CURDIR)/,gpu_render.obj shot_light.obj): shot_light.h
+$(addprefix $(CURDIR)/,platform_nxdk.obj gpu_render.obj): system_menu.h gpu_render.h
 $(CURDIR)/ambience.obj: generated/ambience.h
 $(CURDIR)/navigation.obj: generated/ladders.h generated/clips.h generated/corners.h
 $(CURDIR)/prop_depth.obj: generated/prop_bounds.h
