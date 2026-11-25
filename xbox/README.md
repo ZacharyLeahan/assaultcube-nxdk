@@ -20,7 +20,7 @@ Controllers can be plugged in or replaced while the game is running. Any of the 
 
 The HUD shows frags, time remaining, health, armour, and ammunition in the magazine and reserve. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot can collect them too.
 
-The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. The map uses batched geometry, filtered mipmapped textures, and lighting baked from the map entities. The player and first-person weapons use the bundled MD2 and MD3 meshes. The HUD updates its frame counter every two seconds.
+The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Walls and floors sample the map's baked light grid. The bot, pickups, and first-person models take their lighting from the cell they occupy. The HUD updates its frame counter every two seconds.
 
 ## Build and run
 
@@ -38,7 +38,7 @@ In an activated nxdk shell with SDL2, pbkit, C++ support and the XISO tools, run
 make -C xbox -j4
 ```
 
-Copy `xbox/bin/default.xbe` into its own Games folder on a homebrew-capable original Xbox. The executable includes the baked assets. The build also produces `xbox/assaultcube.iso`. Original asset credits and licenses remain in the map and packages directories.
+Copy `xbox/bin/default.xbe` into its own Games folder on a homebrew-capable original Xbox. With XBMC's FTP server, you can launch it directly by sending `SITE RunXBE F:\Games\AssaultCube\default.xbe` using the installed path. The executable includes the baked assets. The build also produces `xbox/assaultcube.iso`. Original asset credits and licenses remain in the map and packages directories.
 
 ## Shared gameplay and platform code
 
@@ -51,7 +51,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | `match.cpp` | Portable local duel, bot decisions, active weapons, item timers, respawns, and intermission |
 | `navigation.c` | Map collision, line of sight, and shortest walkable paths around obstacles |
 | `gpu_render.c` | NV2A world and model drawing, skybox, HUD, and vblank presentation through pbGL and pbkit |
-| `bake.py`, `bake_gpu.py`, `assets.s` | Import and embed original game assets including free-for-all player starts |
+| `bake.py`, `bake_gpu.py`, `bake_lighting.py`, `assets.s` | Import and embed the original map, lighting, models, textures, and sounds |
 
 The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props and sloped floors and ceilings. Diagonal wall cells still use solid squares. The playable loadout is the rifle and pistol.
 

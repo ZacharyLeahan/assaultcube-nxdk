@@ -21,6 +21,8 @@ extern const unsigned char gpu_vertices[], gpu_textures[];
 extern const unsigned char cell_light[256][256][3];
 typedef struct { float x,y,z,u,v; unsigned char rgba[4]; } Vertex;
 static const Vertex *geometry;
+typedef struct { float u,v; } LightUV;
+static LightUV *world_light_uv;
 typedef struct { float x,y,z; } Position;
 static Position *pose_positions;
 static unsigned pose_cursor;
@@ -78,6 +80,13 @@ int gpu_init(int width, int height) {
     if (!buffer) return 0;
     memcpy(buffer,gpu_vertices,VERTEX_BYTES);
     geometry = buffer;
+    const Batch *last_world=&batches[WORLD_BATCHES-1];
+    unsigned world_count=last_world->first+last_world->count;
+    world_light_uv=pbgl_alloc(world_count*sizeof(*world_light_uv));
+    if (!world_light_uv) return 0;
+    const Vertex *source=(const Vertex *)gpu_vertices;
+    for (unsigned i=0;i<world_count;++i)
+        world_light_uv[i]=(LightUV){(source[i].x+.5f)/256,(source[i].y+.5f)/256};
     unsigned rifle=batches[ASSAULT_BATCH].count+batches[ASSAULT_BATCH+1].count;
     unsigned pistol=batches[PISTOL_BATCH].count+batches[PISTOL_BATCH+1].count;
     unsigned count=batches[BODY_BATCH].count+batches[BOT_GUN_BATCH].count+(rifle>pistol?rifle:pistol);
@@ -115,6 +124,12 @@ int gpu_init(int width, int height) {
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
     glTexEnvi(GL_TEXTURE_ENV,GL_RGB_SCALE,2);
     glEnableClientState(GL_COLOR_ARRAY);
+    // Address the light grid with the same map XY used by the PC vertices.
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D,textures[WORLD_LIGHT_TEX]);
+    glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
+    glTexEnvi(GL_TEXTURE_ENV,GL_RGB_SCALE,2);
+    glActiveTexture(GL_TEXTURE0);
     return 1;
 }
 
@@ -249,7 +264,23 @@ static void level(const MatchView *v) {
     batch(SKY_PORTAL_BATCH);
     glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
-    for (int i=SKY_PORTAL_BATCH+1;i<WORLD_BATCHES;++i) batch(i);
+    glActiveTexture(GL_TEXTURE1);
+    glEnable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0);
+    glClientActiveTexture(GL_TEXTURE1);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    for (int i=SKY_PORTAL_BATCH+1;i<WORLD_BATCHES;++i) {
+        glClientActiveTexture(GL_TEXTURE1);
+        glTexCoordPointer(2,GL_FLOAT,sizeof(LightUV),world_light_uv+batches[i].first);
+        glClientActiveTexture(GL_TEXTURE0);
+        batch(i);
+    }
+    glClientActiveTexture(GL_TEXTURE1);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glClientActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE1);
+    glDisable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0);
     glDisable(GL_CULL_FACE);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
