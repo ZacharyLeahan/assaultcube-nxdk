@@ -28,26 +28,55 @@ static const Clip clips[] = {
 };
 static SDL_AudioDeviceID audio_device;
 
-typedef struct { const uint8_t *data; Uint32 left; } Voice;
-static const int volume[]={96,42,48,70,64};
+enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN };
+typedef struct { const int16_t *data; unsigned remaining; int left,right; } Voice;
+static const int volume[]={96,96,48,70,64};
 static Voice voices[sizeof(volume)/sizeof(volume[0])];
 
 static void mix_audio(void *unused, Uint8 *out, int len) {
     (void)unused;
-    memset(out,0,len);
-    for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
-        Voice *voice = &voices[i];
-        Uint32 n = voice->left < (Uint32)len ? voice->left : (Uint32)len;
-        if (!n) continue;
-        SDL_MixAudioFormat(out,voice->data,AUDIO_S16LSB,n,volume[i]);
-        voice->data += n; voice->left -= n;
+    int16_t *stereo=(int16_t *)out;
+    for (int frames=len/4;frames>0;) {
+        int mix[256][2]={{0}};
+        unsigned count=frames>256 ? 256 : (unsigned)frames;
+        for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
+            Voice *v=&voices[i];
+            unsigned n=v->remaining<count ? v->remaining : count;
+            if (!n) continue;
+            for (unsigned j=0;j<n;++j) {
+                mix[j][0]+=v->data[j]*v->left;
+                mix[j][1]+=v->data[j]*v->right;
+            }
+            v->data+=n; v->remaining-=n;
+        }
+        for (unsigned j=0;j<count;++j) for (int ch=0;ch<2;++ch) {
+            int sample=mix[j][ch]/128;
+            *stereo++=sample<-32768 ? -32768 : sample>32767 ? 32767 : sample;
+        }
+        frames-=count;
     }
 }
-static void sound(MatchSound effect, int channel) {
-    if (!audio_device || effect == SILENT) return;
+static void update_audio(const MatchView *v,MatchSound gun) {
+    if (!audio_device) return;
+    const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound};
     SDL_LockAudioDevice(audio_device);
-    voices[channel].data = clips[effect].start;
-    voices[channel].left = (Uint32)((uintptr_t)clips[effect].end-(uintptr_t)clips[effect].start);
+    for (unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i) {
+        if (effects[i]==SILENT) continue;
+        const Clip *clip=&clips[effects[i]];
+        voices[i]=(Voice){(const int16_t *)clip->start,
+            ((uintptr_t)clip->end-(uintptr_t)clip->start)/sizeof(int16_t),volume[i],volume[i]};
+    }
+    if (voices[BOT_GUN].remaining) {
+        float dx=v->tx-v->px,dy=v->ty-v->py;
+        float dz=map_floor(map_cube((int)v->tx,(int)v->ty))+3.6f-v->eye;
+        float distance=sqrtf(dx*dx+dy*dy+dz*dz);
+        float pan=(dy*cosf(v->angle)-dx*sinf(v->angle))/fmaxf(.001f,distance);
+        pan=fmaxf(-1,fminf(1,pan));
+        // Match the PC's inverse-distance rolloff with a four-cube reference distance.
+        float gain=volume[BOT_GUN]*4/fmaxf(4,distance);
+        voices[BOT_GUN].left=(int)(gain*sqrtf(.5f*(1-pan))+.5f);
+        voices[BOT_GUN].right=(int)(gain*sqrtf(.5f*(1+pan))+.5f);
+    }
     SDL_UnlockAudioDevice(audio_device);
 }
 
@@ -76,7 +105,7 @@ int main(void) {
     if (SDL_Init(SDL_INIT_GAMECONTROLLER) || !gpu_init(mode.width,mode.height)) { debugPrint("AssaultCube init failed"); return 1; }
     if (SDL_InitSubSystem(SDL_INIT_AUDIO)==0) {
         SDL_AudioSpec spec = {0};
-        spec.freq = 48000; spec.format = AUDIO_S16LSB; spec.channels = 1; spec.samples = 1024; spec.callback = mix_audio;
+        spec.freq = 48000; spec.format = AUDIO_S16LSB; spec.channels = 2; spec.samples = 1024; spec.callback = mix_audio;
         audio_device = SDL_OpenAudioDevice(NULL,0,&spec,NULL,0);
         if (audio_device) SDL_PauseAudioDevice(audio_device,0);
     }
@@ -140,11 +169,7 @@ int main(void) {
         match_view(&view);
         int aimed = match_targeted(&view);
         MatchSound effect = match_attack(&input);
-        sound(effect,0);
-        sound(view.bot_sound,1);
-        sound(view.movement_sound,2);
-        sound(view.pickup_sound,3);
-        sound(view.pain_sound,4);
+        update_audio(&view,effect);
         match_view(&view);
         unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected);
         refreshes=vblank-previous_vblank;
