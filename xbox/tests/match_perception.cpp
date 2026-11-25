@@ -468,6 +468,20 @@ extern "C" void test_lan_hitpush(void) {
     player.velocity_y=.7f;
     match_lan_hitpush(GUN_PISTOL,18,-.99f,0,-.1f);
     assert(fabsf(player.velocity_x+.99f*.18f)<.0001f && player.velocity_y==.7f);
+    MatchView view;
+    match_lan_hitpush(GUN_GRENADE,50,1,0,0);
+    match_view(&view);assert(!view.ear_ringing);
+    match_lan_hitpush(GUN_GRENADE,51,1,0,0);
+    match_view(&view);assert(view.ear_ringing);
+    clock_ms+=5101;
+    match_view(&view);assert(!view.ear_ringing);
+    match_lan_hitpush(GUN_GRENADE,60,1,0,0);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    match_view(&view);assert(!view.ear_ringing);
+    player.eye_height=WATER_LEVEL-PLAYER_ABOVE_EYE-.01f;
+    match_view(&view);assert(view.underwater_audio);
+    player.eye_height+=.02f;
+    match_view(&view);assert(!view.underwater_audio);
     match_lan_stop();
 }
 

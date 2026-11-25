@@ -93,6 +93,7 @@ unsigned last_jump;
 float last_jump_floor;
 float net_vertical_velocity;
 unsigned last_splash;
+unsigned ear_damage_until;
 unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned radar_action_until;
@@ -376,7 +377,7 @@ void spawn(Fighter &f, int index, float offset=.5f) {
         radar_action_until=0;
         release_after_switch=false;switch_end=0; previous_firearm=f.state.nextprimary;
         memset(damage_directions,0,sizeof(damage_directions));
-        hurt_until=0;
+        ear_damage_until=hurt_until=0;
         feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
         grounded=true; held_jump=lan_jump=on_ladder=false; net_vertical_velocity=0;
         jump_pending=crouched_in_air=false;last_jump=0;
@@ -487,6 +488,10 @@ void impulse(Fighter &f,float x,float y,float z,float amount) {
         jump_speed+=amount*z*speed;
     }
 }
+void hit_impulse(Fighter &f,int gun,int damage,float x,float y,float z) {
+    impulse(f,x,y,z,damage*.01f*guns[gun].pushfactor);
+    if(&f==&player && gun==GUN_GRENADE && damage>50) ear_damage_until=clock_ms+damage*100;
+}
 void firing_impulse(Fighter &f,int gun,float dx,float dy,float dz,bool crouched) {
     float recoil=guns[gun].recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
     if (gun==GUN_SNIPER && ((&f==&player && scoped && clock_ms-scope_since>180) ||
@@ -571,7 +576,7 @@ void actor_blood(const Fighter &victim,int amount) {
 void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz,bool headshot=false,int spread_damage=0,bool spread_gib=false) {
     float length=sqrtf(dx*dx+dy*dy+dz*dz);
     int base_damage=(gun==GUN_SHOTGUN || gun==GUN_GRENADE)?spread_damage:guns[gun].damage;
-    if (length>0) impulse(victim,dx/length,dy/length,dz/length,base_damage*.01f*guns[gun].pushfactor);
+    if (length>0) hit_impulse(victim,gun,base_damage,dx/length,dy/length,dz/length);
     int dealt=victim.state.dodamage(base_damage*(headshot?3:1),gun);
     victim.pain_until=clock_ms+300;
     bool dead=victim.state.health<=0;
@@ -609,7 +614,7 @@ void resolve_blast(const ActiveGrenade &g) {
         event.hits[event.hit_count++]={own,dist,dir};
         int amount=(int)(guns[GUN_GRENADE].damage*(1-dist/EXPDAMRAD));
         if(!lan_match) damage(*victim,g.local?player:bot,GUN_GRENADE,dir.x,dir.y,dir.z,false,amount,true);
-        else if(own) impulse(player,dir.x,dir.y,dir.z,amount*.01f*guns[GUN_GRENADE].pushfactor);
+        else if(own) hit_impulse(player,GUN_GRENADE,amount,dir.x,dir.y,dir.z);
     }
     queue_grenade(event);
 }
@@ -1415,7 +1420,7 @@ void match_lan_throw(MatchPoint from,MatchPoint velocity,int cooked) {
 }
 void match_lan_hitpush(int gun,int damage,float x,float y,float z) {
     if(lan_match && !player.respawn_at && damage>0 && gun>=0 && gun<NUMGUNS)
-        impulse(player,x,y,z,damage/100.f*guns[gun].pushfactor);
+        hit_impulse(player,gun,damage,x,y,z);
 }
 void match_lan_health(int hp,int armour) {
     if(hp<=0 && !player.respawn_at) {
@@ -2048,6 +2053,8 @@ void match_view(MatchView *v) {
         v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
     v->wide_crosshair = gun==GUN_ASSAULT && player.shots>3;
+    v->underwater_audio=phase==PLAYING && !player.respawn_at && eye(player)+PLAYER_ABOVE_EYE<WATER_LEVEL;
+    v->ear_ringing=phase==PLAYING && !player.respawn_at && ear_damage_until && clock_ms<=ear_damage_until;
     v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
     v->bot_shot_pending=phase==PLAYING && bot_saw_player && !bot.respawn_at &&
                         bot_attack_at<=clock_ms+40 && bot.ready_at<=clock_ms+40;

@@ -55,3 +55,30 @@ void ambience_mix(int (*mix)[2],unsigned frames) {
         voices[i].cursor=cursor;
     }
 }
+
+static struct { unsigned phase; int active; } listener[2];
+
+void ambience_listener(int underwater,int ringing) {
+    listener[0].active=underwater;
+    listener[1].active=ringing;
+    for(unsigned i=0;i<2;++i) if(!listener[i].active) listener[i].phase=0;
+}
+void ambience_listener_mix(int (*mix)[2],unsigned frames) {
+    static const unsigned clip_index[]={UNDERWATER_CLIP,TINNITUS_CLIP};
+    // OpenAL pitches the underwater loop to 0.65 and ringing to 1.9.
+    static const unsigned step[]={13,38},gain[]={100,2};
+    for(unsigned i=0;i<2;++i) if(listener[i].active) {
+        const AmbientClip *clip=&ambient_clips[clip_index[i]];
+        const unsigned char *base=ambience+clip->offset;
+        unsigned phase=listener[i].phase;
+        for(unsigned j=0;j<frames;++j) {
+            unsigned index=phase/20,frac=phase%20;
+            int first=decoded[base[index]],next=decoded[base[index+1==clip->frames?0:index+1]];
+            int sample=(first+(next-first)*(int)frac/20)*(int)gain[i];
+            mix[j][0]+=sample;mix[j][1]+=sample;
+            phase+=step[i];
+            if(phase>=clip->frames*20) phase-=clip->frames*20;
+        }
+        listener[i].phase=phase;
+    }
+}

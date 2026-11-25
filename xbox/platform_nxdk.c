@@ -93,28 +93,55 @@ static void set_footsteps(unsigned channel,MatchSound sound,unsigned now,int act
     unsigned offset=((now*2654435761u>>12)%500)*len/500;
     *v=(Voice){(const int16_t *)clip->start+offset,len-offset,volume[channel],volume[channel],sound,now};
 }
+static int low_pitch;
+static void mix_world(int (*mix)[2],unsigned count) {
+    ambience_mix(mix,count);
+    for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
+        Voice *v=&voices[i];
+        for (unsigned j=0;j<count && (v->remaining || v->loop);) {
+            if (!v->remaining) {
+                const Clip *clip=&clips[v->loop];
+                v->data=(const int16_t *)clip->start;
+                v->remaining=((uintptr_t)clip->end-(uintptr_t)clip->start)/2;
+            }
+            unsigned n=v->remaining<count-j ? v->remaining : count-j;
+            for (unsigned k=0;k<n;++k,++j) {
+                mix[j][0]+=v->data[k]*v->left;
+                mix[j][1]+=v->data[k]*v->right;
+            }
+            v->data+=n; v->remaining-=n;
+        }
+    }
+}
 static void mix_audio(void *unused, Uint8 *out, int len) {
     (void)unused;
     int16_t *stereo=(int16_t *)out;
+    static int history[2][2];
+    static unsigned fraction;
     for (int frames=len/4;frames>0;) {
         int mix[256][2]={{0}};
         unsigned count=frames>256 ? 256 : (unsigned)frames;
-        ambience_mix(mix,count);
-        for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
-            Voice *v=&voices[i];
-            for (unsigned j=0;j<count && (v->remaining || v->loop);) {
-                if (!v->remaining) {
-                    const Clip *clip=&clips[v->loop];
-                    v->data=(const int16_t *)clip->start;
-                    v->remaining=((uintptr_t)clip->end-(uintptr_t)clip->start)/2;
+        if(low_pitch) {
+            // Resample all active world sounds together at the stock 0.65 pitch.
+            int source[167][2]={{0}};
+            mix_world(source,(fraction+13*count)/20);
+            unsigned pos=0;
+            for(unsigned j=0;j<count;++j) {
+                fraction+=13;
+                if(fraction>=20) {
+                    fraction-=20;
+                    memcpy(history[0],history[1],sizeof(history[0]));
+                    memcpy(history[1],source[pos++],sizeof(history[1]));
                 }
-                unsigned n=v->remaining<count-j ? v->remaining : count-j;
-                for (unsigned k=0;k<n;++k,++j) {
-                    mix[j][0]+=v->data[k]*v->left;
-                    mix[j][1]+=v->data[k]*v->right;
-                }
-                v->data+=n; v->remaining-=n;
+                for(unsigned ch=0;ch<2;++ch)
+                    mix[j][ch]=history[0][ch]+(history[1][ch]-history[0][ch])/20*(int)fraction;
             }
+            ambience_listener_mix(mix,count);
+        } else {
+            mix_world(mix,count);
+            memcpy(history[0],mix[count-1],sizeof(history[0]));
+            memcpy(history[1],history[0],sizeof(history[1]));
+            fraction=0;
         }
         for (unsigned j=0;j<count;++j) for (int ch=0;ch<2;++ch) {
             int sample=mix[j][ch]/128;
@@ -156,6 +183,8 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
     const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
     SDL_LockAudioDevice(audio_device);
+    low_pitch=v->underwater_audio || v->ear_ringing;
+    ambience_listener(v->underwater_audio,v->ear_ringing);
     ambience_update(v->camera.x,v->camera.y,v->camera.z,v->camera_yaw);
     if (v->gib_sound) {
         float left,right;

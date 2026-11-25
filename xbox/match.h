@@ -66,6 +66,7 @@ typedef struct {
     unsigned bot_flash_end_ms,player_light,bot_light;
     int akimbo_left;
     int scoped, respawning, reload, hide_crosshair, flash, wide_crosshair;
+    int underwater_audio,ear_ringing;
     float damage_alpha;
     int bot_shot_pending,respawn_work_pending,empty_click;
     const unsigned *damage_directions;

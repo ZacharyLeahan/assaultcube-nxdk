@@ -20,7 +20,8 @@ def bake_ambience(config, entities):
     slots = re.findall(rb'^mapsound "([^"]+)" (-?\d+)', config, re.M)
     bank = bytearray()
     clips = []
-    for slot, maxuses in slots:
+    environment = [(b"player/underwater.ogg", -1), (b"misc/tinnitus.ogg", -1)]
+    for slot, maxuses in slots + environment:
         if int(maxuses)!=-1:
             raise ValueError("Expected unrestricted ac_desert sound slots")
         samples, rate = soundfile.read(PKG/"audio"/slot.decode(), always_2d=True)
@@ -35,7 +36,7 @@ def bake_ambience(config, entities):
         bank.extend((128+encoded).astype(np.uint8).tobytes())
     emitters = [(x,y,z,slot,outer,inner,volume) for x,y,z,slot,kind,outer,inner,volume
                 in entities if kind==14]
-    if any(not 0<=e[3]<len(clips) for e in emitters):
+    if any(not 0<=e[3]<len(slots) for e in emitters):
         raise ValueError("Map sound references a missing slot")
     def rows(name, kind, values):
         return f"static const {kind} {name}[] = {{\n"+''.join(
@@ -44,6 +45,7 @@ def bake_ambience(config, entities):
     decoded=np.rint(np.sign(codes)*np.expm1(abs(codes)*np.log(256))/255*24000).astype(int)
     (OUT/"ambience.bin").write_bytes(bank)
     (OUT/"ambience.h").write_text(rows("ambient_clips","AmbientClip",clips)+
+        f"enum {{ UNDERWATER_CLIP={len(slots)}, TINNITUS_CLIP={len(slots)+1} }};\n"+
         rows("emitters","SoundEmitter",emitters)+"static const short decoded[256] = {"+
         ','.join(map(str,decoded))+"};\n")
 
