@@ -58,3 +58,9 @@ asset pickup_helmet
 asset pickup_armour
 asset change_gun
 .set "@feat.00", 1
+
+asset grenade_pull
+asset grenade_throw
+asset grenade_bounce1
+asset grenade_bounce2
+asset grenade_exp

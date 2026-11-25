@@ -5,6 +5,7 @@ extern "C" {
 #endif
 float body_floor(float x,float y);
 void walk(float *x, float *y, float dx, float dy);
+int grenade_space(float x,float y,float feet,float *floor,float *ceiling);
 void body_space(float x,float y,float feet,float *floor,float *ceiling);
 int ladder_space(float x,float y,float feet,float *top);
 typedef struct {float x,y,feet,top;} ActorBounds;

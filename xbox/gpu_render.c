@@ -17,7 +17,7 @@
 #include <string.h>
 #include <zlib.h>
 
-typedef struct { unsigned offset, bytes, width, height, mip, indexed, unpacked; } ImageInfo;
+typedef struct { unsigned offset, bytes, width, height, mip, indexed, unpacked, grayscale; } ImageInfo;
 typedef struct { unsigned texture, first, count, primitive; } Batch;
 typedef struct { int x, y, w, h; } Glyph;
 typedef struct { int x,y; unsigned first,count; } PropLightSpan;
@@ -113,30 +113,36 @@ static voidpf zalloc_gpu(voidpf opaque, uInt count, uInt size) {
 }
 static void zfree_gpu(voidpf opaque, voidpf data) { (void)opaque; free(data); }
 
+static int gpu_failure(int line,int texture) {
+    FILE *f=fopen("D:\\gpu-init-error.txt","w");
+    if(f) {fprintf(f,"Renderer initialization failed at line %d, texture %d\n",line,texture);fclose(f);}
+    return 0;
+}
 int gpu_init(int width, int height) {
+    int texture_index=-1;
     tick_hz=(unsigned)KeQueryPerformanceFrequency();
     for (unsigned i=0;i<=RADAR_SEGMENTS;++i) {
         float a=i*(6.2831853f/RADAR_SEGMENTS);
         radar_rim[i].x=cosf(a);
         radar_rim[i].y=sinf(a);
     }
-    if (pbgl_init(1)) return 0;
+    if (pbgl_init(1)) return gpu_failure(__LINE__,texture_index);
     shot_light_init();
     stream = pbgl_alloc(STREAM_CAPACITY*sizeof(Vertex));
-    if (!stream) return 0;
+    if (!stream) return gpu_failure(__LINE__,texture_index);
     aspect = (float)width/height;
     hud_width = aspect*720;
     glViewport(0,0,width,height);
     pbgl_set_swap_interval(0);
     pb_show_debug_screen();
     void *buffer = pbgl_alloc(VERTEX_BYTES);
-    if (!buffer) return 0;
+    if (!buffer) return gpu_failure(__LINE__,texture_index);
     memcpy(buffer,gpu_vertices,VERTEX_BYTES);
     geometry = buffer;
     const Batch *last_world=&batches[WORLD_BATCHES-1];
     unsigned world_count=last_world->first+last_world->count;
     world_light_uv=pbgl_alloc(world_count*sizeof(*world_light_uv));
-    if (!world_light_uv) return 0;
+    if (!world_light_uv) return gpu_failure(__LINE__,texture_index);
     const Vertex *source=(const Vertex *)gpu_vertices;
     for (unsigned i=0;i<world_count;++i)
         world_light_uv[i]=(LightUV){(source[i].x+.5f)/256,(source[i].y+.5f)/256};
@@ -151,15 +157,16 @@ int gpu_init(int width, int height) {
     }
     unsigned count=batches[BODY_BATCH].count+world_gun+extra;
     pose_positions=pbgl_alloc(count*sizeof(Position));
-    if (!pose_positions) return 0;
+    if (!pose_positions) return gpu_failure(__LINE__,texture_index);
     shadow_positions=pbgl_alloc(SHADOW_CAPACITY*sizeof(Position));
-    if (!shadow_positions) return 0;
+    if (!shadow_positions) return gpu_failure(__LINE__,texture_index);
     glGenTextures(sizeof(textures)/sizeof(textures[0]),textures);
     for (unsigned i=0;i<sizeof(textures)/sizeof(textures[0]);++i) {
+        texture_index=(int)i;
         const ImageInfo *im = &images[i];
         unsigned size = im->unpacked;
         unsigned char *pixels = malloc(size);
-        if (!pixels) return 0;
+        if (!pixels) return gpu_failure(__LINE__,texture_index);
         z_stream z = {0};
         z.zalloc=zalloc_gpu; z.zfree=zfree_gpu;
         z.next_in=(Bytef *)(gpu_textures+im->offset); z.avail_in=im->bytes;
@@ -169,7 +176,7 @@ int gpu_init(int width, int height) {
             ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
             inflateEnd(&z);
         }
-        if (!ok) { free(pixels); return 0; }
+        if (!ok) { free(pixels); return gpu_failure(__LINE__,texture_index); }
         glBindTexture(GL_TEXTURE_2D,textures[i]);
         glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip && !im->indexed);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -188,9 +195,12 @@ int gpu_init(int width, int height) {
             }
             // Refresh pbGL's sampler state after uploading the complete mip chain.
             glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
-        } else glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,im->width,im->height,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
+        } else {
+            GLenum format=im->grayscale?GL_LUMINANCE_ALPHA:GL_RGBA;
+            glTexImage2D(GL_TEXTURE_2D,0,format,im->width,im->height,0,format,GL_UNSIGNED_BYTE,pixels);
+        }
         free(pixels);
-        if (glGetError()!=GL_NO_ERROR) return 0;
+        if (glGetError()!=GL_NO_ERROR) return gpu_failure(__LINE__,texture_index);
     }
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
@@ -553,6 +563,14 @@ static void level(const MatchView *v) {
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
     glDisableClientState(GL_COLOR_ARRAY);
+    for(unsigned i=0;i<v->grenade_count;++i) {
+        const GrenadeView *g=&v->grenades[i];
+        glPushMatrix();
+        glTranslatef(g->pos.x,g->pos.y,g->pos.z);
+        glRotatef(g->rotation,0,0,1);glRotatef(g->rotation,1,0,0);
+        model_color(g->pos.x,g->pos.y);batch(GRENADE_PROJECTILE_BATCH);
+        glPopMatrix();
+    }
     for (unsigned i=0;i<v->gib_count;++i) {
         const GibView *g=&v->gibs[i];
         glPushMatrix();
@@ -678,6 +696,21 @@ static void level(const MatchView *v) {
         }
     }
     end_quads();
+    if(v->explosion_count) {
+        bind_vertices(geometry);
+        glDisableClientState(GL_COLOR_ARRAY);
+        for(unsigned i=0;i<v->explosion_count;++i) {
+            const ExplosionView *e=&v->explosions[i];
+            float age=1-(e->end_ms-v->elapsed_ms)/600.f;
+            float radius=1+6*age,fade=(7-radius)/7;
+            glPushMatrix();
+            glTranslatef(e->pos.x,e->pos.y,e->pos.z);
+            glRotatef(v->elapsed_ms/7.f,0,0,1);glScalef(radius,radius,radius);
+            glColor4f(fade,.5f*fade,.5f*fade,1);batch(EXPLOSION_BATCH);
+            glPopMatrix();
+        }
+        glEnableClientState(GL_COLOR_ARRAY);bind_vertices(stream);
+    }
     draw_water(v->elapsed_ms);
     glDisable(GL_BLEND);
     color(1,1,1,1);

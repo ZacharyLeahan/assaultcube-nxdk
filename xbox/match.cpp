@@ -1,6 +1,7 @@
 #include "match.h"
 #include "lan/lan.h"
 #include "geometry.h"
+#include "grenade.h"
 #include "navigation.h"
 #include <math.h>
 #include <string.h>
@@ -198,6 +199,46 @@ void spark_splash(float x,float y,float z) {
         if (spark_count<64) ++spark_count;
     }
 }
+struct ActiveGrenade {
+    GrenadeFlight flight;
+    unsigned expires;
+};
+ActiveGrenade active_grenades[8];
+unsigned active_grenade_count;
+ExplosionView explosions[8];
+unsigned explosion_count;
+void throw_grenade(MatchPoint from,MatchPoint velocity,unsigned cooked) {
+    if(active_grenade_count==8) return;
+    ActiveGrenade &g=active_grenades[active_grenade_count++];
+    g={{from,velocity,0,0,false},clock_ms+2000-cooked};
+}
+void update_grenades(unsigned previous) {
+    for(unsigned i=0;i<explosion_count;) {
+        if(clock_ms>=explosions[i].end_ms) explosions[i]=explosions[--explosion_count];
+        else ++i;
+    }
+    ActorBounds actors[2];
+    int count=0;
+    if(!player.respawn_at) actors[count++]={player.x,player.y,feet_z,feet_z+stance+PLAYER_ABOVE_EYE};
+    if(!hide_bot && !bot.respawn_at) actors[count++]={bot.x,bot.y,bot.eye_height-(lan_match?remote_stance:PLAYER_EYE_HEIGHT),bot.eye_height+PLAYER_ABOVE_EYE};
+    for(unsigned i=0;i<active_grenade_count;) {
+        ActiveGrenade &g=active_grenades[i];
+        unsigned end=clock_ms<g.expires?clock_ms:g.expires;
+        for(unsigned t=previous/5;t<end/5;++t) {
+            if(grenade_step(g.flight,actors,count)) impact_sound={g.flight.position,effect_random(2)?GRENADE_BOUNCE1:GRENADE_BOUNCE2};
+        }
+        if(clock_ms<g.expires) {++i;continue;}
+        MatchPoint p=g.flight.position;
+        if(explosion_count<8) explosions[explosion_count++]={p,g.expires+600};
+        impact_sound={p,GRENADE_EXPLODE};
+        for(int j=0;j<50;++j) {
+            sparks[next_spark]=splash_particle(p.x,p.y,p.z,300);
+            next_spark=(next_spark+1)%64;
+            if(spark_count<64) ++spark_count;
+        }
+        active_grenades[i]=active_grenades[--active_grenade_count];
+    }
+}
 void mark_surface(const SurfaceHit &hit) {
     if (!hit.can_mark) return;
     if (mark_count==MARK_CAPACITY) {
@@ -262,6 +303,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.pitch = atan2f(eye(opponent)-1-eye(f),fmaxf(1,distance(f.x,f.y,opponent.x,opponent.y)));
 }
 void begin(MatchPhase initial) {
+    active_grenade_count=explosion_count=0;
     first_mark=mark_count=0;
     bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
     intermission_age=0;
@@ -883,6 +925,7 @@ void match_lan_remote_death(int gib) {
 static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,MatchView *target);
 void match_lan_shot(int gun,float x,float y,float z) {
     if(!lan_match || hide_bot) return;
+    if(gun==GUN_GRENADE) {lan_shot_sound=GRENADE_PULL;return;}
     bot.state.gunselect=gun;
     bot.flash_until=clock_ms+90;
     bot.light_until=gun==GUN_KNIFE?0:clock_ms+100;
@@ -901,6 +944,13 @@ void match_lan_shot(int gun,float x,float y,float z) {
 int match_lan_take_jump(void) {
     bool jumped=lan_jump; lan_jump=false;
     return jumped;
+}
+void match_lan_throw(MatchPoint from,MatchPoint velocity,int cooked) {
+    if(!lan_match || cooked<=0 || cooked>2000 ||
+       from.x<0 || from.x>=MAP || from.y<0 || from.y>=MAP || fabsf(from.z)>256 ||
+       fabsf(velocity.x)>2 || fabsf(velocity.y)>2 || fabsf(velocity.z)>2) return;
+    throw_grenade(from,velocity,cooked);
+    lan_shot_sound=GRENADE_THROW;
 }
 void match_lan_hitpush(int gun,int damage,float x,float y,float z) {
     if(lan_match && !player.respawn_at && damage>0 && gun>=0 && gun<NUMGUNS)
@@ -980,6 +1030,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     }
     frame_start_ms=clock_ms;
     clock_ms += elapsed;
+    update_grenades(frame_start_ms);
     while (mark_count && marks[first_mark].expires<=clock_ms) {
         first_mark=(first_mark+1)%MARK_CAPACITY;
         --mark_count;
@@ -1473,6 +1524,9 @@ void match_view(MatchView *v) {
         hypotf(distance(bot.x,bot.y,player.x,player.y),eye(bot)-eye(player))<20 ? FOOTSTEPS:SILENT;
     v->bot_voice=bot_voice; v->gib_sound=gib_sound; v->hide_bot=hide_bot;
     for (unsigned i=0;i<gib_count;++i) gib_views[i]=gibs[i].view;
+    v->grenade_count=active_grenade_count;
+    for(unsigned i=0;i<active_grenade_count;++i) v->grenades[i]={active_grenades[i].flight.position,active_grenades[i].flight.rotation};
+    v->explosions=explosions;v->explosion_count=explosion_count;
     v->gibs=gib_views; v->gib_count=gib_count;
     unsigned end_ms=lan_match?lan_end_ms:duration;
     v->seconds = clock_ms >= end_ms ? 0 : (end_ms-clock_ms+999)/1000;

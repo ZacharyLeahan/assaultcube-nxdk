@@ -281,6 +281,13 @@ void messages(Reader &r,unsigned now,int sender=-1) {
                 match_lan_shot(gun,x/DMF,y/DMF,z/DMF);
             break;
         }
+        case SV_THROWNADE: {
+            MatchPoint from={r.integer()/DNF,r.integer()/DNF,r.integer()/DNF};
+            MatchPoint velocity={r.integer()/DNF,r.integer()/DNF,r.integer()/DNF};
+            int cooked=r.integer();
+            if(r.valid && sender==remote) match_lan_throw(from,velocity,cooked);
+            break;
+        }
         case SV_HITPUSH: {
             int gun=r.integer(),damage=r.integer();
             int x=r.integer(),y=r.integer(),z=r.integer();

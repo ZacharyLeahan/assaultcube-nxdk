@@ -25,9 +25,11 @@ typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR, WEAPON_CHANGE,
     BOT_PAIN1,BOT_PAIN2,BOT_PAIN3,BOT_PAIN4,BOT_PAIN5,ALT_DEATH,WATER_ENTER,WATER_EXIT,
     FOOTSTEPS,CROUCH_STEPS,WATER_STEPS,WATER_CROUCH_STEPS,CROUCH_IN,CROUCH_OUT,
-    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING,SMG_SHOT,SMG_RELOAD,CARBINE_SHOT,CARBINE_RELOAD,SNIPER_SHOT,SNIPER_RELOAD,SHOTGUN_SHOT,SHOTGUN_RELOAD } MatchSound;
+    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING,SMG_SHOT,SMG_RELOAD,CARBINE_SHOT,CARBINE_RELOAD,SNIPER_SHOT,SNIPER_RELOAD,SHOTGUN_SHOT,SHOTGUN_RELOAD,GRENADE_PULL,GRENADE_THROW,GRENADE_BOUNCE1,GRENADE_BOUNCE2,GRENADE_EXPLODE } MatchSound;
 typedef struct { float x,y,z; } MatchPoint;
 typedef struct { MatchPoint pos; float yaw,pitch,sink; unsigned model; } GibView;
+typedef struct { MatchPoint pos; float rotation; } GrenadeView;
+typedef struct { MatchPoint pos; unsigned end_ms; } ExplosionView;
 typedef struct { MatchPoint pos; MatchSound sound; } PositionalSound;
 typedef struct { MatchPoint start,end; unsigned expires; } ShotLine;
 typedef struct { int x, y, icon; float base; } ItemView;
@@ -52,6 +54,8 @@ typedef struct {
     struct { const char *text; unsigned age; } frag_messages[3];
     int health, armour, magazine, reserve, player_frags, bot_frags, bot_alive, radar_active;
     MatchWeapon bot_weapon;
+    GrenadeView grenades[8]; unsigned grenade_count;
+    const ExplosionView *explosions; unsigned explosion_count;
     const GibView *gibs; unsigned gib_count; int hide_bot, gib_sound;
     BotPose current_pose,previous_pose;
     float pose_transition,gun_pose_blend,flash_angle;

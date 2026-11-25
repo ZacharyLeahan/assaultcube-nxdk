@@ -630,3 +630,23 @@ extern "C" void test_grenade_pickups(void) {
     assert(player.state.mag[GUN_GRENADE]==1);
     match_lan_stop();
 }
+
+extern "C" void test_remote_grenade(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    MatchInput in={};MatchView view={};
+    player.x=121.8125f;player.y=126.0625f;
+    feet_z=ground(player.x,player.y);player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    place_remote(125,116,ground(125,116),0,0,0);
+    match_lan_throw({123.06f,120.46f,.16f},{-.29f,1.28f,-.71f},1148);
+    match_view(&view);assert(view.grenade_count==1);
+    for(int i=0;i<53;++i) match_update(&in,16,.016f);
+    match_view(&view);assert(view.grenade_count==1);
+    match_update(&in,16,.016f);match_view(&view);
+    assert(!view.grenade_count && view.explosion_count==1 && view.spark_count==50);
+    assert(view.impact.sound==GRENADE_EXPLODE && player.state.health==100);
+    // Stock Windows throw on ac_desert. The server's 10-damage hit and
+    // quantized push vector put the explosion near (120.4,117.0).
+    assert(hypotf(view.explosions[0].pos.x-120.4f,view.explosions[0].pos.y-117.f)<.2f);
+    match_lan_stop();
+}

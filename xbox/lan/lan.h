@@ -25,6 +25,7 @@ typedef struct {
 void match_lan_remote(const LanPose *pose);
 void match_lan_hide(void);
 void match_lan_remote_death(int gib);
+void match_lan_throw(MatchPoint from,MatchPoint velocity,int cooked);
 void match_lan_shot(int gun,float x,float y,float z);
 void match_lan_damage(int local_victim,int from_remote,int damage,int health,int armour);
 void match_lan_frag(int local_victim,int suicide,int gun,int gib,const char *opponent);

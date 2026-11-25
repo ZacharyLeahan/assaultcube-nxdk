@@ -23,6 +23,8 @@ DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
 DECLARE_CLIP(sub); DECLARE_CLIP(sub_reload);
 DECLARE_CLIP(sniper); DECLARE_CLIP(sniper_reload);
+DECLARE_CLIP(grenade_pull); DECLARE_CLIP(grenade_throw); DECLARE_CLIP(grenade_exp);
+DECLARE_CLIP(grenade_bounce1); DECLARE_CLIP(grenade_bounce2);
 DECLARE_CLIP(shotgun); DECLARE_CLIP(shotgun_reload);
 DECLARE_CLIP(carbine); DECLARE_CLIP(carbine_reload);
 DECLARE_CLIP(step);
@@ -39,7 +41,8 @@ static const Clip clips[] = {
     [SHOTGUN_SHOT]=CLIP(shotgun), [SHOTGUN_RELOAD]=CLIP(shotgun_reload),
     [CARBINE_SHOT]=CLIP(carbine), [CARBINE_RELOAD]=CLIP(carbine_reload),
     [SMG_SHOT]=CLIP(sub), [SMG_RELOAD]=CLIP(sub_reload),
-    [KNIFE_SWING]=CLIP(knife),
+    [KNIFE_SWING]=CLIP(knife), [GRENADE_PULL]=CLIP(grenade_pull), [GRENADE_THROW]=CLIP(grenade_throw),
+    [GRENADE_BOUNCE1]=CLIP(grenade_bounce1), [GRENADE_BOUNCE2]=CLIP(grenade_bounce2), [GRENADE_EXPLODE]=CLIP(grenade_exp),
     [WEAPON_CHANGE]=CLIP(change_gun),
     [BULLET_AIR1]=CLIP(ric1), [BULLET_AIR2]=CLIP(ric2),
     [BULLET_IMPACT]=CLIP(ric3), [BULLET_WATER]=CLIP(waterimpact),

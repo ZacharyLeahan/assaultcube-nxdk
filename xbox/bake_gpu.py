@@ -17,15 +17,22 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     vertices = bytearray()
     vertex = struct.Struct("<5f4B")
 
-    def store_texture(raw, size, mip, indexed):
+    def store_texture(raw, size, mip, indexed, grayscale=False):
         packed = zlib.compress(raw, 6)
-        textures.append((len(blob), len(packed), *size, int(mip), int(indexed), len(raw)))
+        textures.append((len(blob), len(packed), *size, int(mip), int(indexed), len(raw), int(grayscale)))
         blob.extend(packed)
         return len(textures)-1
 
-    def texture(image, size, mip=True):
-        raw = image.convert("RGBA").resize(size, Image.Resampling.LANCZOS).tobytes()
-        return store_texture(raw, size, mip, False)
+    def texture(image, size, mip=True, grayscale=False):
+        image = image.convert("RGBA").resize(size, Image.Resampling.LANCZOS)
+        if grayscale:
+            rgba = np.asarray(image)
+            if not (np.array_equal(rgba[:,:,0],rgba[:,:,1]) and np.array_equal(rgba[:,:,1],rgba[:,:,2])):
+                raise ValueError("Non-gray texture cannot use luminance-alpha storage")
+            raw = rgba[:,:,[0,3]].tobytes()
+        else:
+            raw = image.tobytes()
+        return store_texture(raw, size, mip, False, grayscale)
 
     def weapon_skin(path):
         # Each close-up skin keeps its original texels with its own NV2A palette.
@@ -335,6 +342,21 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         folder=packages/"models/weapons"/name/"world"
         mark(name.upper()+"_DEATH_BATCH",len(batches))
         md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
+    folder=packages/"models/weapons/grenade/static"
+    mark("GRENADE_PROJECTILE_BATCH",len(batches))
+    md2(folder,folder/"skin.jpg",(128,128),None)
+    # A small textured sphere uses the original fireball texture and growing radius.
+    tex=model_skin(packages/"misc/explosion.png",(128,128))
+    def fireball_vertex(i,j):
+        u,v=i/16,j/8
+        longitude,latitude=2*np.pi*u,np.pi*(v-.5)
+        return ((np.cos(latitude)*np.cos(longitude),np.cos(latitude)*np.sin(longitude),np.sin(latitude)),(u,v),(255,255,255))
+    points=[]
+    for j in range(8):
+        for i in range(16):
+            points.extend(fireball_vertex(x,y) for x,y in ((i,j),(i+1,j),(i+1,j+1),(i,j),(i+1,j+1),(i,j+1)))
+    mark("EXPLOSION_BATCH",len(batches))
+    add_batch(tex,points,3)
     mark("GIB_BATCH",len(batches))
     for i in range(1,4):
         folder=packages/f"models/misc/gib0{i}"
@@ -478,11 +500,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("DIGITS_TEX",len(textures))
     digits=Image.new("RGBA",(512,64))
     digits.paste(Image.open(packages/"misc/huddigits.png").convert("RGBA"))
-    texture(digits,(512,64),False)
+    texture(digits,(512,64),False,grayscale=True)
     mark("SOLID_TEX",len(textures))
     texture(Image.new("RGBA",(4,4),"white"),(4,4),False)
     mark("FONT_TEX",len(textures))
-    texture(Image.open(packages/"misc/chars_default.png"),(512,512),False)
+    texture(Image.open(packages/"misc/chars_default.png"),(512,512),False,grayscale=True)
     mark("WORLD_LIGHT_TEX",len(textures))
     texture(Image.fromarray(lighting),(256,256),False)
     glyphs=re.findall(r"^fontchar\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)",
