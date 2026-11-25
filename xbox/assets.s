@@ -10,6 +10,7 @@ _\name\()_end:
 asset world
 asset deltas
 asset cell_light
+asset ambience
 asset gpu_vertices
 asset gpu_textures
 asset usp

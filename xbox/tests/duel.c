@@ -1,8 +1,30 @@
 #include "../match.h"
 #include "../navigation.h"
+#include "../ambience.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
+
+static void test_wind_playback(void) {
+    // At this position only the wind emitter is audible.
+    int start[512][2]={0}, next[512][2]={0}, replay[1024][2]={0};
+    ambience_update(10,133,7,0);
+    ambience_mix(start,512);
+    ambience_update(10,133,7,1);
+    ambience_mix(next,512);
+    assert(memcmp(start,next,sizeof(start))!=0);
+    int stereo=0;
+    for (int i=0;i<512;++i) stereo |= start[i][0]!=start[i][1];
+    assert(stereo);
+    ambience_update(255,255,64,0);
+    ambience_mix(replay,1024);
+    for (int i=0;i<1024;++i) assert(!replay[i][0] && !replay[i][1]);
+    ambience_update(10,133,7,2);
+    ambience_mix(replay,1024);
+    assert(memcmp(replay,start,sizeof(start))==0);
+    assert(memcmp(replay+512,next,sizeof(next))==0);
+}
 
 static void test_strafe_reversal(unsigned hz) {
     MatchInput in={.start=1};
@@ -262,6 +284,7 @@ static void test_bot_hitpush(void) {
 }
 
 int main(void) {
+    test_wind_playback();
     test_bot_hitpush();
     test_incoming_fire(0);
     test_incoming_fire(1);

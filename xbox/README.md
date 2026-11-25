@@ -20,6 +20,8 @@ Controllers can be plugged in or replaced while the game is running. Any of the 
 
 The HUD shows frags, time remaining, health, armour, and ammunition in the magazine and reserve. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot can collect them too.
 
+The map supplies six ambient sound sources. The courtyard has stereo wind and a distant hawk, water becomes audible near the well, and three air conditioners can be located by ear.
+
 The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Walls and floors sample the map's baked light grid. The bot, pickups, and first-person models take their lighting from the cell they occupy. The HUD updates its frame counter every two seconds.
 
 ## Build and run
@@ -47,6 +49,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | Xbox file | Responsibility |
 | --- | --- |
 | `platform_nxdk.c` | Xbox entry point, controller input, SDL audio mixing, video mode selection, and reboot |
+| `ambience.c` | Loop the map's ambient sounds and apply each source's volume and hearing radius |
 | `controllers.c` | Track attached SDL controller instances across USB disconnects and device-index changes |
 | `match.cpp` | Portable local duel, bot decisions, active weapons, item timers, respawns, and intermission |
 | `navigation.c` | Map collision, line of sight, and shortest walkable paths around obstacles |
