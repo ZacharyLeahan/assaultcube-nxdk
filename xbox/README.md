@@ -121,3 +121,9 @@ The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alter
 Each capture recorded 719 consecutive single-refresh intervals. The KVM runs the same sequence in wall-clock time. Input transitions can land on different Xbox frames, so keep the individual results when comparing builds.
 
 In a separate release test, the reticle was on the bot immediately before a full-right input. The camera turned +2.548 degrees on the first presented frame containing that input, and -2.548 degrees on the first frame containing the subsequent full-left input.
+
+### Compare aim assist by hand
+
+At the ready or rematch screen, press D-pad Left for Classic or Right for Tuned, then press Start. Tuned is selected on launch. Each setting stays active through the duel and subsequent rematches until changed.
+
+Place `duel-trace.on` beside the installed XBE before launching to record each match in memory. At intermission the game writes the latest completed match for its profile to `classic.bin` or `tuned.bin`. Both recordings survive a profile switch. Retrieve them through XBMC before playing another match with the same setting. Run `python xbox/tests/duel_tracking.py classic.bin tuned.bin` to inspect direct strafe reversals, small away-input onsets and reacquisition after restored line of sight. The analyzer infers away inputs from stick direction and target bearing. A zero event count means that match did not exercise the case.
