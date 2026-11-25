@@ -22,6 +22,20 @@ typedef struct { int x, y, w, h; } Glyph;
 typedef struct { int x,y; unsigned first,count; } PropLightSpan;
 #include "generated/gpu.h"
 #include "generated/water.h"
+typedef struct {
+    unsigned batch,surfaces,death_batch;
+    const float (*muzzle)[3];
+    float flash_scale;
+    unsigned icon_x,icon_y;
+    const char *choice;
+} WeaponArt;
+static const WeaponArt weapon_art[]={
+    [VIEW_RIFLE]={ASSAULT_BATCH,ASSAULT_SURFACES,0,assault_muzzle,.75f,2,1,"Y   Primary: MTP-57 rifle"},
+    [VIEW_SMG]={SUBGUN_BATCH,SUBGUN_SURFACES,SUBGUN_DEATH_BATCH,subgun_muzzle,.55f,0,1,"Y   Primary: A-ARD/10 SMG"},
+    [VIEW_CARBINE]={CARBINE_BATCH,CARBINE_SURFACES,CARBINE_DEATH_BATCH,carbine_muzzle,.50f,2,0,"Y   Primary: TMP-M&A CB carbine"},
+    [VIEW_PISTOL]={PISTOL_BATCH,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
+    [VIEW_KNIFE]={KNIFE_BATCH,KNIFE_SURFACES,KNIFE_DEATH_BATCH,NULL,0,0,0,NULL}
+};
 extern const unsigned char gpu_textures[];
 static Vertex *geometry;
 typedef struct { float u,v; } LightUV;
@@ -99,13 +113,13 @@ int gpu_init(int width, int height) {
     for (unsigned i=0;i<world_count;++i)
         world_light_uv[i]=(LightUV){(source[i].x+.5f)/256,(source[i].y+.5f)/256};
     unsigned world_gun=MAX_COUNT(batches[BOT_GUN_BATCH].count,batches[WORLD_PISTOL_BATCH].count);
-    unsigned corpse_gun=MAX_COUNT(world_gun,MAX_COUNT(batches[SUBGUN_DEATH_BATCH].count,batches[KNIFE_DEATH_BATCH].count));
-    unsigned extra=batches[BODY_BATCH].count+corpse_gun;
-    const unsigned view_weapons[]={ASSAULT_BATCH,PISTOL_BATCH,KNIFE_BATCH,SUBGUN_BATCH};
-    for (unsigned i=0;i<sizeof(view_weapons)/sizeof(view_weapons[0]);++i) {
-        unsigned first=view_weapons[i];
-        unsigned count=batches[first].count+batches[first+1].count;
-        if (count>extra) extra=count;
+    unsigned extra=batches[BODY_BATCH].count+world_gun;
+    for (unsigned i=0;i<sizeof(weapon_art)/sizeof(weapon_art[0]);++i) {
+        const WeaponArt *art=weapon_art+i;
+        unsigned count=0;
+        for (unsigned j=0;j<art->surfaces;++j) count+=batches[art->batch+j].count;
+        extra=MAX_COUNT(extra,count);
+        if (art->death_batch) extra=MAX_COUNT(extra,batches[BODY_BATCH].count+batches[art->death_batch].count);
     }
     unsigned count=batches[BODY_BATCH].count+world_gun+extra;
     pose_positions=pbgl_alloc(count*sizeof(Position));
@@ -484,11 +498,11 @@ static void level(const MatchView *v) {
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
                     pose,pose,1,PLAYER_SKIN);
-        if (v->knife || v->smg) {
-            unsigned base=v->knife?KNIFE_DEATH_BATCH:SUBGUN_DEATH_BATCH;
+        unsigned base=weapon_art[v->weapon].death_batch;
+        if (base) {
             animated_batch(base+frame,base+next,blend);
         }
-        else world_firearm(v->pistol,pose,pose,1);
+        else world_firearm(v->weapon==VIEW_PISTOL,pose,pose,1);
         stencil_reference(64);
         glPopMatrix();
     }
@@ -663,10 +677,9 @@ static void weapon(const MatchView *v) {
     glDisableClientState(GL_COLOR_ARRAY);
     model_color(v->px,v->py);
     bind_vertices(geometry);
-    int first=v->knife?KNIFE_BATCH:v->pistol?PISTOL_BATCH:v->smg?SUBGUN_BATCH:ASSAULT_BATCH;
-    int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;
-    animated_batch(current,next,v->gun_pose_blend);
-    animated_batch(current+1,next+1,v->gun_pose_blend);
+    const WeaponArt *art=&weapon_art[v->weapon];
+    unsigned current=art->batch+art->surfaces*v->gun_pose,next=art->batch+art->surfaces*v->next_gun_pose;
+    for (unsigned i=0;i<art->surfaces;++i) animated_batch(current+i,next+i,v->gun_pose_blend);
     glEnableClientState(GL_COLOR_ARRAY);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
 }
@@ -674,14 +687,15 @@ static void muzzle_flash(const MatchView *v) {
     if (v->flash && !v->respawning) {
         weapon_transform(v);
         bind_vertices(stream);
-        const float (*muzzle)[3]=v->pistol?pistol_muzzle:v->smg?subgun_muzzle:assault_muzzle;
+        const WeaponArt *art=&weapon_art[v->weapon];
+        const float (*muzzle)[3]=art->muzzle;
         float p[3];
         for (int i=0;i<3;++i) p[i]=muzzle[v->gun_pose][i]+v->gun_pose_blend*
             (muzzle[v->next_gun_pose][i]-muzzle[v->gun_pose][i]);
         glTranslatef(p[0],p[1],p[2]);
         // The emitter follows the barrel while the particle faces the camera.
         glRotatef(-v->gun_rotation,1,0,0);
-        float half=.7f*(v->pistol?.25f:v->smg?.55f:.75f)/.08f;
+        float half=.7f*art->flash_scale/.08f;
         float ca=cosf(v->flash_angle),sa=sinf(v->flash_angle);
         glBindTexture(GL_TEXTURE_2D,textures[FLASH_TEX]);
         glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR); glDepthMask(GL_FALSE);
@@ -814,7 +828,8 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
         color(1,1,1,1);
         equipment(8,2,3,v->health,-1);
         if (v->armour) equipment(196,(v->armour-1)/25,2,v->armour,-1);
-        equipment(384,v->knife||v->smg?0:v->pistol?1:2,v->knife||v->pistol?0:1,v->knife?-1:v->magazine,v->reserve);
+        const WeaponArt *art=&weapon_art[v->weapon];
+        equipment(384,art->icon_x,art->icon_y,v->weapon==VIEW_KNIFE?-1:v->magazine,v->reserve);
     }
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);
@@ -844,7 +859,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     if(v->phase!=PLAYING) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
-        text(42,136,19,v->selected_smg?"Y   Primary: A-ARD/10 SMG":"Y   Primary: MTP-57 rifle");
+        text(42,136,19,weapon_art[v->selected_primary].choice);
         text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);

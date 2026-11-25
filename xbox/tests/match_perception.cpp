@@ -202,7 +202,7 @@ extern "C" void test_smg_loadout(void) {
     in.swap=1;
     match_update(&in,0,0);
     match_view(&v);
-    assert(v.phase==READY && v.smg && v.selected_smg);
+    assert(v.phase==READY && v.weapon==VIEW_SMG && v.selected_primary==VIEW_SMG);
     in.swap=0; in.start=1;
     match_update(&in,0,0);
     in.start=0; in.fire=1;
@@ -228,20 +228,59 @@ extern "C" void test_smg_loadout(void) {
     in.fire=0; in.swap=1;
     match_update(&in,1,.001f); in.swap=0;
     match_update(&in,401,.016f); match_view(&v);
-    assert(v.pistol && !v.smg);
+    assert(v.weapon==VIEW_PISTOL && v.weapon!=VIEW_SMG);
     in.swap=1; match_update(&in,1,.001f); in.swap=0;
     match_update(&in,401,.016f); match_view(&v);
-    assert(v.smg && v.magazine==29);
+    assert(v.weapon==VIEW_SMG && v.magazine==29);
     spawn(player,17); match_view(&v);
-    assert(v.smg && v.magazine==30 && v.reserve==60);
+    assert(v.weapon==VIEW_SMG && v.magazine==30 && v.reserve==60);
     bot.state.health=1;
     damage(bot,player,GUN_SUBGUN,1,0,0); match_view(&v);
     assert(!strcmp(v.frag_messages[0].text,"you sprayed Bot"));
     phase=INTERMISSION; in.start=1;
     match_update(&in,1,.001f); match_view(&v);
-    assert(v.smg && v.phase==PLAYING && v.player_frags==0);
+    assert(v.weapon==VIEW_SMG && v.phase==PLAYING && v.player_frags==0);
     match_prepare(); match_view(&v);
-    assert(!v.smg && v.magazine==20);
+    assert(v.weapon!=VIEW_SMG && v.magazine==20);
+}
+
+extern "C" void test_carbine_loadout(void) {
+    match_prepare();
+    MatchInput in={};
+    MatchView v={};
+    in.swap=1;
+    match_update(&in,0,0); match_update(&in,0,0);
+    match_view(&v);
+    assert(v.selected_primary==VIEW_CARBINE && v.weapon==VIEW_CARBINE);
+    assert(v.magazine==10 && v.reserve==20);
+    in.swap=0; in.start=1;
+    match_update(&in,0,0);
+    in.start=0; in.fire=1;
+    assert(match_attack(&in)==CARBINE_SHOT);
+    match_view(&v);
+    assert(v.magazine==9 && v.flash && player.ready_at==720 && !v.wide_crosshair);
+    match_update(&in,179,.016f); match_view(&v); assert(v.flash);
+    match_update(&in,1,.001f); match_view(&v); assert(!v.flash && v.gun_back!=0);
+    match_update(&in,541,.016f);
+    assert(match_attack(&in)==SILENT); // Held through the next ready frame.
+    in.fire=0; match_attack(&in);
+    in.fire=1;
+    assert(match_attack(&in)==CARBINE_SHOT);
+    in.fire=0; in.refill=1;
+    assert(match_attack(&in)==CARBINE_RELOAD);
+    match_view(&v);
+    assert(v.reload && v.magazine==10 && v.reserve==18 && v.hide_crosshair);
+    assert(player.ready_at==720+720+1800);
+    bot.state.health=100; bot.state.armour=0;
+    damage(bot,player,GUN_CARBINE,1,0,0); assert(bot.state.health==40);
+    damage(bot,player,GUN_CARBINE,1,0,0); match_view(&v);
+    assert(!strcmp(v.frag_messages[0].text,"you picked off Bot"));
+    spawn(player,17); match_view(&v);
+    assert(v.weapon==VIEW_CARBINE && v.magazine==10 && v.reserve==20);
+    phase=INTERMISSION;
+    in={}; in.swap=1; in.start=1;
+    match_update(&in,0,0); match_view(&v);
+    assert(v.weapon==VIEW_RIFLE && v.phase==PLAYING);
 }
 
 extern "C" void test_bot_ammunition(void) {
