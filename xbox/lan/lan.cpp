@@ -186,7 +186,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(!r.valid) return;
             if(actor==own || actor==remote) match_lan_score(actor==own,frags);
             if(victim==own) {alive=false;next_spawn=now+2200;match_lan_health(0,0);}
-            if(victim==remote) match_lan_hide();
+            if(victim==remote) match_lan_remote_death(type==SV_GIBDIED);
             break;
         }
         case SV_CDIS: if(r.integer()==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");} break;

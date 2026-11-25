@@ -113,7 +113,7 @@ struct Gib {
 Gib gibs[12]; // Two knife frags reach the three-point duel limit.
 GibView gib_views[12];
 unsigned gib_count,gib_remainder;
-bool hide_bot,gib_sound,lan_match;
+bool hide_bot,gib_sound,lan_match,lan_gib_sound;
 unsigned lan_end_ms,scope_since;
 bool scoped;
 MatchSound lan_shot_sound;
@@ -768,6 +768,10 @@ void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int movi
     bot.yaw=yaw;bot.pitch=pitch;bot_pose=moving;hide_bot=false;
 }
 void match_lan_hide(void) { hide_bot=true; }
+void match_lan_remote_death(int gib) {
+    if (gib && !hide_bot) { spawn_gibs(bot); lan_gib_sound=true; }
+    match_lan_hide();
+}
 void match_lan_shot(int gun,float x,float y,float z) {
     if(!lan_match || hide_bot) return;
     bot.state.gunselect=gun;
@@ -808,7 +812,7 @@ void match_lan_item(int entity,int visible,int picked_by_us) {
 int match_lan_touch_item(void) { return lan_match ? collect(player) : -1; }
 void match_lan_stop(void) { lan_shot_sound=SILENT; if(lan_match) {lan_match=false;begin(READY);} }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
-    gib_sound=false;
+    gib_sound=lan_gib_sound; lan_gib_sound=false;
     if (gib_count) update_gibs(elapsed);
     if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
     bot_sound=lan_shot_sound; lan_shot_sound=SILENT;

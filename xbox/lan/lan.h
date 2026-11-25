@@ -17,6 +17,7 @@ void match_lan_remote_weapon(int gun);
 void match_lan_remote_reload(int gun);
 void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int moving);
 void match_lan_hide(void);
+void match_lan_remote_death(int gib);
 void match_lan_shot(int gun,float x,float y,float z);
 void match_lan_health(int health,int armour);
 void match_lan_time(unsigned remaining_ms);

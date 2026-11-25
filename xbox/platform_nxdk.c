@@ -257,8 +257,9 @@ int main(void) {
             if (down) buttons|=DOWN;
             int up=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_UP);
             if (up) buttons|=UP;
-            lan_knife |= up && !pad->previous_up;
-            pad->previous_up=up;
+            int melee=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+            lan_knife |= melee && !pad->previous_melee;
+            pad->previous_melee=melee;
             knife_select |= down && !pad->previous_knife;
             pad->previous_knife=down;
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
