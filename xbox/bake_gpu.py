@@ -266,20 +266,21 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                    ",".join("{"+",".join(f"{v:.6f}f" for v in p)+"}" for p in bot_muzzle)+"};\n")
 
     hands=model_skin(packages/"models/weapons/knife/skin_hands.jpg",(256,256))
-    for name in ("assault","pistol"):
+    for name in ("assault","pistol","knife"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
         tex=model_skin(folder/"skin_weapon.jpg",(256,256))
         header=struct.unpack_from("<4si64s9i",d)
         mark(name.upper()+"_BATCH",len(batches))
         muzzle=[]
-        for pose in (0,*range(8,16)):
+        for pose in (0,*range(8,20 if name=="knife" else 16)):
             for tag in range(header[5]):
                 label,*origin=struct.unpack_from("<64s3f",d,header[-3]+112*(pose*header[5]+tag))
                 if label.rstrip(b"\0")==b"tag_muzzle": muzzle.append(tuple(origin))
             for label,pos,uv,tri in md3_surfaces(d,header,pose):
                 # MD3 weapon assets point down +Y, with Z up and the grip on camera right.
                 model_batch(hands if label==b"hands" else tex,pos,uv,tri,tri)
+        if name=="knife": continue
         if len(muzzle)!=9: raise ValueError(f"Missing muzzle tag for {name}")
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")

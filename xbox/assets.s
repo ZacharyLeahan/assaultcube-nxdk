@@ -14,6 +14,7 @@ asset ambience
 asset gpu_vertices
 asset bot_poses
 asset gpu_textures
+asset knife
 asset usp
 asset pistol_reload
 asset auto

@@ -307,6 +307,39 @@ static void test_weapon_switch(void) {
     assert(match_attack(&in)==SILENT);
 }
 
+static void test_knife(void) {
+    MatchInput in={.start=1};
+    MatchView v;
+    match_prepare(); match_update(&in,16,.016f);
+    in=(MatchInput){.knife_select=1};
+    match_update(&in,16,.016f);
+    assert(match_attack(&in)==WEAPON_CHANGE);
+    in=(MatchInput){.fire=1};
+    match_update(&in,401,.016f);
+    assert(match_attack(&in)==KNIFE_SWING);
+    match_view(&v);
+    assert(v.knife && !v.flash && !v.blood_count && !v.spark_count && !v.player_light);
+    match_update(&in,460,.016f); match_view(&v);
+    assert(v.gun_pose==12 && v.next_gun_pose==12);
+    match_update(&in,40,.016f);
+    assert(match_attack(&in)==SILENT);
+    in.fire=0; match_attack(&in);
+    for (int i=0;i<500 && !v.player_frags;++i) {
+        match_view(&v);
+        float dx=v.tx-v.px,dy=v.ty-v.py,d=hypotf(dx,dy);
+        in.move=d>1.8f;
+        in.turn=remainderf(atan2f(dy,dx)-v.angle,6.2831853f)/(.016f*150*.017453293f);
+        in.look=(atan2f(v.bot_floor+3-v.eye,d)-v.pitch)/(.016f*105*.017453293f);
+        in.fire=d<3 && (i%2);
+        match_update(&in,16,.016f); match_attack(&in); match_view(&v);
+    }
+    assert(v.player_frags==2 && !v.bot_alive);
+    in=(MatchInput){.knife_select=1}; match_update(&in,16,.016f);
+    assert(match_attack(&in)==WEAPON_CHANGE);
+    in=(MatchInput){.fire=1}; match_update(&in,401,.016f);
+    assert(match_attack(&in)==RIFLE_SHOT); match_view(&v);
+    assert(!v.knife && !v.pistol && v.magazine==19);
+}
 static void test_rifle_trigger(int keep_firing) {
     MatchInput in={.start=1};
     MatchView v;
@@ -573,6 +606,7 @@ int main(void) {
     test_rifle_cadence(50);
     test_well_ladder();
     test_weapon_switch();
+    test_knife();
     test_rifle_trigger(0);
     test_rifle_trigger(1);
     test_reload_tap();

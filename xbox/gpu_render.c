@@ -98,6 +98,8 @@ int gpu_init(int width, int height) {
         world_light_uv[i]=(LightUV){(source[i].x+.5f)/256,(source[i].y+.5f)/256};
     unsigned rifle=batches[ASSAULT_BATCH].count+batches[ASSAULT_BATCH+1].count;
     unsigned pistol=batches[PISTOL_BATCH].count+batches[PISTOL_BATCH+1].count;
+    unsigned knife=batches[KNIFE_BATCH].count+batches[KNIFE_BATCH+1].count;
+    if (knife>rifle) rifle=knife;
     unsigned count=batches[BODY_BATCH].count+batches[BOT_GUN_BATCH].count+(rifle>pistol?rifle:pistol);
     pose_positions=pbgl_alloc(count*sizeof(Position));
     if (!pose_positions) return 0;
@@ -576,7 +578,7 @@ static void weapon(const MatchView *v) {
     glDisableClientState(GL_COLOR_ARRAY);
     model_color(v->px,v->py);
     bind_vertices(geometry);
-    int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
+    int first=v->knife?KNIFE_BATCH:v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
     int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;
     animated_batch(current,next,v->gun_pose_blend);
     animated_batch(current+1,next+1,v->gun_pose_blend);
@@ -623,6 +625,7 @@ static void equipment(float x,int col,int row,int value,int reserve) {
     glBindTexture(GL_TEXTURE_2D,textures[EQUIPMENT_TEX]);
     begin_quads(); quad(x,660,48,48,col*.25f,row*.25f,.25f,.25f); end_quads();
     glBindTexture(GL_TEXTURE_2D,textures[DIGITS_TEX]);
+    if (value<0) return;
     x=hud_digits(x+56,823*.8f,value,.8f);
     if (reserve>=0) hud_digits(x,826*.8f,reserve,.4f);
 }
@@ -719,7 +722,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
         color(1,1,1,1);
         equipment(8,2,3,v->health,-1);
         if (v->armour) equipment(196,(v->armour-1)/25,2,v->armour,-1);
-        equipment(384,v->pistol?1:2,v->pistol?0:1,v->magazine,v->reserve);
+        equipment(384,v->knife?0:v->pistol?1:2,v->knife||v->pistol?0:1,v->knife?-1:v->magazine,v->reserve);
     }
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);

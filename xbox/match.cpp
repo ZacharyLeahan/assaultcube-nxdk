@@ -51,10 +51,10 @@ struct BotClip {
 BotClip current_clip,previous_clip;
 unsigned clip_switch;
 unsigned idle_ms;
-bool pistol_trigger_used,empty_click,bot_saw_player;
+bool semi_trigger_used,empty_click,bot_saw_player;
 unsigned switch_end;
 unsigned intermission_age;
-int next_gun;
+int next_gun, previous_firearm;
 MatchPhase phase;
 bool classic_assist;
 MatchSound bot_sound;
@@ -124,7 +124,7 @@ void spawn(Fighter &f, int index) {
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
-        switch_end=0;
+        switch_end=0; previous_firearm=GUN_ASSAULT;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
         feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
@@ -157,7 +157,7 @@ void begin(MatchPhase initial) {
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0; idle_ms=0;
     next_route = hurt_until = 0;
-    bot_attack_at = 1500; bot_saw_player = pistol_trigger_used = empty_click = false;
+    bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
     // Open in the same courtyard at two official free-for-all player starts.
     spawn(player,17); spawn(bot,18);
@@ -224,7 +224,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
     victim.state.health = 0;
     victim.respawn_at = clock_ms+2000;
     victim.flash_until = 0;
-    ++attacker.frags;
+    attacker.frags+=gun==GUN_KNIFE?2:1;
     if (attacker.frags >= FRAG_LIMIT) phase = INTERMISSION;
 }
 MatchSound trigger(Fighter &f, bool fire, bool refill) {
@@ -519,9 +519,13 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             if (clock_ms+switch_ms/2>switch_end) player.state.gunselect=next_gun;
             if (clock_ms>switch_end) switch_end=0;
         }
-        if (in->swap && !switch_end && player.reload_at<=clock_ms) {
-            next_gun=player.state.gunselect==GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
+        if ((in->swap || in->knife_select) && !switch_end && player.reload_at<=clock_ms) {
+            int current=player.state.gunselect;
+            if (current==GUN_KNIFE) next_gun=previous_firearm;
+            else if (in->knife_select) { previous_firearm=current; next_gun=GUN_KNIFE; }
+            else next_gun=current==GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
             switch_end=clock_ms+switch_ms;
+            player.ready_at=0;
             player.shots=player.shot_until=0;
         }
     }
@@ -599,33 +603,60 @@ static void bot_view(MatchView *v) {
     v->bot_head=bot_model_point(v,head);
 }
 static int target_contact(const MatchView *v,float range,bool check_geometry);
+static float aim_from_weapon(MatchPoint &direction) {
+    // Windows aims at the world under the crosshair, from 0.2 units below
+    // the eye. Resolve that depth without stalling the GPU for a readback.
+    float dx=cosf(player.pitch)*cosf(player.yaw),dy=cosf(player.pitch)*sinf(player.yaw);
+    float dz=sinf(player.pitch),eye_z=eye(player);
+    SurfaceHit hit;
+    trace_surface(player.x,player.y,eye_z,player.x+512*dx,player.y+512*dy,eye_z+512*dz,&hit);
+    float depth=prop_depth({player.x,player.y,eye_z},{dx,dy,dz},512*hit.fraction);
+    dx*=depth; dy*=depth; dz=dz*depth+.2f;
+    float length=fmaxf(.00001f,sqrtf(dx*dx+dy*dy+dz*dz));
+    direction={dx/length,dy/length,dz/length};
+    return length;
+}
 MatchSound match_attack(const MatchInput *in) {
     empty_click=false;
-    if (!in->fire) pistol_trigger_used=false;
-    bool fire = in->fire && (guns[player.state.gunselect].isauto || !pistol_trigger_used);
+    if (!in->fire) semi_trigger_used=false;
+    bool fire = in->fire && (guns[player.state.gunselect].isauto || !semi_trigger_used);
     if (switch_end && !player.respawn_at && phase==PLAYING)
         return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
     // PC gun::attack only observes a trigger release after gunwait expires.
     if (!fire && clock_ms>=player.ready_at) player.shots=0;
+    if (player.state.gunselect==GUN_KNIFE) {
+        if (phase!=PLAYING || player.respawn_at || !fire || player.ready_at>clock_ms) return SILENT;
+        unsigned action=player.ready_at>=frame_start_ms?player.ready_at:clock_ms;
+        player.ready_at=player.shot_until=action+attackdelay(GUN_KNIFE);
+        semi_trigger_used=true;
+        MatchPoint direction;
+        aim_from_weapon(direction);
+        float dx=3*direction.x,dy=3*direction.y,dz=3*direction.z,z=eye(player)-.2f;
+        SurfaceHit hit;
+        trace_surface(player.x,player.y,z,player.x+dx,player.y+dy,z+dz,&hit);
+        float reach=prop_depth({player.x,player.y,z},{dx,dy,dz},hit.fraction);
+        dx*=reach; dy*=reach; dz*=reach;
+        if (player.pitch<0) dz+=2.5f*sinf(player.pitch);
+        MatchView ray={};
+        ray.px=player.x; ray.py=player.y; ray.eye=z; ray.angle=player.yaw;
+        ray.pitch=atan2f(dz,hypotf(dx,dy));
+        bot_view(&ray);
+        if (target_contact(&ray,hypotf(dx,dy),true)) damage(bot,player,GUN_KNIFE,dx,dy,dz);
+        return KNIFE_SWING;
+    }
     MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill) : SILENT;
     if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
-        if (!g.isauto) pistol_trigger_used=true;
+        if (!g.isauto) semi_trigger_used=true;
         ++player.shots;
         player.shot_until=player.ready_at;
         float ramp=(float)player.shots/g.recoilincrease;
         player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
-        // Windows aims at the world under the crosshair, from 0.2 units below
-        // the eye. Resolve that depth without stalling the GPU for a readback.
-        float dx=cosf(player.pitch)*cosf(player.yaw),dy=cosf(player.pitch)*sinf(player.yaw);
-        float dz=sinf(player.pitch),eye_z=eye(player),z=eye_z-.2f;
+        MatchPoint direction;
+        float length=aim_from_weapon(direction);
+        float dx=direction.x,dy=direction.y,dz=direction.z,z=eye(player)-.2f;
         SurfaceHit hit;
-        trace_surface(player.x,player.y,eye_z,player.x+512*dx,player.y+512*dy,eye_z+512*dz,&hit);
-        float depth=prop_depth({player.x,player.y,eye_z},{dx,dy,dz},512*hit.fraction);
-        dx*=depth; dy*=depth; dz=dz*depth+.2f;
-        float length=fmaxf(.00001f,sqrtf(dx*dx+dy*dy+dz*dz));
-        dx/=length; dy/=length; dz/=length;
         firing_impulse(player,gun,dx,dy,dz,in->crouch);
         int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;
         auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
@@ -672,7 +703,7 @@ void match_view(MatchView *v) {
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;
     v->magazine = player.state.mag[gun]; v->reserve = player.state.ammo[gun];
-    v->pistol = gun == GUN_PISTOL;
+    v->pistol = gun == GUN_PISTOL; v->knife=gun==GUN_KNIFE;
     v->respawning = !!player.respawn_at; v->reload = player.reload_at > clock_ms;
     v->hide_crosshair=player.reload_hud_until>clock_ms;
     float lower=0;
@@ -702,16 +733,22 @@ void match_view(MatchView *v) {
         float t=age/(float)attackdelay(gun);
         // renderhudmodel samples the MD3 shoot loop every 40 ms.
         float frame=age/40.f;
-        v->gun_pose=1+((unsigned)frame%8); v->next_gun_pose=1+v->gun_pose%8;
-        v->gun_pose_blend=frame-floorf(frame);
-        v->flash=age<(unsigned)fmaxf(120,attackdelay(gun))/4;
+        if (v->knife) {
+            v->gun_pose=1+(unsigned)fminf(11,frame);
+            v->next_gun_pose=v->gun_pose<12?v->gun_pose+1:12;
+            v->gun_pose_blend=frame-floorf(frame);
+        } else {
+            v->gun_pose=1+((unsigned)frame%8); v->next_gun_pose=1+v->gun_pose%8;
+            v->gun_pose_blend=frame-floorf(frame);
+            v->flash=age<(unsigned)fmaxf(120,attackdelay(gun))/4;
+        }
         float phase=1.5f*t-1.5f;
         float kick=-sinf(phase*phase*phase);
         if (stance<PLAYER_EYE_HEIGHT) kick*=.75f;
         v->gun_rotation=guns[gun].mdl_kick_rot*kick;
         v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
-    v->wide_crosshair = !v->pistol && player.shots>3;
+    v->wide_crosshair = gun==GUN_ASSAULT && player.shots>3;
     v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
     v->bot_shot_pending=phase==PLAYING && bot_saw_player && !bot.respawn_at &&
                         bot_attack_at<=clock_ms+40 && bot.ready_at<=clock_ms+40;
