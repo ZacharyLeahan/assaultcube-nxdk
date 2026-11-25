@@ -309,7 +309,9 @@ extern "C" void test_sniper_scope(void) {
     phase=INTERMISSION; in={}; in.start=in.swap=1;
     match_update(&in,0,0);
     in={}; in.scope=1; match_update(&in,16,.016f); match_view(&v);
-    assert(v.weapon==VIEW_RIFLE && !v.scoped);
+    assert(v.weapon==VIEW_SHOTGUN && !v.scoped);
+    phase=INTERMISSION; in={}; in.start=in.swap=1;
+    match_update(&in,0,0);match_view(&v);assert(v.weapon==VIEW_RIFLE);
 }
 
 extern "C" void test_bot_ammunition(void) {
@@ -369,14 +371,21 @@ extern "C" void test_lan_pickups(void) {
     match_lan_stop();
 }
 
+static void finish_spawn_draw() {
+    MatchInput idle={};
+    match_update(&idle,switch_ms/2+1,.016f);
+}
+
 extern "C" void test_lan_sidearm(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     ammo[GUN_PISTOL]=50;mag[GUN_PISTOL]=10;mag[GUN_ASSAULT]=3;
     match_prepare();
     match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
     MatchInput in={};in.fire=1;
-    assert(match_attack(&in)==RIFLE_SHOT);
-    unsigned first=match_lan_shot_time(1000);
+    assert(match_attack(&in)==SILENT);
+    match_update(&in,switch_ms/2,.016f);assert(match_attack(&in)==SILENT);
+    match_update(&in,1,.001f);assert(match_attack(&in)==RIFLE_SHOT);
+    unsigned first=match_lan_shot_time(1000+clock_ms);
     for (unsigned shot=1;shot<=2;++shot) {
         while (player.state.mag[GUN_ASSAULT]>2-(int)shot) {
             match_update(&in,17,.017f);
@@ -405,19 +414,33 @@ extern "C" void test_lan_sidearm(void) {
     match_lan_stop();
 }
 
+static void place_remote(float x,float y,float floor,float yaw,float pitch,int move) {
+    match_lan_hide();
+    LanPose pose={{x,y,floor},{},yaw,pitch,move,0,1,0,0};
+    match_lan_remote(&pose);
+}
+
 extern "C" void test_lan_knife(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     match_prepare();
-    match_lan_spawn(100,0,GUN_ASSAULT,GUN_KNIFE,ammo,mag);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    finish_spawn_draw();
+    MatchInput select={};select.knife_select=1;
+    match_update(&select,16,.016f);
+    select={};match_update(&select,switch_ms+1,.016f);
     player.x=121; player.y=121; player.yaw=0; player.pitch=-.2f;
     feet_z=ground(player.x,player.y);
     player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    place_remote(122,120.5f,feet_z,0,0,0);
+    assert(fabsf(bot.x-player.x-2*PLAYER_RADIUS)<.001f && bot.y==120.5f);
+    place_remote(120.5f,120,feet_z,0,0,0);
+    assert(fabsf(bot.y-player.y+2*PLAYER_RADIUS)<.001f && bot.x==120.5f);
     MatchInput in={}; in.fire=1;
-    match_lan_remote(126,121,feet_z,0,0,0);
+    place_remote(126,121,feet_z,0,0,0);
     assert(match_attack(&in)==KNIFE_SWING && !shot_contact);
     assert(shot_end.x>123 && shot_end.x<=124);
-    match_lan_remote(124,121,feet_z,0,0,0);
-    clock_ms=500;
+    place_remote(124,121,feet_z,0,0,0);
+    clock_ms+=500;
     assert(match_attack(&in)==SILENT);
     in.fire=0;match_attack(&in);in.fire=1;
     int hp=bot.state.health;
@@ -429,6 +452,18 @@ extern "C" void test_lan_knife(void) {
     match_lan_remote_death(1);
     in={};match_update(&in,16,.016f);match_view(&v);
     assert(v.hide_bot && v.gib_count==6 && v.gib_sound);
+    match_lan_remote_spawn(GUN_PISTOL);
+    place_remote(126,121,feet_z,0,0,0);
+    match_lan_remote_death(0);
+    match_view(&v);
+    assert(!v.bot_alive && !v.hide_bot && v.current_pose.first>=178);
+    for(int i=0;i<330;++i) match_update(&in,16,.016f);
+    match_view(&v);
+    assert(v.hide_bot && !v.bot_alive && bot.x==126);
+    match_lan_remote_spawn(GUN_ASSAULT);
+    place_remote(127,121,feet_z,0,0,0);
+    match_view(&v);
+    assert(!v.hide_bot && v.bot_alive && v.bot_weapon==VIEW_RIFLE);
     match_lan_stop();
 }
 
@@ -448,6 +483,29 @@ extern "C" void test_lan_hitpush(void) {
     player.velocity_y=.7f;
     match_lan_hitpush(GUN_PISTOL,18,-.99f,0,-.1f);
     assert(fabsf(player.velocity_x+.99f*.18f)<.0001f && player.velocity_y==.7f);
+    MatchView view;
+    match_lan_hitpush(GUN_GRENADE,50,1,0,0);
+    match_view(&view);assert(!view.ear_ringing);
+    match_lan_hitpush(GUN_GRENADE,51,1,0,0);
+    match_view(&view);assert(view.ear_ringing);
+    clock_ms+=5101;
+    match_view(&view);assert(!view.ear_ringing);
+    match_lan_hitpush(GUN_GRENADE,60,1,0,0);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    match_view(&view);assert(!view.ear_ringing);
+    player.eye_height=WATER_LEVEL-PLAYER_ABOVE_EYE-.01f;
+    match_view(&view);assert(view.underwater_audio);
+    player.eye_height+=.02f;
+    match_view(&view);assert(!view.underwater_audio);
+    player.x=121;player.y=121;
+    player.eye_height=ground(121,121)+PLAYER_EYE_HEIGHT;
+    bot.x=124;bot.y=121;bot.eye_height=ground(124,121)+PLAYER_EYE_HEIGHT;
+    hide_bot=false;
+    match_lan_shot(GUN_PISTOL,122,121,ground(122,121));
+    match_update(&in,5,.005f);match_view(&view);
+    assert(view.impact.sound==BULLET_IMPACT && view.mark_count==1);
+    match_update(&in,5,.005f);match_view(&view);
+    assert(view.impact.sound==SILENT && view.mark_count==1);
     match_lan_stop();
 }
 
@@ -458,6 +516,7 @@ extern "C" void test_lan_primary_loadouts(void) {
         mag[gun]=magsize(gun);ammo[gun]=2*magsize(gun);
         match_prepare();
         match_lan_spawn(100,0,gun,gun,ammo,mag);
+        finish_spawn_draw();
         MatchInput in={};in.fire=1;
         MatchWeapon weapon=view_weapon(gun);
         assert(match_attack(&in)==feedback[weapon].shot);
@@ -469,9 +528,359 @@ extern "C" void test_lan_primary_loadouts(void) {
         assert(match_attack(&in)==feedback[weapon].reload);
         assert(player.state.mag[gun]==magsize(gun) && player.state.ammo[gun]==2*magsize(gun)-(int)fired);
         match_lan_remote_weapon(gun);
-        match_lan_remote(124,121,0,0,0,0);
+        place_remote(124,121,0,0,0,0);
         MatchView v={};match_view(&v);
         assert(v.weapon==weapon && v.bot_weapon==weapon);
         match_lan_stop();
     }
+}
+
+extern "C" void test_shotgun_pellets(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    ammo[GUN_SHOTGUN]=14;mag[GUN_SHOTGUN]=7;
+    match_prepare();match_lan_spawn(100,0,GUN_SHOTGUN,GUN_SHOTGUN,ammo,mag);
+    finish_spawn_draw();
+    player.x=121;player.y=121;feet_z=ground(121,121);player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    player.yaw=0;player.pitch=-.2f;
+    place_remote(124,121,feet_z,0,0,0);
+    MatchInput in={};in.fire=1;
+    assert(match_attack(&in)==SHOTGUN_SHOT);
+    assert(shotgun_info==((21<<24)|(21<<16)|(21<<8)|65));
+    assert(player.state.mag[GUN_SHOTGUN]==6 && !player.frags);
+    assert(match_attack(&in)==SILENT);
+    clock_ms+=880;in.fire=0;match_attack(&in);
+    player.yaw=1.5f;in.fire=1;
+    assert(match_attack(&in)==SHOTGUN_SHOT && !shot_contact && !shotgun_info);
+    in.fire=0;in.refill=1;
+    assert(match_attack(&in)==SHOTGUN_RELOAD && player.state.mag[GUN_SHOTGUN]==7 && player.state.ammo[GUN_SHOTGUN]==12);
+    match_lan_stop();
+}
+
+extern "C" void test_stock_bot_round(void) {
+    match_prepare();
+    MatchInput in={};in.refill=1;
+    match_update(&in,16,.016f);
+    in={};in.start=1;match_update(&in,16,.016f);
+    assert(stock_round && phase==PLAYING && player.x==starts[3][0]);
+    MatchView v={};match_view(&v);assert(v.seconds==900);
+    int initial_skin=v.offline_bot_skin;
+    assert(initial_skin>=0 && initial_skin<4);
+    player.frags=2;bot.state.health=1;
+    damage(bot,player,GUN_PISTOL,1,0,0);
+    assert(phase==PLAYING && player.frags==3 && bot.deaths==1);
+    match_view(&v);assert(v.bot_name && strstr(v.frag_messages[0].text,v.bot_name));
+    player.state.health=1;damage(player,bot,GUN_PISTOL,1,0,0);
+    in={};clock_ms=player.respawn_at+1;
+    match_update(&in,16,.016f);assert(player.respawn_at);
+    in.fire=1;match_update(&in,16,.016f);assert(player.respawn_at);
+    in.fire=0;match_update(&in,16,.016f);assert(!player.respawn_at);
+    clock_ms=bot_match_duration-1;
+    match_update(&in,1,.001f);assert(phase==INTERMISSION);
+    match_view(&v);assert(v.bot_deaths==1 && v.player_deaths==1 && v.offline_bot_skin==initial_skin);
+    begin(PLAYING);match_view(&v);assert(!v.player_deaths && !v.bot_deaths);
+    // A surviving bot keeps traversing the map while the player waits to respawn.
+    float start_x=bot.x,start_y=bot.y;
+    player.respawn_at=2000;in={};
+    float farthest=0;bool used_waypoint=false;
+    for(int i=0;i<1000;++i) {
+        match_update(&in,16,.016f);
+        farthest=fmaxf(farthest,distance(bot.x,bot.y,start_x,start_y));
+        used_waypoint|=bot_route.waypoint>=0;
+    }
+    assert(farthest>20 && used_waypoint && !bot_saw_player && !bot.frags);
+    // A two-cube ledge blocks normal walking but is within a stock jump.
+    bot.x=158.2f;bot.y=127.70f;
+    bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
+    bot_airborne=bot_jump_request=false;
+    float before=eye(bot);float high=before;
+    for(int i=0;i<80;++i) {
+        frame_start_ms=clock_ms;clock_ms+=5;
+        move_bot(0,.08f);update_bot_height();
+        high=fmaxf(high,eye(bot));
+    }
+    assert(high>before+1.5f && bot.y>128.5f);
+    match_prepare();
+}
+
+extern "C" void test_stock_bot_primaries(void) {
+    start_perception_test();stock_round=true;
+    place_target(75,10.1f);
+    update_bot(0);
+    assert(bot_saw_player);
+    choose_combat_move(30,rifle_range);
+    assert(combat_forward==0 && fabsf(combat_side)==1);
+    assert(combat_move_until>=clock_ms+1500 && combat_move_until<=clock_ms+3000);
+    place_target(0,3.5f);
+    for(int attempt=0;!combat_jump_pending && attempt<32;++attempt) choose_combat_move(3.5f,rifle_range);
+    assert(combat_jump_pending && combat_forward==1 && !combat_side);
+    clock_ms=combat_move_until;choose_combat_move(3.5f,rifle_range);
+    assert(bot_jump_request && combat_jump_after>=clock_ms+1500 && combat_jump_after<=clock_ms+2800);
+    unsigned drawn=0;
+    for(int i=0;i<60;++i) {
+        spawn(bot,3,0);
+        assert(bot.state.primary>=GUN_CARBINE && bot.state.primary<=GUN_ASSAULT);
+        assert(bot.state.mag[bot.state.primary]==magsize(bot.state.primary));
+        drawn|=1u<<(bot.state.primary-GUN_CARBINE);
+    }
+    assert(drawn==31);
+    bot.state.nextprimary=GUN_SNIPER;
+    bot.state.respawn();bot.state.spawnstate(GMODE_BOTDEATHMATCH);
+    assert(preferred_bot_weapon(2)==GUN_KNIFE);
+    assert(preferred_bot_weapon(9)==GUN_PISTOL);
+    assert(preferred_bot_weapon(80)==GUN_SNIPER);
+    bot.state.mag[GUN_GRENADE]=1;
+    assert(preferred_bot_weapon(16)==GUN_GRENADE);
+    for(int gun=GUN_CARBINE;gun<=GUN_ASSAULT;++gun) {
+        start_perception_test();stock_round=true;
+        place_target(0,4);feet_z=eye(player)-PLAYER_EYE_HEIGHT;
+        player.yaw=player.pitch=0;bot_saw_player=true;
+        bot.state.primary=bot.state.gunselect=gun;bot.state.mag[gun]=magsize(gun);
+        bot_attack_at=0;bot.ready_at=0;bot_switch_after=clock_ms+1000;
+        update_bot(0);
+        assert(bot_sound==feedback[view_weapon(gun)].shot && bot.state.mag[gun]==magsize(gun)-1);
+        assert(player.state.health<100);
+    }
+    start_perception_test();stock_round=true;
+    place_target(0,8);feet_z=eye(player)-PLAYER_EYE_HEIGHT;
+    bot.state.mag[GUN_GRENADE]=1;bot_saw_player=true;
+    bot_attack_at=0;bot.ready_at=0;
+    update_bot(0);assert(bot.state.gunselect==GUN_GRENADE);
+    clock_ms=bot.ready_at;update_bot(0);
+    assert(bot_primed_at && !bot.state.mag[GUN_GRENADE]);
+    clock_ms+=attackdelay(GUN_GRENADE);update_bot(0);
+    assert(!bot_primed_at && active_grenade_count==1 && !active_grenades[0].local);
+    match_prepare();
+}
+
+extern "C" void test_lan_ffa_starts(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_map(91);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    assert(player.x==starts[3][0] && player.y==starts[3][1]);
+    assert(fabsf(player.yaw-(starts[3][2]*.1f-90)*radians)<.0001f);
+    // An enemy on the last candidate makes the preceding safe start preferable.
+    place_remote(starts[7][0],starts[7][1],starts[7][3],0,0,0);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    assert(player.x==starts[6][0] && player.y==starts[6][1]);
+    match_lan_hide();
+    spawn_cycle=start_count-2;
+    assert(next_ffa_start(4,nullptr)==2);
+    match_lan_health(0,0);
+    MatchInput trigger={};trigger.fire=1;
+    match_update(&trigger,100,.016f);trigger.fire=0;match_update(&trigger,100,.016f);
+    assert(!match_lan_take_respawn());
+    for(int i=0;i<160;++i) match_update(&trigger,16,.016f);
+    assert(player.respawn_at && !match_lan_take_respawn());
+    trigger.fire=1;match_update(&trigger,16,.016f);assert(!match_lan_take_respawn());
+    trigger.fire=0;match_update(&trigger,16,.016f);
+    assert(match_lan_take_respawn() && !match_lan_take_respawn() && player.respawn_at);
+    match_lan_score(1,4);
+    match_lan_time(0);
+    MatchInput restart={};restart.start=1;
+    match_update(&restart,16,.016f);
+    assert(phase==INTERMISSION && player.frags==4);
+    match_lan_map(92);
+    assert(phase==PLAYING && player.frags==0 && hide_bot && spawn_cycle==-1);
+    match_lan_stop();
+}
+
+extern "C" void test_lan_damage_feedback(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    player.yaw=0;
+    place_remote(player.x,player.y+6,feet_z,0,0,0);
+    match_lan_damage(1,1,18,82,0);
+    assert(player.state.health==82 && damage_directions[2]==clock_ms+1000);
+    assert(hurt_until==clock_ms+18*7 && lan_pain_sound==PLAYER_PAIN);
+    match_lan_damage(0,0,32,68,0);
+    assert(blood_count==3 && bot.pain_until==clock_ms+300 && player.state.health==82);
+    char name[]="Windows";
+    match_lan_frag(0,0,GUN_SHOTGUN,0,name);
+    name[0]='X';
+    match_lan_frag(1,0,GUN_SHOTGUN,1,"Windows");
+    MatchView v={};match_view(&v);
+    assert(!strcmp(v.frag_messages[0].text,"you were splattered by Windows"));
+    assert(!strcmp(v.frag_messages[1].text,"you peppered Windows"));
+    match_lan_frag(1,1,GUN_GRENADE,0,"Windows");match_view(&v);
+    assert(!strcmp(v.frag_messages[0].text,"you suicided!"));
+    assert(v.hide_player_body && v.gib_count==6 && !v.hide_bot);
+    clock_ms+=3000;match_view(&v);
+    assert(!v.frag_messages[0].text);
+    match_lan_stop();
+}
+
+extern "C" void test_lan_jump_report(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    MatchInput in={};in.jump=1;in.strafe=1;
+    for(int i=0;i<3;++i) match_update(&in,16,.016f);
+    MatchView v={};match_view(&v);
+    assert(!v.on_floor && v.player_velocity.z>0 && hypotf(v.player_velocity.x,v.player_velocity.y)>0);
+    assert(match_lan_take_jump() && !match_lan_take_jump());
+    for(int i=0;i<120;++i) match_update(&in,16,.016f);
+    match_view(&v);
+    assert(v.on_floor && !match_lan_take_jump());
+    in={};in.crouch=1;match_update(&in,16,.016f);match_view(&v);
+    assert(v.crouching && !v.on_ladder);
+    match_lan_stop();
+}
+
+extern "C" void test_lan_prediction(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    LanPose pose={{122,121,ground(122,121)},{1,0,0},0,0,1,0,1,0,0};
+    match_lan_remote(&pose);
+    MatchInput in={};
+    match_update(&in,16,.016f);
+    assert(bot.x>122.20f && bot.x<122.30f);
+    float old=bot.x;
+    pose.feet.x=123;pose.velocity={};pose.move=0;
+    match_lan_remote(&pose);
+    assert(bot.x==old);
+    match_update(&in,25,.025f);assert(bot.x>old && bot.x<123);
+    match_update(&in,50,.05f);assert(bot.x==123);
+    pose.feet.x=140;match_lan_remote(&pose);assert(bot.x==140);
+    pose.feet.x=122;pose.on_floor=0;pose.velocity.z=2;
+    match_lan_remote(&pose);
+    float floor=pose.feet.z;
+    for(int i=0;i<10;++i) match_update(&in,5,.005f);
+    assert(remote_pose.feet.z>floor+.9f && remote_pose.feet.z<floor+1.1f);
+    for(int i=0;i<140;++i) match_update(&in,5,.005f);
+    assert(remote_pose.feet.z==floor && remote_pose.on_floor && !remote_air_ms);
+    match_lan_stop();
+}
+
+extern "C" void test_lan_stance(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    LanPose pose={{122,121,ground(122,121)},{},0,0,0,0,1,0,0};
+    MatchInput in={};MatchView v={};
+    match_lan_remote(&pose);match_view(&v);
+    float standing_head=v.bot_head.z;
+    assert(match_lan_sound_id(PLAYER_JUMP)==S_JUMP && match_lan_sound_id(WATER_ENTER)<0);
+    match_lan_sound(S_JUMP);match_lan_sound(S_ITEMHELMET);match_lan_sound(S_ASSAULT);
+    match_update(&in,16,.016f);match_view(&v);
+    assert(v.actor_effect_count==2 && v.actor_effects[0]==PLAYER_JUMP && v.actor_effects[1]==PICKUP_HELMET);
+    match_update(&in,16,.016f);match_view(&v);assert(!v.actor_effect_count);
+    pose.crouching=1;match_lan_remote(&pose);
+    for(int i=0;i<12;++i) {match_update(&in,16,.016f);match_view(&v);}
+    assert(v.bot_height==.75f*PLAYER_EYE_HEIGHT && fabsf(v.bot_floor-pose.feet.z)<.001f);
+    assert(v.current_pose.first>=135 && v.current_pose.first<154 && v.bot_head.z<standing_head-.5f);
+    pose.move=1;match_lan_remote(&pose);match_update(&in,16,.016f);match_view(&v);
+    assert(v.current_pose.first>=154 && v.current_pose.first<160);
+    pose.crouching=0;pose.on_floor=0;pose.move=0;pose.feet.z+=3;match_lan_remote(&pose);
+    for(int i=0;i<5;++i) match_update(&in,16,.016f);
+    match_view(&v);assert(v.current_pose.first==68);
+    match_lan_stop();
+}
+
+extern "C" void test_grenade_pickups(void) {
+    match_prepare();begin(PLAYING);
+    int index=0;
+    while(index<item_count && locations[index].kind!=I_GRENADE) ++index;
+    assert(index<item_count);
+    const ItemLocation &p=locations[index];
+    player.x=p.x;player.y=p.y;feet_z=ground(p.x,p.y)+p.height_tenths*.1f;
+    player.state.mag[GUN_GRENADE]=0;
+    collect(player);assert(player.state.mag[GUN_GRENADE]==1 && unavailable_until[index]==9000);
+    clock_ms=8999;collect(player);assert(player.state.mag[GUN_GRENADE]==1);
+    clock_ms=9000;collect(player);assert(player.state.mag[GUN_GRENADE]==2);
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    match_lan_item(p.entity,true,false);
+    player.x=p.x;player.y=p.y;feet_z=ground(p.x,p.y)+p.height_tenths*.1f;
+    assert(match_lan_touch_item()==p.entity && !player.state.mag[GUN_GRENADE]);
+    match_lan_item(p.entity,false,true);
+    match_lan_item(p.entity,false,true);
+    assert(player.state.mag[GUN_GRENADE]==1);
+    match_lan_stop();
+}
+
+extern "C" void test_akimbo(void) {
+    match_prepare();
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    ammo[GUN_ASSAULT]=40;
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    finish_spawn_draw();
+    int index=0;
+    while(index<item_count && locations[index].kind!=I_AKIMBO) ++index;
+    assert(index<item_count);
+    int entity=locations[index].entity;
+    match_lan_item(entity,true,false);
+    assert(match_lan_item(entity,false,true));
+    assert(!match_lan_item(entity,false,true));
+    MatchInput in={};
+    for(int i=0;i<30;++i) match_update(&in,16,.016f);
+    assert(player.state.gunselect==GUN_AKIMBO && player.state.mag[GUN_AKIMBO]==20);
+    in.fire=1;unsigned shots=0;
+    for(int i=0;i<100;++i) {
+        match_update(&in,8,.008f);
+        if(match_attack(&in)==PISTOL_SHOT) {
+            ++shots;
+            assert(akimbo_left==(shots%2==0));
+        }
+    }
+    assert(shots==10 && player.state.mag[GUN_AKIMBO]==10);
+    in.fire=0;in.refill=1;
+    assert(match_attack(&in)==AKIMBO_RELOAD && player.state.mag[GUN_AKIMBO]==20);
+    in.refill=0;clock_ms=akimbo_expires-1;
+    match_update(&in,1,.001f);
+    assert(!player.state.akimbo && next_gun==GUN_ASSAULT && pickup_sound==AKIMBO_END);
+    match_lan_stop();
+}
+
+extern "C" void test_remote_grenade(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    MatchInput in={};MatchView view={};
+    player.x=121.8125f;player.y=126.0625f;
+    feet_z=ground(player.x,player.y);player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    place_remote(125,116,ground(125,116),0,0,0);
+    match_lan_throw({123.06f,120.46f,.16f},{-.29f,1.28f,-.71f},1148);
+    match_view(&view);assert(view.grenade_count==1);
+    for(int i=0;i<53;++i) match_update(&in,16,.016f);
+    match_view(&view);assert(view.grenade_count==1);
+    match_update(&in,16,.016f);match_view(&view);
+    assert(!view.grenade_count && view.explosion_count==1 && view.spark_count==50);
+    assert(view.impact.sound==GRENADE_EXPLODE && player.state.health==100);
+    assert(view.scorch_count==1 && fabsf(view.scorches[0].pos.z+1.98f)<.001f);
+    unsigned scorch_end=view.scorches[0].end_ms;
+    scorch_floor({120,117,5.01f},clock_ms);
+    scorch_floor({0,0,0},clock_ms);
+    assert(scorch_count==1);
+    assert(scorch_end==clock_ms+10000);
+    // Stock Windows throw on ac_desert. The server's 10-damage hit and
+    // quantized push vector put the explosion near (120.4,117.0).
+    assert(hypotf(view.explosions[0].pos.x-120.4f,view.explosions[0].pos.y-117.f)<.2f);
+    clock_ms=scorch_end-1;update_grenades(clock_ms);assert(scorch_count==1);
+    ++clock_ms;update_grenades(clock_ms);assert(!scorch_count);
+    match_lan_stop();
+}
+
+extern "C" void test_grenade_controls(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};mag[GUN_GRENADE]=1;
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    finish_spawn_draw();
+    MatchInput in={};in.grenade_select=1;match_update(&in,16,.016f);
+    in={};for(int i=0;i<26;++i) match_update(&in,16,.016f);
+    assert(match_lan_selected_weapon()==GUN_GRENADE);
+    in.fire=1;assert(match_attack(&in)==GRENADE_PULL && player.state.mag[GUN_GRENADE]==0);
+    const GrenadeEvent *events;
+    assert(match_lan_grenade_events(&events)==1 && events[0].action==NADE_PRIME);
+    unsigned id=events[0].id;
+    in.fire=0;match_update(&in,300,.016f);assert(match_attack(&in)==SILENT);
+    match_update(&in,350,.016f);assert(match_attack(&in)==GRENADE_THROW);
+    assert(match_lan_grenade_events(&events)==1 && events[0].action==NADE_RELEASE);
+    assert(events[0].id==id && events[0].cooked==650);
+    for(int i=0;i<90;++i) {match_update(&in,16,.016f);match_attack(&in);}
+    assert(match_lan_grenade_events(&events)==1 && events[0].action==NADE_BLAST && events[0].id==id);
+    assert(!active_grenade_count && player.state.gunselect==GUN_ASSAULT && player.state.health==100);
+    match_lan_stop();
+    begin(PLAYING);player.state.mag[GUN_GRENADE]=1;player.state.gunselect=GUN_GRENADE;
+    in.fire=1;assert(match_attack(&in)==GRENADE_PULL);
+    for(int i=0;i<128;++i) {match_update(&in,16,.016f);match_attack(&in);}
+    assert(player.respawn_at && player.frags==-1);
+    MatchView v={};match_view(&v);assert(!strcmp(v.frag_messages[0].text,"you suicided!"));
+    assert(v.respawning && v.hide_player_body && v.gib_count>=6 && !v.hide_bot);
+    respawn_near(player,bot);match_view(&v);assert(!v.hide_player_body);
 }

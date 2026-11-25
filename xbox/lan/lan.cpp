@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 #include "../../source/src/playerstate.h"
+#include "../../source/src/disconnect_reason.h"
 
 extern "C" struct netif *g_pnetif;
 
@@ -16,15 +17,24 @@ ENetHost *host;
 ENetPeer *peer;
 ENetAddress address;
 int own=-1,life,remote=-1,remote_life;
-bool ready,alive;
+bool ready,alive,remote_alive,joining;
+bool intermission;
+struct GrenadeId { unsigned game,wire; };
+GrenadeId grenade_ids[8];
+unsigned next_grenade_id;
 unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
+char player_names[MAXCLIENTS][16];
+int deaths[MAXCLIENTS],pings[MAXCLIENTS];
+struct Appearance { int team,skin[2]; };
+Appearance appearances[MAXCLIENTS];
 struct PrimaryChoice { int gun; const char *config,*label; };
 constexpr PrimaryChoice primaries[]={
     {GUN_ASSAULT,"assault","Next spawn: MTP-57 rifle"},
     {GUN_SNIPER,"sniper","Next spawn: AD-81 sniper"},
     {GUN_SUBGUN,"subgun","Next spawn: A-ARD/10 SMG"},
-    {GUN_CARBINE,"carbine","Next spawn: TMP-M&A CB carbine"}
+    {GUN_CARBINE,"carbine","Next spawn: TMP-M&A CB carbine"},
+    {GUN_SHOTGUN,"shotgun","Next spawn: V-19 CS shotgun"}
 };
 constexpr unsigned primary_count=sizeof(primaries)/sizeof(primaries[0]);
 unsigned primary_choice;
@@ -85,8 +95,8 @@ struct Message {
         byte(x);
     }
     void string(const char *s) {while(*s) word(*s++);word(0);}
-    void transmit(int channel=1) {
-        ENetPacket *p=enet_packet_create(data,n,channel?ENET_PACKET_FLAG_RELIABLE:0);
+    void transmit(int channel=1,bool reliable=true) {
+        ENetPacket *p=enet_packet_create(data,n,channel && reliable?ENET_PACKET_FLAG_RELIABLE:0);
         if(p && enet_peer_send(peer,channel,p)<0) enet_packet_destroy(p);
     }
 };
@@ -100,15 +110,16 @@ void stop(const char *why) {
 void positions(Reader &r) {
     while(r.valid && r.bit<r.size*8) {
         int type=r.integer(),cn,x,y,z,yaw,pitch,flags;
+        MatchPoint velocity={};
         if(type==SV_POS) {
             cn=r.integer();x=r.natural();y=r.natural();z=r.natural();
             unsigned packed=r.bits(32); flags=packed&2047;pitch=(packed>>11)&255;yaw=(packed>>19)&1023;
-            if(flags&512) r.skip(3);
+            if(flags&512) velocity={r.integer()/DVELF,r.integer()/DVELF,r.integer()/DVELF};
         } else if(type>=SV_POSC && type<=SV_POSC4) {
             int width=11+type-SV_POSC;
             cn=r.bits(5); x=r.bits(width);y=r.bits(width);yaw=r.bits(YAWBITS);
             pitch=r.bits(PITCHBITS);flags=r.bits(FLAGBITS);
-            if(flags&512) r.bits(12);
+            if(flags&512) velocity={((int)r.bits(4)-8)/DVELF,((int)r.bits(4)-8)/DVELF,((int)r.bits(4)-8)/DVELF};
             bool full=r.bits(1);
             int width_z=(8-r.bit%8)%8;
             if(width_z<3) width_z+=8;
@@ -117,13 +128,16 @@ void positions(Reader &r) {
         } else return;
         if(!r.valid || cn==own || cn<0 || cn>=MAXCLIENTS || x<0 || x>=MAP*16 || y<0 || y>=MAP*16) continue;
         if(flags&1024) z=-z;
-        remote=cn;
+        if(cn!=remote || !remote_alive || ((flags>>6)&1)!=(remote_life&1)) continue;
         float angle=(yaw*360.f/1024-90)/degrees;
         float tilt=(pitch-128)/256.f;
         if(tilt>1.f/3) tilt=4*tilt-1;
         if(tilt< -1.f/3) tilt=4*tilt+1;
-        match_lan_remote(x/DMF,y/DMF,z/DMF,angle,tilt*90/degrees,(flags&31)%9!=4);
-        snprintf(status,sizeof(status),"LAN  ac_desert    PC #%d",cn);
+        int movement=flags&31;
+        LanPose pose={{x/DMF,y/DMF,z/DMF},velocity,angle,tilt*90/degrees,
+            movement/3%3-1,movement%3-1,(flags&128)!=0,movement/9==1,movement/9==2};
+        match_lan_remote(&pose);
+        snprintf(status,sizeof(status),"LAN  ac_desert    %s #%d",lan_opponent_name(),cn);
     }
 }
 void messages(Reader &r,unsigned now,int sender=-1) {
@@ -134,7 +148,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         case SV_SERVINFO: {
             own=r.integer();
             int version=r.integer(),auth=r.integer(),password=r.integer();
-            if(!r.valid || version!=PROTOCOL_VERSION || auth || password) {stop("requires a compatible open LAN server");return;}
+            if(!r.valid || own<0 || own>=MAXCLIENTS || version!=PROTOCOL_VERSION || auth || password) {stop("requires a compatible open LAN server");return;}
             m.word(SV_SERVINFO_RESPONSE);m.word(now);m.word(time(nullptr)/60);m.word(address.port);
             unsigned ip=lwip_ntohl(address.host);
             for(int i=0;i<4;i++) m.byte(ip>>(i*8));
@@ -151,7 +165,10 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             char map[48];r.string(map,sizeof(map));
             int mode=r.integer();r.skip(3);
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
-            ready=true;alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_hide();match_lan_reset_items();
+            memset(grenade_ids,0,sizeof(grenade_ids));
+            memset(deaths,0,sizeof(deaths));
+            ready=joining=true;alive=remote_alive=intermission=false;
+            remote_weapon=GUN_ASSAULT;match_lan_map(now);
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
             next_spawn=now+1200;
@@ -165,22 +182,35 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(!r.valid || !ready || !supported_primary(primary) ||
                (gun!=primary && gun!=GUN_PISTOL)) return;
             m.word(SV_SPAWN);m.word(life);m.word(gun);m.transmit();
-            sent_weapon=gun;alive=true;
+            sent_weapon=gun;alive=true;joining=false;
             match_lan_spawn(hp,armour,primary,gun,ammo,mag);
             match_lan_remote_weapon(remote_weapon);
-            snprintf(status,sizeof(status),"LAN  ac_desert    Waiting for PC");break;
+            snprintf(status,sizeof(status),"LAN  ac_desert    Waiting for opponent");break;
         }
         case SV_SPAWN:
             if(sender<0) return;
             remote=sender;remote_life=r.integer();r.skip(2);remote_weapon=r.integer();
             r.skip(2*NUMGUNS);
-            if(r.valid) match_lan_remote_weapon(remote_weapon);
+            if(r.valid) {
+                remote_alive=true;
+                match_lan_remote_spawn(remote_weapon);
+            }
             break;
         case SV_RESUME:
             while(r.valid) {
                 int cn=r.integer();if(cn<0) break;
-                r.integer();int seq=r.integer();r.integer();int gun=r.integer();r.skip(6+2*NUMGUNS);
-                if(r.valid && cn!=own){remote=cn;remote_life=seq;remote_weapon=gun;match_lan_remote_weapon(gun);}
+                int state=r.integer(),seq=r.integer();r.integer();int gun=r.integer();
+                r.integer();int frags=r.integer(),lost=r.integer();r.skip(3+2*NUMGUNS);
+                if(!r.valid || cn>=MAXCLIENTS) return;
+                deaths[cn]=lost;
+                match_lan_score(cn==own,frags);
+                if(cn!=own) {
+                    remote=cn;remote_life=seq;remote_weapon=gun;
+                    // entity.h orders alive, dead, spawning, lagged, editing, spectator.
+                    remote_alive=state==0 || state==2 || state==3;
+                    if(remote_alive) match_lan_remote_spawn(gun);
+                    else match_lan_hide();
+                }
             }
             break;
         case SV_CLIENT: {
@@ -190,20 +220,41 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             messages(sub,now,cn);break;
         }
         case SV_DAMAGE:case SV_GIBDAMAGE:{
-            int victim=r.integer();r.skip(3);int armour=r.integer(),hp=r.integer();
-            if(r.valid && victim==own) match_lan_health(hp,armour);
+            int victim=r.integer(),actor=r.integer(),gun=r.integer(),damage=r.integer();
+            int armour=r.integer(),hp=r.integer();
+            if(r.valid && gun>=0 && gun<NUMGUNS && damage>=0 && (victim==own || victim==remote))
+                match_lan_damage(victim==own,actor==remote,damage,hp,armour);
             break;
         }
         case SV_GIBDIED:case SV_DIED:{
-            int victim=r.integer(),actor=r.integer(),frags=r.integer();r.integer();
+            int victim=r.integer(),actor=r.integer(),frags=r.integer(),gun=r.integer();
             if(!r.valid) return;
+            if(victim>=0 && victim<MAXCLIENTS) ++deaths[victim];
+            if((victim==own || victim==remote) && (actor==own || actor==remote) && gun>=0 && gun<NUMGUNS) {
+                match_lan_frag(victim==own,victim==actor,gun,type==SV_GIBDIED,lan_opponent_name());
+            }
             if(actor==own || actor==remote) match_lan_score(actor==own,frags);
-            if(victim==own) {alive=false;next_spawn=now+2200;match_lan_health(0,0);}
-            if(victim==remote) match_lan_remote_death(type==SV_GIBDIED);
+            if(victim==own) {alive=joining=false;next_spawn=now+2000;match_lan_health(0,0);}
+            if(victim==remote) {remote_alive=false;match_lan_remote_death(type==SV_GIBDIED);}
             break;
         }
-        case SV_CDIS: if(r.integer()==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");} break;
-        case SV_FORCEDEATH: if(r.integer()==own) alive=false;break;
+        case SV_CDIS: {
+            int cn=r.integer();
+            if(cn<0 || cn>=MAXCLIENTS) break;
+            if(cn==remote) {
+                snprintf(status,sizeof(status),"LAN  ac_desert    %s left",lan_opponent_name());
+                remote=-1; remote_alive=false;
+                match_lan_hide();
+            }
+            deaths[cn]=pings[cn]=0;player_names[cn][0]=0;appearances[cn]={};
+            break;
+        }
+        case SV_FORCEDEATH: {
+            int cn=r.integer();
+            if(cn==own && alive) {alive=false;next_spawn=now+2000;match_lan_health(0,0);}
+            if(cn==remote) {remote_alive=false;match_lan_hide();}
+            break;
+        }
         case SV_SPAWNDENY:if(r.integer()==SP_WRONGMAP){stop("map revision mismatch");return;}break;
         case SV_ITEMLIST:
             match_lan_reset_items();
@@ -220,19 +271,52 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         }
         case SV_ITEMACC: {
             int entity=r.integer(),picker=r.integer();
-            if(r.valid) match_lan_item(entity,false,picker==own);
+            if(r.valid && match_lan_item(entity,false,picker==own)) {
+                m.word(SV_AKIMBO);m.word(now);m.transmit();
+            }
             break;
         }
-        case SV_INITCLIENT:r.integer();r.string(nullptr,0);r.skip(8);break;
+        case SV_INITCLIENT:case SV_SWITCHNAME: {
+            int cn=type==SV_INITCLIENT?r.integer():sender;
+            char name[16];r.string(name,sizeof(name));
+            if(type==SV_INITCLIENT) {
+                int cla=r.integer(),rvsf=r.integer(),team=r.integer();
+                r.skip(5);
+                if(r.valid && cn>=0 && cn<MAXCLIENTS) appearances[cn]={team,{cla,rvsf}};
+            }
+            if(r.valid && cn>=0 && cn<MAXCLIENTS) {
+                unsigned n=0;
+                for(const char *ch=name;*ch;++ch) if(*ch>=32 && *ch<=126) player_names[cn][n++]=*ch;
+                player_names[cn][n]=0;
+            }
+            break;
+        }
         case SV_TIMEUP:{
             int elapsed=r.integer(),limit=r.integer();
-            if(r.valid && elapsed>=0 && limit>=elapsed) match_lan_time(limit-elapsed);
+            if(r.valid && elapsed>=0 && limit>0) {
+                intermission=elapsed>=limit;
+                match_lan_time(intermission?0:limit-elapsed);
+            }
             break;
         }
-        case SV_SETTEAM:r.skip(2);break;
+        case SV_SWITCHSKIN:{
+            int cla=r.integer(),rvsf=r.integer();
+            if(r.valid && sender>=0 && sender<MAXCLIENTS) {
+                appearances[sender].skin[0]=cla;appearances[sender].skin[1]=rvsf;
+            }
+            break;
+        }
+        case SV_SETTEAM:{
+            int cn=r.integer(),team=r.integer()&15;
+            if(r.valid && cn>=0 && cn<MAXCLIENTS) appearances[cn].team=team;
+            break;
+        }
         case SV_PONG:{
             unsigned sent=r.integer(),latency=now-sent;
-            if(r.valid && latency<=10000) {m.word(SV_CLIENTPING);m.word(latency);m.transmit();}
+            if(r.valid && latency<=10000) {
+                if(own>=0 && own<MAXCLIENTS) pings[own]=latency;
+                m.word(SV_CLIENTPING);m.word(latency);m.transmit();
+            }
             break;
         }
         case SV_SHOTFX:{
@@ -240,6 +324,13 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             int x=r.integer(),y=r.integer(),z=r.integer();
             if(r.valid && shooter==remote && gun>=0 && gun<NUMGUNS)
                 match_lan_shot(gun,x/DMF,y/DMF,z/DMF);
+            break;
+        }
+        case SV_THROWNADE: {
+            MatchPoint from={r.integer()/DNF,r.integer()/DNF,r.integer()/DNF};
+            MatchPoint velocity={r.integer()/DNF,r.integer()/DNF,r.integer()/DNF};
+            int cooked=r.integer();
+            if(r.valid && sender==remote) match_lan_throw(from,velocity,cooked);
             break;
         }
         case SV_HITPUSH: {
@@ -262,7 +353,17 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             break;
         }
         case SV_SERVMSG:case SV_SERVMSGVERB:r.string(nullptr,0);break;
-        case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:case SV_CLIENTPING:r.skip(1);break;
+        case SV_CLIENTPING:{
+            int ping=r.integer();
+            if(r.valid && sender>=0 && sender<MAXCLIENTS) pings[sender]=ping;
+            break;
+        }
+        case SV_SOUND: {
+            int id=r.integer();
+            if(r.valid && sender>=0 && sender==remote && remote_alive) match_lan_sound(id);
+            break;
+        }
+        case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:r.skip(1);break;
         default:return; // Unknown message may have variable length; discard this packet's remainder.
         }
     }
@@ -293,6 +394,24 @@ const char *lan_status(void) {
     return status[0]?status:nullptr;
 }
 int lan_connected(void) {return ready;}
+const char *lan_opponent_name(void) {
+    return remote>=0 && remote<MAXCLIENTS && player_names[remote][0]?player_names[remote]:"Player";
+}
+int lan_opponent_number(void) {return remote;}
+int lan_skin(int local) {
+    int cn=local?own:remote;
+    if(!ready || cn<0 || cn>=MAXCLIENTS) return local?4:0;
+    const Appearance &a=appearances[cn];
+    int team=a.team&1;
+    return (team?4:0)+(a.skin[team]&63)%(team?6:4);
+}
+int lan_scores(LanScore rows[2],const MatchView *v) {
+    if(!ready || own<0 || own>=MAXCLIENTS) return 0;
+    rows[0]={"Xbox",v->player_frags,deaths[own],pings[own]};
+    if(remote<0 || remote>=MAXCLIENTS) return 1;
+    rows[1]={lan_opponent_name(),v->bot_frags,deaths[remote],pings[remote]};
+    return 2;
+}
 void lan_toggle_primary(unsigned now) {
     if (!ready || !peer) return;
     primary_choice=(primary_choice+1)%primary_count;
@@ -310,7 +429,11 @@ void lan_poll(unsigned now) {
     }
     ENetEvent ev;
     for(int i=0;i<32 && peer && enet_host_service(host,&ev,0)>0;i++) {
-        if(ev.type==ENET_EVENT_TYPE_DISCONNECT){stop("disconnected");return;}
+        if(ev.type==ENET_EVENT_TYPE_DISCONNECT) {
+            char reason[64];
+            stop(format_disconnect_reason((int)ev.data,reason,sizeof(reason)));
+            return;
+        }
         if(ev.type==ENET_EVENT_TYPE_RECEIVE) {
             Reader r{ev.packet->data,ev.packet->dataLength,0};
             if(ev.channelID==0 && ready) positions(r);
@@ -320,12 +443,57 @@ void lan_poll(unsigned now) {
     }
     if(!peer)return;
     if(!ready && now-connect_start>18000) {stop("server timed out");return;}
-    if(ready && !alive && (int)(now-next_spawn)>=0) {command(SV_TRYSPAWN);next_spawn=now+1500;}
+    if(ready && !intermission && !alive && (joining || match_lan_take_respawn()) && (int)(now-next_spawn)>=0) {
+        command(SV_TRYSPAWN);next_spawn=now+(joining?1500:1000);
+    }
     if(ready && now-last_ping>=500){Message m;m.word(SV_PING);m.word(now);m.transmit();last_ping=now;}
 }
 
+static void send_grenades(unsigned now) {
+    const GrenadeEvent *events;
+    int count=match_lan_grenade_events(&events);
+    for(int i=0;i<count;++i) {
+        const GrenadeEvent &e=events[i];
+        Message m;
+        if(e.action==NADE_PRIME) {
+            // The game clock can pause or restart. Retain the original wire ID
+            // until the explosion, even when the shooter has already respawned.
+            grenade_ids[next_grenade_id++%8]={e.id,now};
+            m.word(SV_SHOOT);m.word(now);m.word(GUN_GRENADE);
+            m.word(0);m.word(0);m.word(0);m.word(0);
+        } else if(e.action==NADE_RELEASE) {
+            m.word(SV_THROWNADE);
+            m.word(nearest(e.position.x*DNF));m.word(nearest(e.position.y*DNF));m.word(nearest(e.position.z*DNF));
+            m.word(nearest(e.velocity.x*DNF));m.word(nearest(e.velocity.y*DNF));m.word(nearest(e.velocity.z*DNF));m.word(e.cooked);
+        } else {
+            unsigned id=0;
+            for(GrenadeId &g:grenade_ids) if(g.game==e.id && g.wire) {id=g.wire;g={};break;}
+            if(!id) continue;
+            m.word(SV_EXPLODE);m.word(now);m.word(GUN_GRENADE);m.word(id);m.word(e.hit_count);
+            for(int j=0;j<e.hit_count;++j) {
+                const GrenadeHit &h=e.hits[j];
+                m.word(h.local?own:remote);m.word(h.local?life:remote_life);m.word((int)(h.distance*DMF));
+                MatchPoint dir=h.local?MatchPoint{}:h.direction;
+                m.word((int)(dir.x*DNF));m.word((int)(dir.y*DNF));m.word((int)(dir.z*DNF));
+            }
+        }
+        m.transmit();
+    }
+}
+void lan_send_sounds(const MatchView *v) {
+    if(!peer || !ready || !alive || intermission) return;
+    Message m;
+    const MatchSound effects[]={v->movement_sound,v->stance_sound,v->pickup_sound};
+    for(MatchSound effect:effects) {
+        int id=match_lan_sound_id(effect);
+        if(id>=0) {m.word(SV_SOUND);m.word(id);}
+    }
+    if(m.n) m.transmit(1,false);
+}
 void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsigned now) {
-    if(!alive || !peer || !ready)return;
+    if(!peer || !ready || intermission)return;
+    send_grenades(now);
+    if(!alive)return;
     if(now-last_pos>=40) {
         last_pos=now;Message m;m.word(SV_POS);m.word(own);
         m.natural(nearest(v->px*DMF));m.natural(nearest(v->py*DMF));
@@ -334,10 +502,20 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         float pitch=v->pitch*degrees/90;
         if(pitch>1.f/3) pitch=pitch*.25f+.25f;
         if(pitch< -1.f/3) pitch=pitch*.25f-.25f;
-        int pi=nearest((pitch+.5f)*256)&255;
+        int pi=nearest((pitch+.5f)*256);
+        if(pi>255) pi=255;
+        if(pi<0) pi=0;
         int move=(input->move>.1f)-(input->move<-.1f),strafe=(input->strafe>.1f)-(input->strafe<-.1f);
-        unsigned packed=(yaw<<19)|(pi<<11)|(4+move*3+strafe+(input->crouch?18:0))|(v->scoped?32:0)|(life%2<<6)|128|(z<0?1024:0);
+        // The stock strafe flag is positive to the left. Xbox input is positive to the right.
+        int movement=4+move*3-strafe+(v->on_ladder?9:v->crouching?18:0);
+        int vx=nearest(v->player_velocity.x*DVELF),vy=nearest(v->player_velocity.y*DVELF);
+        int vz=nearest(v->player_velocity.z*DVELF);
+        bool has_velocity=vx || vy || vz;
+        unsigned packed=(unsigned(yaw)<<19)|(pi<<11)|movement|(v->scoped?32:0)|
+            ((life&1)<<6)|(v->on_floor?128:0)|(match_lan_take_jump()?256:0)|
+            (has_velocity?512:0)|(z<0?1024:0);
         for(int i=0;i<4;i++)m.byte(packed>>(8*i));
+        if(has_velocity) {m.word(vx);m.word(vy);m.word(vz);}
         m.transmit(0);
     }
     int item=match_lan_touch_item();
@@ -348,17 +526,17 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         Message change;change.word(SV_WEAPCHANGE);change.word(gun);change.transmit();
         sent_weapon=gun;
     }
-    if(effect==KNIFE_SWING || effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT || effect==SMG_SHOT || effect==CARBINE_SHOT) {
+    if(effect==KNIFE_SWING || effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT || effect==SMG_SHOT || effect==CARBINE_SHOT || effect==SHOTGUN_SHOT) {
         Message m;m.word(SV_SHOOT);m.word(match_lan_shot_time(now));m.word(gun);
         MatchPoint dir=v->shot_direction;
         m.word(v->shot_end.x*DMF);m.word(v->shot_end.y*DMF);m.word(v->shot_end.z*DMF);
         bool hit=remote>=0 && v->shot_contact;
         m.word(hit);
-        if(hit){m.word(remote);m.word(remote_life);m.word(gun==GUN_KNIFE || (gun==GUN_SNIPER && v->shot_contact==2));
+        if(hit){m.word(remote);m.word(remote_life);m.word(gun==GUN_SHOTGUN?v->shotgun_info:(gun==GUN_KNIFE || (gun==GUN_SNIPER && v->shot_contact==2)));
             m.word(dir.x*DNF);m.word(dir.y*DNF);m.word(dir.z*DNF);}
         m.transmit();
     }
-    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
+    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==AKIMBO_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD || effect==SHOTGUN_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
 }
 
 

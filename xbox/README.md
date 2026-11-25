@@ -2,7 +2,9 @@
 
 Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and Arghvark. Press Start to begin. Reach three frags to win, or lead when the 90-second clock expires. A tied score at time produces a draw. You respawn after two seconds and the bot returns after five. When you are fragged, the camera pulls back to show your fall. The right stick lets you look around until first-person play resumes.
 
-Barrels and crates can break the bot's sightline and stop its shots. The easy bot backs away when you close inside its preferred rifle range. It looks for a clear step along a wall and holds position when cornered.
+Press X on the ready screen to select a 15-minute, one-bot Deathmatch, matching the stock Windows Singleplayer menu default. It uses official free-for-all starts and has no frag limit. After a death, tap and release RT after two seconds to respawn. Press X again at the ready or result screen to select Quick Duel.
+
+The 15-minute match uses the Windows Good bot profile and the map's original waypoints. Your opponent picks a name, a CLA uniform and one of the five primaries. It can circle-strafe, jump, hunt a last-seen player and seek supplies. Barrels and crates break its sightline and stop its shots. Quick Duel keeps its easier rifle bot.
 
 | Control | Action |
 | --- | --- |
@@ -12,22 +14,24 @@ Barrels and crates can break the bot's sightline and stop its shots. The easy bo
 | A | Jump |
 | B | Hold to crouch |
 | Back | Hold for the overhead map |
-| Right trigger | Hold for automatic rifle or SMG fire. Tap for each sniper, carbine or pistol shot or knife swing |
+| Right trigger | Hold for automatic rifle or SMG fire. Tap for each sniper, carbine, shotgun or pistol shot or knife swing |
 | X | Reload from reserve ammunition. An empty magazine reloads automatically when reserves are available |
 | Left trigger | Hold to scope the AD-81 at a 50-degree horizontal FOV with reduced stick sensitivity. Release to return to the normal 90-degree view. |
-| Y | Before a match, cycle through the MTP-57 rifle, A-ARD/10 SMG, TMP-M&A carbine and AD-81 sniper rifle. During play, switch between the chosen primary and the MK-77 pistol |
+| Y | Before a match, cycle through the MTP-57 rifle, A-ARD/10 SMG, TMP-M&A carbine, AD-81 sniper rifle and V-19 shotgun. During play, switch between the chosen primary and the MK-77 pistol |
 | D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
+| D-pad right | Equip a collected grenade. Hold RT to pull the pin and release to throw. The two-second fuse starts at the pin pull |
 | Start | Begin a match, pause during play, or play again from the result screen |
+| D-pad left | Hold for the scoreboard in a LAN or 15-minute bot match |
 | D-pad Up | Open the system menu from any screen |
 | LT + RT + Back + Black | Hold for one second to reboot |
 
-The system menu pauses the match and audio. Use D-pad Up/Down and A to select Resume, Return to dashboard, Restart Xbox, or Shut down Xbox. For the last three, release A and press it again to confirm. B cancels or returns to the game.
+The system menu pauses an offline match and its audio. A LAN match continues while the menu is open. Use D-pad Up/Down and A to select Resume, Return to dashboard, Restart Xbox, or Shut down Xbox. For the last three, release A and press it again to confirm. B cancels or returns to the game.
 
 Controllers can be plugged in or replaced while the game is running. Any of the four ports can control the duel. The title and result screens show the number of connected controllers.
 
 The first-person rifle, SMG and carbine use their original 1024x512 textures. The pistol, knife and hands use 512x512 textures. Each has a 256-color palette and offline mipmaps.
 
-The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot also collects pickups. When low on ammunition, it seeks a reachable supply and switches back to the rifle after restocking.
+The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. Both fighters can collect supplies. Akimbo gives you dual pistols for 30 seconds. Look directly at the opponent to see their name above the equipment HUD.
 
 The radar and overhead map show the well water and map models, including barrels and crates. The player marker pulses briefly when you fire, reload, or switch weapons.
 
@@ -65,6 +69,16 @@ make -C xbox -j4
 
 Copy `xbox/bin/default.xbe` into its own Games folder on a homebrew-capable original Xbox. With XBMC's FTP server, you can launch it directly by sending `SITE RunXBE F:\Games\AssaultCube\default.xbe` using the installed path. The executable includes the baked assets. The build also produces `xbox/assaultcube.iso`. Original asset credits and licenses remain in the map and packages directories.
 
+### Debug a duel in xbased
+
+On Windows, use a developer build of xbased with `XBASED_DEVCTL=ON` and the nxdk GPU clock and DMA render-target fixes. From the repository root, run this with Python 3.11+ and Pillow.
+
+```powershell
+python xbox/tests/xbased_duel.py C:/path/to/xbased.exe xbox/assaultcube.iso --map xbox/generated/assaultcube.map --profile 8
+```
+
+The test starts the one-bot duel at 720p, strafes, fires, pauses, and advances one display swap. With the matching linker map it checks that the guest entered the playing phase and recorded a shot. Each run gets a separate virtual disk and output directory under `xbox/.local/xbased`. Open `duel.png` to inspect the scene, `draws.json` for GPU state per draw, `threads.json` for guest registers, and `xbased.log` for the optional CPU profile. With the xbased debugger patch, `last-stats.json` also reports draw commands skipped before Vulkan. The nxdk link produces `xbox/generated/assaultcube.map` for resolving guest addresses from that build. Use the physical Xbox frame trace below to measure console frame pacing.
+
 ## Shared gameplay and platform code
 
 The PC client, dedicated server, and Xbox match consume the same `playerstate` class and weapon and item definitions in `source/src/playerstate.h` and `source/src/weaponstats.inc`. The Xbox runs the original free-for-all spawn loadout, gun statistics, pickup limits, and armour damage calculation for both fighters.
@@ -79,7 +93,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | `gpu_render.c` | NV2A world and model drawing, skybox, HUD, and vblank presentation through pbGL and pbkit |
 | `bake.py`, `bake_gpu.py`, `bake_lighting.py`, `assets.s` | Import and embed the original map, lighting, models, textures, and sounds |
 
-The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The player can choose the rifle, SMG or carbine and carries the pistol and knife.
+The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The player can choose the rifle, SMG, carbine, sniper rifle or shotgun and carries the pistol and knife.
 
 ## Verification
 

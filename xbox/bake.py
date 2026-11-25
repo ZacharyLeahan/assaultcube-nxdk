@@ -1,5 +1,7 @@
 """Bake ac_desert and the bundled MD2 meshes into Xbox-ready data."""
 import gzip
+import json
+import math
 import re
 import struct
 import sys
@@ -19,7 +21,8 @@ def bake_ambience(config, entities):
     slots = re.findall(rb'^mapsound "([^"]+)" (-?\d+)', config, re.M)
     bank = bytearray()
     clips = []
-    for slot, maxuses in slots:
+    environment = [(b"player/underwater.ogg", -1), (b"misc/tinnitus.ogg", -1)]
+    for slot, maxuses in slots + environment:
         if int(maxuses)!=-1:
             raise ValueError("Expected unrestricted ac_desert sound slots")
         samples, rate = soundfile.read(PKG/"audio"/slot.decode(), always_2d=True)
@@ -34,7 +37,7 @@ def bake_ambience(config, entities):
         bank.extend((128+encoded).astype(np.uint8).tobytes())
     emitters = [(x,y,z,slot,outer,inner,volume) for x,y,z,slot,kind,outer,inner,volume
                 in entities if kind==14]
-    if any(not 0<=e[3]<len(clips) for e in emitters):
+    if any(not 0<=e[3]<len(slots) for e in emitters):
         raise ValueError("Map sound references a missing slot")
     def rows(name, kind, values):
         return f"static const {kind} {name}[] = {{\n"+''.join(
@@ -43,11 +46,58 @@ def bake_ambience(config, entities):
     decoded=np.rint(np.sign(codes)*np.expm1(abs(codes)*np.log(256))/255*24000).astype(int)
     (OUT/"ambience.bin").write_bytes(bank)
     (OUT/"ambience.h").write_text(rows("ambient_clips","AmbientClip",clips)+
+        f"enum {{ UNDERWATER_CLIP={len(slots)}, TINNITUS_CLIP={len(slots)+1} }};\n"+
         rows("emitters","SoundEmitter",emitters)+"static const short decoded[256] = {"+
         ','.join(map(str,decoded))+"};\n")
 
 
+def map_vantage(header):
+    data=iter(header)
+    def natural():
+        value=0
+        for shift in (0,7,14,21):
+            byte=next(data)
+            value|=(byte&127)<<shift
+            if not byte&128:
+                return value
+        return value
+    while True:
+        size,flags=natural(),natural()
+        record=iter(bytes(next(data) for _ in range(size)))
+        if flags&63==6:  # HX_VANTAGEPOINT in the official map header
+            def integer():
+                first=next(record)
+                if first in (128,129):
+                    n=2 if first==128 else 4
+                    return int.from_bytes(bytes(next(record) for _ in range(n)),"little",signed=True)
+                return first if first<128 else first-256
+            return [integer() for _ in range(5)]
+
+
+def bake_names():
+    names = (ROOT.parent / "bot/bot_names.txt").read_text().splitlines()
+    names = ["".join(c for c in name if " " <= c <= "~" and c != '"')[:15] for name in names]
+    pool = [json.dumps(name) for name in names if name][:150]
+    (OUT / "bot_names.h").write_text("static const char *const bot_names[] = {\n" +
+                                     ",\n".join(pool) + "\n};\n")
+
+
 def bake():
+    bake_names()
+    skills=(ROOT.parent/"bot/bot_skill.cfg").read_text()
+    profiles=[]
+    for number in (5,2):  # Quick duel, Windows Singleplayer menu
+        block=skills.split(f"[SKILL{number}]",1)[1].split("[SKILL",1)[0]
+        values=dict(re.findall(r"^(\w+)\s+([\d.]+)",block,re.M))
+        fields=[]
+        for name,scale in (("x_aim_speed",1),("y_aim_speed",1),("x_aim_offset",1),
+                           ("y_aim_offset",1),("attack_delay",1000),("enemy_search_delay",1000)):
+            fields.extend(round(float(values[prefix+"_"+name])*scale) for prefix in ("min","max"))
+        fields.append(int(values["max_always_detect_distance"]))
+        fields.append(values["can_circle_strafe"])
+        fields.append(f'{math.cos(math.radians(float(values["field_of_view"])/2)):.9f}f')
+        profiles.append("{"+",".join(map(str,fields))+"}")
+    (OUT/"bot_skill.h").write_text("static const BotSkill skills[]={"+",".join(profiles)+"};\n")
     data = gzip.decompress((PKG / "maps/official/ac_desert.cgz").read_bytes())
     magic, version, offset, factor, count = struct.unpack_from("<4s4i", data)
     if (magic, version, factor) != (b"ACMP", 10, 8):
@@ -58,11 +108,11 @@ def bake():
     pickups = []
     ladders = []
     clips = []
-    item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
+    item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 5: "I_GRENADE", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR", 9: "I_AKIMBO"}
     for i in range(count):
         x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
         if kind == 2 and team == 100:
-            starts.append((x, y, yaw))
+            starts.append((x, y, yaw, z))
         elif kind in item_kinds:
             pickups.append((x, y, yaw, item_kinds[kind], i))
         elif kind == 12:
@@ -114,10 +164,13 @@ def bake():
     (OUT / "clips.h").write_text("static const MapClip clips[] = {\n"+
         "".join("    {"+", ".join(map(str,c))+"},\n" for c in clips)+"};\n")
     (OUT / "deltas.bin").write_bytes(deltas)
-    (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
-        "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
+    (OUT / "starts.h").write_text("static const short starts[][4] = {\n" +
+        "".join(f"    {{{x}, {y}, {yaw}, {z}}},\n" for x,y,yaw,z in starts) + "};\n" +
+        "static const short vantage[] = {"+", ".join(map(str,map_vantage(config)))+"};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
         "".join(f"    {{{x}, {y}, {height}, {kind}, {entity}}},\n" for x, y, height, kind, entity in pickups) + "};\n")
+    from bake_waypoints import bake_waypoints
+    bake_waypoints(ROOT.parent / "bot/waypoints/ac_desert.wpt", OUT / "waypoints.h", pickups, cells)
     from bake_corners import map_corners
     corners = map_corners(cells,deltas)
     records = []
@@ -138,7 +191,8 @@ def bake():
     (OUT / "cell_light.bin").write_bytes(lighting.tobytes())
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting, corners, surface, (r,g,b,a))
-    sounds=("weapon/knife","weapon/auto","weapon/auto_reload","weapon/sub","weapon/sub_reload","weapon/carbine","weapon/carbine_reload","weapon/sniper","weapon/sniper_reload","weapon/usp","weapon/pistol_reload","weapon/clip_empty",
+    sounds=("weapon/knife","weapon/auto","weapon/auto_reload","weapon/sub","weapon/sub_reload","weapon/shotgun","weapon/shotgun_reload","weapon/carbine","weapon/carbine_reload","weapon/sniper","weapon/sniper_reload","weapon/usp","weapon/pistol_reload","weapon/clip_empty",
+            "misc/tick9","misc/tick11","weapon/pistol_akreload","weapon/grenade_pull","weapon/grenade_throw","weapon/grenade_bounce1","weapon/grenade_bounce2","weapon/grenade_exp",
             "weapon/ric1","weapon/ric2","weapon/ric3","weapon/waterimpact",
             "player/jump","player/land","player/step","player/footsteps","player/crouch","player/watersteps",
             "player/watercrouch","player/crouch_in","player/crouch_out",*(f"player/pain{i}" for i in range(1,7)),

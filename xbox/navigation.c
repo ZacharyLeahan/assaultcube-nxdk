@@ -40,8 +40,7 @@ static float map_ceiling(const Cube *c) { return c->kind==3 ? c->ceil+height_del
 typedef struct { short x,y,offset,half_x,half_y,height,shape; } MapClip;
 #include "generated/clips.h"
 
-static void clip_space(float x,float y,float feet,float *floor,float *ceiling) {
-    const float radius=PLAYER_RADIUS;
+static void clip_space(float x,float y,float feet,float radius,float *floor,float *ceiling) {
     for (unsigned i=0;i<sizeof(clips)/sizeof(clips[0]);++i) {
         const MapClip *clip=&clips[i];
         float dx=x-clip->x,dy=y-clip->y;
@@ -67,10 +66,10 @@ int ladder_space(float x,float y,float feet,float *top) {
     }
     return 0;
 }
-static const MapCorner *body_bounds(float x,float y,float feet,float *floor,float *ceiling) {
+static const MapCorner *body_bounds(float x,float y,float feet,float radius,unsigned clipmask,float *floor,float *ceiling) {
     const MapCorner *surface=NULL;
     *floor=-128; *ceiling=127;
-    float left=x-PLAYER_RADIUS,right=x+PLAYER_RADIUS,top=y-PLAYER_RADIUS,bottom=y+PLAYER_RADIUS;
+    float left=x-radius,right=x+radius,top=y-radius,bottom=y+radius;
     for (int iy=(int)top;iy<=(int)bottom;++iy) for (int ix=(int)left;ix<=(int)right;++ix) {
         const Cube *c=map_cube(ix,iy);
         if (c->kind==1) {
@@ -79,7 +78,7 @@ static const MapCorner *body_bounds(float x,float y,float feet,float *floor,floa
             int match=ix==(int)u && iy==(int)v;
             int inner=k->nx*u+k->ny*v>=k->plane;
             if (match && inner) surface=k;
-            if ((match && inner && k->solid) || ((k->solid || (match && inner)) && (c->tag&192))) {
+            if ((match && inner && k->solid) || ((k->solid || (match && inner)) && (c->tag&clipmask))) {
                 *floor=127; *ceiling=-128; return match && inner?k:NULL;
             }
             if (k->solid) inner=0;
@@ -87,14 +86,18 @@ static const MapCorner *body_bounds(float x,float y,float feet,float *floor,floa
             *ceiling=fminf(*ceiling,inner?k->inner_ceil:k->outer_ceil);
             continue;
         }
-        if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return NULL; }
+        if (map_solid(c) || (c->tag&clipmask)) { *floor=127; *ceiling=-128; return NULL; }
         *floor=fmaxf(*floor,map_floor(c)); *ceiling=fminf(*ceiling,map_ceiling(c));
     }
-    clip_space(x,y,feet,floor,ceiling);
+    clip_space(x,y,feet,radius,floor,ceiling);
     return surface;
 }
+int grenade_space(float x,float y,float feet,float *floor,float *ceiling) {
+    const MapCorner *corner=body_bounds(x,y,feet,.2f,64,floor,ceiling);
+    return corner?(corner->nx==corner->ny?-1:1):0;
+}
 void body_space(float x,float y,float feet,float *floor,float *ceiling) {
-    body_bounds(x,y,feet,floor,ceiling);
+    body_bounds(x,y,feet,PLAYER_RADIUS,192,floor,ceiling);
 }
 static int body_fits(float x,float y,float feet,float height,float step) {
     float floor,ceiling;
@@ -102,7 +105,10 @@ static int body_fits(float x,float y,float feet,float height,float step) {
     return floor<=feet+step && fmaxf(floor,feet)+height<=ceiling;
 }
 static int near_actor(const ActorBounds *a,float x,float y) {
-    return a && fabsf(a->x-x)<2*PLAYER_RADIUS && fabsf(a->y-y)<2*PLAYER_RADIUS;
+    if(!a) return 0;
+    float dx=a->x-x,dy=a->y-y,r=2*PLAYER_RADIUS;
+    // plcollide tests a circle for two players and a square for bot contact.
+    return a->round_xy ? dx*dx+dy*dy<r*r : fabsf(dx)<r && fabsf(dy)<r;
 }
 void actor_clearance(const ActorBounds *a,float x,float y,float feet,float height,float *floor,float *ceiling) {
     if (!near_actor(a,x,y)) return;
@@ -110,7 +116,6 @@ void actor_clearance(const ActorBounds *a,float x,float y,float feet,float heigh
     else if (feet+height<=a->feet+.01f) *ceiling=fminf(*ceiling,a->feet);
 }
 static int actor_blocks(const ActorBounds *a,float x,float y,float dx,float dy,float feet,float height) {
-    // PC plcollide uses square XY bounds when either fighter is a bot.
     return near_actor(a,x,y) && feet+height>a->feet && feet<a->top-.01f &&
            (a->x-x)*dx+(a->y-y)*dy>=0;
 }
@@ -118,7 +123,7 @@ void walk_past_actor(float *x,float *y,float dx,float dy,float feet,float height
     int steps=1+(int)(fmaxf(fabsf(dx),fabsf(dy))*3);
     for (int i=0;i<steps;++i) {
         float sx=dx/steps,sy=dy/steps,nx=*x+sx,ny=*y+sy,floor,ceiling;
-        const MapCorner *corner=body_bounds(nx,ny,feet,&floor,&ceiling);
+        const MapCorner *corner=body_bounds(nx,ny,feet,PLAYER_RADIUS,192,&floor,&ceiling);
         if (!actor_blocks(a,nx,ny,sx,sy,feet,height) && floor<=feet+step && fmaxf(floor,feet)+height<=ceiling) {
             *x=nx; *y=ny; continue;
         }
@@ -357,4 +362,24 @@ int route_next(float x, float y, float *tx, float *ty) {
         else { *tx += vx[dir]; *ty += vy[dir]; }
     }
     return 1;
+}
+
+// When a diagonal waypoint brushes a crate, the actor can stand outside the
+// walkable grid centers. Walk back to a reachable center along a tested path.
+int route_recovery(float x,float y,float *tx,float *ty) {
+    float best=1e9f;
+    for(int dy=-3;dy<=3;++dy) for(int dx=-3;dx<=3;++dx) {
+        int cx=(int)x+dx,cy=(int)y+dy;
+        if((unsigned)cx>=MAP || (unsigned)cy>=MAP || next_step[cy*MAP+cx]==255) continue;
+        float gx=cx+.5f,gy=cy+.5f,len=hypotf(gx-x,gy-y);
+        if(len<.8f || len>=best) continue;
+        int steps=(int)ceilf(len*4);
+        float sx=x,sy=y;
+        for(int i=0;i<steps;++i)
+            walk_body(&sx,&sy,(gx-x)/steps,(gy-y)/steps,body_floor(sx,sy),
+                      PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE,1.5f);
+        if(hypotf(gx-sx,gy-sy)>.08f) continue;
+        best=len;*tx=gx;*ty=gy;
+    }
+    return best<1e9f;
 }

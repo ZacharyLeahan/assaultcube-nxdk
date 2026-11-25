@@ -5,7 +5,7 @@ typedef struct { float x,y,z,u,v; unsigned char rgba[4]; } Vertex;
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern const Vertex gpu_vertices[];
+extern const MatchPoint prop_triangles[];
 float prop_depth(MatchPoint origin,MatchPoint direction,float depth);
 #ifdef __cplusplus
 }

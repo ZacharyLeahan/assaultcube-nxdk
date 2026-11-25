@@ -55,20 +55,32 @@ static void test_heightfield_impact(void) {
 
 static void test_shot_light(void) {
     extern const uint8_t cell_light[MAP][MAP][3];
-    ShotLight lights[2]={{129,132,50},{0}};
-    LightPatch dirty[4];
+    MatchView v={.px=129,.py=132,.player_light=50};
+    LightPatch dirty[MAX_DIRTY_LIGHTS];
     shot_light_init();
-    assert(shot_light_update(lights,dirty)==1);
+    assert(shot_light_update(&v,dirty)==1);
     unsigned peak=lit_cell(129,132)[0];
     assert(peak>cell_light[132][129][0]);
-    assert(shot_light_update(lights,dirty)==0);
-    lights[0].strength=10;
-    assert(shot_light_update(lights,dirty)>0 && lit_cell(129,132)[0]<peak);
-    lights[0].x-=2; lights[1]=(ShotLight){130,132,50};
-    assert(shot_light_update(lights,dirty)>0);
-    lights[0].strength=lights[1].strength=0;
-    assert(shot_light_update(lights,dirty)==2);
+    assert(shot_light_update(&v,dirty)==0);
+    v.player_light=10;
+    assert(shot_light_update(&v,dirty)>0 && lit_cell(129,132)[0]<peak);
+    v.px-=2; v.tx=130;v.ty=132;v.bot_light=50;
+    assert(shot_light_update(&v,dirty)>0);
+    v.player_light=v.bot_light=0;
+    assert(shot_light_update(&v,dirty)==2);
     for (int y=125;y<140;++y) for (int x=119;x<137;++x)
+        assert(memcmp(lit_cell(x,y),cell_light[y][x],3)==0);
+    ExplosionView blast={{129,132,0},600};
+    v.explosions=&blast;v.explosion_count=1;
+    assert(shot_light_update(&v,dirty)==1 && dirty[0].width==33);
+    unsigned white=lit_cell(128,132)[2];
+    v.elapsed_ms=599;
+    assert(shot_light_update(&v,dirty)==1 && lit_cell(128,132)[2]<white);
+    v.player_light=50;
+    assert(shot_light_update(&v,dirty)>0);
+    v.elapsed_ms=600;v.player_light=0;
+    assert(shot_light_update(&v,dirty)>0);
+    for(int y=113;y<150;++y) for(int x=110;x<147;++x)
         assert(memcmp(lit_cell(x,y),cell_light[y][x],3)==0);
 }
 
@@ -92,13 +104,13 @@ static void test_wind_playback(void) {
     assert(memcmp(replay+512,next,sizeof(next))==0);
 }
 
-static void test_strafe_reversal(unsigned hz) {
+static void test_strafe_reversal(unsigned hz,float forward,float side) {
     MatchInput in={.start=1};
     MatchView start,v;
     match_prepare(); match_update(&in,0,0); match_view(&start);
     float velocity=0,distance=0;
     for (int section=0;section<3;++section) {
-        in=(MatchInput){.strafe=section==0?.6f:section==1?-.6f:0};
+        in=(MatchInput){.move=forward,.strafe=section==0?side:section==1?-side:0};
         for (unsigned frame=0;frame<hz/5;++frame) {
             unsigned dt=(frame+1)*1000/hz-frame*1000/hz;
             match_update(&in,dt,dt*.001f);
@@ -248,6 +260,17 @@ static void test_stance(unsigned hz) {
     }
     assert(fabsf(peak-standing-2.943f)<.01f);
     assert(jumps==1 && landings==1);
+    match_prepare();
+    input=(MatchInput){.start=1};match_update(&input,0,0);match_view(&v);
+    float floor=v.player_floor;
+    peak=floor;
+    for(unsigned frame=0;frame<hz;++frame) {
+        unsigned now=frame*1000/hz,dt=(frame+1)*1000/hz-now;
+        input=(MatchInput){.jump=now<100,.crouch=now>=100 && now<550};
+        match_update(&input,dt,dt*.001f);match_view(&v);
+        peak=fmaxf(peak,v.player_floor);
+    }
+    assert(peak-floor>3.73f && peak-floor<3.89f);
     input=(MatchInput){.crouch=1,.strafe=.2f};
     for (int i=0;i<15;++i) {
         match_update(&input,16,1.f/60); match_view(&v);
@@ -425,6 +448,12 @@ static void test_fighter_contact(void) {
     assert(x<stopped-.35f);
     float floor=feet,ceiling=feet+30;
     actor_clearance(&bot,bot.x,bot.y,bot.top,height,&floor,&ceiling);
+    assert(floor==bot.top);
+    bot.round_xy=1;
+    floor=feet;
+    actor_clearance(&bot,bot.x-1.8f,bot.y-1.8f,bot.top,height,&floor,&ceiling);
+    assert(floor==feet);
+    actor_clearance(&bot,bot.x-1.4f,bot.y-1.4f,bot.top,height,&floor,&ceiling);
     assert(floor==bot.top);
 }
 static void test_rifle_trigger(int keep_firing) {
@@ -627,6 +656,11 @@ static void test_bot_hit_volumes(void) {
     assert(match_targeted(&v));
     v.px-=.15f*s; v.py+=.15f*c;
     assert(!match_targeted(&v));
+    v.px=v.tx; v.py=v.ty; v.eye=v.bot_floor+v.bot_height+3;
+    v.pitch=-90*.017453293f;
+    assert(match_targeted(&v));
+    v.pitch=-v.pitch;
+    assert(!match_targeted(&v));
     // Interpolated head coordinates follow the very same pain frames as the mesh.
     MatchPoint idle_head=v.bot_head;
     in=(MatchInput){.fire=1};
@@ -671,7 +705,19 @@ static void test_prop_depth(void) {
 void test_lan_sidearm(void);
 void test_lan_knife(void);
 void test_lan_hitpush(void);
+void test_grenade_controls(void);
+void test_akimbo(void);
+void test_remote_grenade(void);
+void test_grenade_pickups(void);
+void test_lan_stance(void);
+void test_lan_prediction(void);
+void test_lan_jump_report(void);
+void test_lan_ffa_starts(void);
+void test_stock_bot_round(void);
+void test_stock_bot_primaries(void);
+void test_lan_damage_feedback(void);
 void test_lan_primary_loadouts(void);
+void test_shotgun_pellets(void);
 void test_lan_pickups(void);
 void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
@@ -686,7 +732,19 @@ int main(void) {
     test_lan_sidearm();
     test_lan_knife();
     test_lan_hitpush();
+    test_grenade_controls();
+    test_akimbo();
+    test_remote_grenade();
+    test_grenade_pickups();
+    test_lan_stance();
+    test_lan_prediction();
+    test_lan_jump_report();
+    test_lan_ffa_starts();
+    test_stock_bot_round();
+    test_stock_bot_primaries();
+    test_lan_damage_feedback();
     test_lan_primary_loadouts();
+    test_shotgun_pellets();
     test_lan_pickups();
     test_easy_bot_perception();
     test_easy_bot_spacing();
@@ -707,10 +765,11 @@ int main(void) {
     test_incoming_fire(1);
     navigation_prepare();
     for (unsigned i=0;i<sizeof(starts)/sizeof(starts[0]);++i) test_routes_to_spawn(starts[i][0],starts[i][1]);
-    test_strafe_reversal(60);
+    test_strafe_reversal(60,0,.6f);
+    test_strafe_reversal(60,1,1);
     test_weapon_sway(0);
     test_weapon_sway(1);
-    test_strafe_reversal(50);
+    test_strafe_reversal(50,0,.6f);
     test_rifle_recoil(60,0);
     test_rifle_recoil(60,1);
     test_rifle_recoil(50,0);
@@ -928,6 +987,6 @@ int main(void) {
     input.look=1;
     for (int i=0;i<60;++i) match_update(&input,16,1.f/60);
     match_view(&view);
-    assert(view.angle==stopped && fabsf(view.pitch-75*.017453293f)<.0001f);
+    assert(view.angle==stopped && fabsf(view.pitch-90*.017453293f)<.0001f);
     puts("Passed bot duel, respawns, score limit, rematch and time limit.");
 }

@@ -17,20 +17,28 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     vertices = bytearray()
     vertex = struct.Struct("<5f4B")
 
-    def store_texture(raw, size, mip, indexed):
+    def store_texture(raw, size, mip, indexed, grayscale=False):
         packed = zlib.compress(raw, 6)
-        textures.append((len(blob), len(packed), *size, int(mip), int(indexed), len(raw)))
+        textures.append((len(blob), len(packed), *size, int(mip), int(indexed), len(raw), int(grayscale)))
         blob.extend(packed)
         return len(textures)-1
 
-    def texture(image, size, mip=True):
-        raw = image.convert("RGBA").resize(size, Image.Resampling.LANCZOS).tobytes()
-        return store_texture(raw, size, mip, False)
+    def texture(image, size, mip=True, grayscale=False):
+        image = image.convert("RGBA").resize(size, Image.Resampling.LANCZOS)
+        if grayscale:
+            rgba = np.asarray(image)
+            if not (np.array_equal(rgba[:,:,0],rgba[:,:,1]) and np.array_equal(rgba[:,:,1],rgba[:,:,2])):
+                raise ValueError("Non-gray texture cannot use luminance-alpha storage")
+            raw = rgba[:,:,[0,3]].tobytes()
+        else:
+            raw = image.tobytes()
+        return store_texture(raw, size, mip, False, grayscale)
 
-    def weapon_skin(path):
-        # Each close-up skin keeps its original texels with its own NV2A palette.
+    def indexed_skin(path,size=None):
         with Image.open(path) as source:
             rgb = source.convert("RGB")
+        if size and rgb.size!=size:
+            rgb=rgb.resize(size,Image.Resampling.LANCZOS)
         indexed = rgb.quantize(256)
         raw = bytearray(bytes(indexed.getpalette()).ljust(256*3, b"\0"))
         raw.extend(indexed.tobytes())
@@ -185,11 +193,15 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     for side in ("ft","rt","bk","lf","up","dn"):
         texture(Image.open(packages/f"textures/skymaps/makke/sand_{side}.jpg"),(256,256),False)
 
+    model_textures={}
     def model_skin(path,size):
-        with Image.open(path) as skin:
-            return texture(skin,size)
+        key=(path,size)
+        if key not in model_textures:
+            with Image.open(path) as skin:
+                model_textures[key]=texture(skin,size)
+        return model_textures[key]
 
-    bot_frames=(*range(58),*range(178,190))
+    bot_frames=(*range(58),68,*range(135,173),*range(178,190))
     bot_positions=bytearray()
     symbols.append("static const unsigned char bot_frame_batch[198] = {"+
                    ",".join(f"[{pose}]={i}" for i,pose in enumerate(bot_frames))+"};\n")
@@ -282,14 +294,19 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
 
     mark("BODY_BATCH",len(batches))
     player=packages/"models/playermodels"
+    mark("FIRST_PLAYER_SKIN",len(textures))
+    for team,count in (("CLA",4),("RVSF",6)):
+        for skin in range(1,count+1):
+            path=player/team/f"{skin:02d}.jpg"
+            model_textures[path,(256,256)]=indexed_skin(path,(256,256))
     md2(player,player/"CLA/01.jpg",(256,256),"BODY")
     world_models=(("assault","bot_gun"),("pistol","world_pistol"),("knife","world_knife"),
-                  ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"))
+                  ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"),("shotgun","world_shotgun"),("grenade","world_grenade"))
     world_counts=[]
     for weapon,name in world_models:
         mark(name.upper()+"_BATCH",len(batches))
         gun=packages/"models/weapons"/weapon/"world"
-        muzzle=None if weapon=="knife" else []
+        muzzle=None if weapon in ("knife","grenade") else []
         world_counts.append(md2(gun,gun/"skin.jpg",(128,64),name.upper(),muzzle))
         if muzzle:
             symbols.append(f"static const float {name}_muzzle[][3] = {{"+
@@ -298,54 +315,85 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("WORLD_WEAPON_MAX_INDICES",max(indices for _,indices in world_counts))
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
-    hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
-    for name in ("assault","pistol","knife","subgun","carbine","sniper"):
+    hud_positions=bytearray()
+    hud_frames=[]
+    hud_indices=[]
+    max_hud_vertices=0
+    hands=indexed_skin(packages/"models/weapons/knife/skin_hands.jpg")
+    for name in ("assault","pistol","knife","subgun","carbine","sniper","shotgun","grenade"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
-        tex=weapon_skin(folder/"skin_weapon.jpg")
+        tex=indexed_skin(folder/"skin_weapon.jpg")
         header=struct.unpack_from("<4si64s9i",d)
         muzzle=[]
         shoot=re.search(r'^md3anim "gun shoot" (\d+) (\d+)',(folder/"md3.cfg").read_text(),re.M)
         start,count=map(int,shoot.groups())
         poses=(0,*range(start,start+count))
+        if name=="grenade":
+            throw=re.search(r'^md3anim "gun throw" (\d+) (\d+)',(folder/"md3.cfg").read_text(),re.M)
+            first,length=map(int,throw.groups())
+            poses+=tuple(range(first,first+length))
         pose_batches=[]
-        unique={}
+        unique_positions={}
+        idle_offsets=[]
+        index_offsets=[]
+        base=len(batches)
         mark(name.upper()+"_SURFACES",header[6])
         for pose in poses:
             for tag in range(header[5]):
                 label,*origin=struct.unpack_from("<64s3f",d,header[-3]+112*(pose*header[5]+tag))
                 if label.rstrip(b"\0")==b"tag_muzzle": muzzle.append(tuple(origin))
-            surfaces=list(md3_surfaces(d,header,pose))
-            # The MD3 topology, materials and UVs are shared by every pose.
-            key=tuple(pos.tobytes() for _,pos,_,_ in surfaces)
-            if key not in unique:
-                unique[key]=len(batches)
-                for label,pos,uv,tri in surfaces:
+            pose_batches.append(len(hud_frames))
+            for surface,(label,pos,uv,tri) in enumerate(md3_surfaces(d,header,pose)):
+                raw=pos.astype("<f4").tobytes()
+                if raw not in unique_positions:
+                    unique_positions[raw]=len(hud_positions)//12
+                    hud_positions.extend(raw)
+                offset=unique_positions[raw]
+                if pose==0:
                     model_batch(hands if label==b"hands" else tex,pos,uv,tri,tri)
-            pose_batches.append(unique[key])
+                    idle_offsets.append(offset)
+                    index_offsets.append(len(hud_indices))
+                    hud_indices.extend(tri.flatten().tolist())
+                    max_hud_vertices=max(max_hud_vertices,len(pos))
+                hud_frames.append((base+surface,offset,int(offset==idle_offsets[surface]),index_offsets[surface],len(pos)))
         symbols.append(f"static const unsigned short {name}_batches[] = {{"+
                        ",".join(map(str,pose_batches))+"};\n")
-        if name=="knife": continue
+        if name in ("knife","grenade"): continue
         if len(muzzle)!=len(poses): raise ValueError(f"Missing muzzle tag for {name}")
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
-    mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
-    for name in ("knife","subgun","carbine","sniper"):
+    for name in ("knife","subgun","carbine","sniper","shotgun","grenade"):
         folder=packages/"models/weapons"/name/"world"
         mark(name.upper()+"_DEATH_BATCH",len(batches))
         md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))
+    folder=packages/"models/weapons/grenade/static"
+    mark("GRENADE_PROJECTILE_BATCH",len(batches))
+    md2(folder,folder/"skin.jpg",(128,128),None)
+    # A small textured sphere uses the original fireball texture and growing radius.
+    tex=model_skin(packages/"misc/explosion.png",(128,128))
+    def fireball_vertex(i,j):
+        u,v=i/16,j/8
+        longitude,latitude=2*np.pi*u,np.pi*(v-.5)
+        return ((np.cos(latitude)*np.cos(longitude),np.cos(latitude)*np.sin(longitude),np.sin(latitude)),(u,v),(255,255,255))
+    points=[]
+    for j in range(8):
+        for i in range(16):
+            points.extend(fireball_vertex(x,y) for x,y in ((i,j),(i+1,j),(i+1,j+1),(i,j),(i+1,j+1),(i,j+1)))
+    mark("EXPLOSION_BATCH",len(batches))
+    add_batch(tex,points,3)
     mark("GIB_BATCH",len(batches))
     for i in range(1,4):
         folder=packages/f"models/misc/gib0{i}"
         md2(folder,folder/"skin.jpg",(64,64),None)
     mark("PICKUP_BATCH",len(batches))
-    for name in ("pistolclips","ammobox","health","helmet","kevlar"):
+    for name in ("pistolclips","ammobox","nade","health","helmet","kevlar","akimbo"):
         folder=packages/"models/pickups"/name
         d=(folder/(name+".md3")).read_bytes()
         header=struct.unpack_from("<4si64s9i",d)
         if header[6]!=1: raise ValueError(f"Expected one pickup mesh for {name}")
-        tex=model_skin(folder/"skin.jpg",(128,128))
+        tex=model_skin(folder/("nade.jpg" if name=="nade" else "skin.jpg"),(128,128))
         for _,pos,uv,tri in md3_surfaces(d,header,0):
             pos=pos[:,[1,0,2]]
             if name=="helmet": pos[:,2]-=15  # mdltrans in the bundled md3.cfg
@@ -353,6 +401,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("PROP_START",len(batches))
     radar_meshes=[]
     prop_bounds=[]
+    collision=bytearray()
     prop_lights=[]
     for slot,(offset,name) in enumerate(model_slots):
         folder=packages/"models/mapmodels"/name.decode()
@@ -381,7 +430,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 prop_lights.append((x,y,first,tri.size))
                 bounds=(xyz.min(axis=0).astype(np.float32),xyz.max(axis=0).astype(np.float32))
                 limits=["{"+",".join(format(n,".9g") for n in side)+"}" for side in bounds]
-                prop_bounds.append("    {"+",".join([*limits,str(first),str(tri.size)])+"},\n")
+                prop_bounds.append("    {"+",".join([*limits,str(len(collision)//12),str(tri.size)])+"},\n")
+                collision.extend(xyz[tri].astype("<f4").tobytes())
         if points: add_batch(tex,points,3)
     mark("PROP_END",len(batches))
     symbols.append("static const PropLightSpan prop_lights[] = {\n"+
@@ -459,6 +509,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     decal=np.stack([np.asarray(Image.fromarray(ch).resize((64,64),Image.Resampling.BILINEAR))
                     for ch in decal.transpose(2,0,1)],axis=2)
     texture(Image.fromarray(decal),(64,64))
+    mark("SCORCH_TEX",len(textures))
+    texture(Image.open(packages/"misc/scorch.png"),(256,256))
     mark("SPARK_TEX",len(textures))
     texture(Image.open(packages/"misc/base.png"),(32,32),False)
     mark("BLOOD_TEX",len(textures))
@@ -478,18 +530,22 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("DIGITS_TEX",len(textures))
     digits=Image.new("RGBA",(512,64))
     digits.paste(Image.open(packages/"misc/huddigits.png").convert("RGBA"))
-    texture(digits,(512,64),False)
+    texture(digits,(512,64),False,grayscale=True)
     mark("SOLID_TEX",len(textures))
     texture(Image.new("RGBA",(4,4),"white"),(4,4),False)
     mark("FONT_TEX",len(textures))
-    texture(Image.open(packages/"misc/chars_default.png"),(512,512),False)
+    texture(Image.open(packages/"misc/chars_default.png"),(512,512),False,grayscale=True)
     mark("WORLD_LIGHT_TEX",len(textures))
     texture(Image.fromarray(lighting),(256,256),False)
     glyphs=re.findall(r"^fontchar\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)",
                       (packages.parent/"config/font_default.cfg").read_text(),re.M)[:94]
     mark("VERTEX_BYTES",len(vertices))
+    mark("HUD_MAX_VERTICES",max_hud_vertices)
+    symbols.append("static const unsigned short hud_indices[]={"+",".join(map(str,hud_indices))+"};\n")
+    (out/"hud_poses.bin").write_bytes(hud_positions)
     (out/"gpu_textures.bin").write_bytes(blob)
-    (out/"gpu_vertices.bin").write_bytes(vertices)
+    (out/"gpu_geometry.bin").write_bytes(zlib.compress(vertices,6))
+    (out/"prop_triangles.bin").write_bytes(collision)
     def rows(name,kind,data):
         return f"static const {kind} {name}[] = {{\n"+ "".join("    {"+",".join(map(str,r))+"},\n" for r in data)+"};\n"
-    (out/"gpu.h").write_text("".join(symbols)+rows("images","ImageInfo",textures)+rows("batches","Batch",batches)+rows("glyphs","Glyph",glyphs))
+    (out/"gpu.h").write_text("".join(symbols)+rows("hud_frames","HudFrame",hud_frames)+rows("images","ImageInfo",textures)+rows("batches","Batch",batches)+rows("glyphs","Glyph",glyphs))

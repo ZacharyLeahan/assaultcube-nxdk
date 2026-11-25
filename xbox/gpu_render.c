@@ -17,8 +17,9 @@
 #include <string.h>
 #include <zlib.h>
 
-typedef struct { unsigned offset, bytes, width, height, mip, indexed, unpacked; } ImageInfo;
+typedef struct { unsigned offset, bytes, width, height, mip, indexed, unpacked, grayscale; } ImageInfo;
 typedef struct { unsigned texture, first, count, primitive; } Batch;
+typedef struct { unsigned batch,offset,idle,indices,vertices; } HudFrame;
 typedef struct { int x, y, w, h; } Glyph;
 typedef struct { int x,y; unsigned first,count; } PropLightSpan;
 #include "generated/gpu.h"
@@ -32,11 +33,14 @@ typedef struct {
     const char *choice;
 } WeaponArt;
 static const WeaponArt weapon_art[]={
+    [VIEW_GRENADE]={grenade_batches,GRENADE_SURFACES,GRENADE_DEATH_BATCH,NULL,0,3,1,NULL},
     [VIEW_RIFLE]={assault_batches,ASSAULT_SURFACES,0,assault_muzzle,.75f,2,1,"Y   Primary: MTP-57 rifle"},
+    [VIEW_SHOTGUN]={shotgun_batches,SHOTGUN_SURFACES,SHOTGUN_DEATH_BATCH,shotgun_muzzle,.75f,3,0,"Y   Primary: V-19 CS shotgun"},
     [VIEW_SMG]={subgun_batches,SUBGUN_SURFACES,SUBGUN_DEATH_BATCH,subgun_muzzle,.55f,0,1,"Y   Primary: A-ARD/10 SMG"},
     [VIEW_SNIPER]={sniper_batches,SNIPER_SURFACES,SNIPER_DEATH_BATCH,sniper_muzzle,.50f,1,1,"Y   Primary: AD-81 sniper   /   LT scope"},
     [VIEW_CARBINE]={carbine_batches,CARBINE_SURFACES,CARBINE_DEATH_BATCH,carbine_muzzle,.50f,2,0,"Y   Primary: TMP-M&A CB carbine"},
     [VIEW_PISTOL]={pistol_batches,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
+    [VIEW_AKIMBO]={pistol_batches,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
     [VIEW_KNIFE]={knife_batches,KNIFE_SURFACES,KNIFE_DEATH_BATCH,NULL,0,0,0,NULL}
 };
 extern const unsigned char gpu_textures[];
@@ -44,7 +48,7 @@ static Vertex *geometry;
 typedef struct { float u,v; } LightUV;
 static LightUV *world_light_uv;
 typedef MatchPoint Position;
-extern const Position bot_poses[];
+extern const Position bot_poses[],hud_poses[];
 static Position *pose_positions;
 // Each silhouette edge emits at most one triangle to the shadow tip.
 #define MAX_COUNT(a,b) ((a)>(b)?(a):(b))
@@ -57,9 +61,12 @@ typedef struct {
 } WorldWeapon;
 #define WORLD_MODEL(id,name,muzzle,radius) {id##_BATCH,id##_POSE_BASE,id##_VERTICES,name##_indices,name##_neighbors,muzzle,radius}
 static const WorldWeapon world_weapons[]={
+    [VIEW_GRENADE]=WORLD_MODEL(WORLD_GRENADE,world_grenade,NULL,0),
     [VIEW_RIFLE]=WORLD_MODEL(BOT_GUN,bot_gun,bot_gun_muzzle,.525f),
     [VIEW_PISTOL]=WORLD_MODEL(WORLD_PISTOL,world_pistol,world_pistol_muzzle,.175f),
+    [VIEW_AKIMBO]=WORLD_MODEL(WORLD_PISTOL,world_pistol,world_pistol_muzzle,.175f),
     [VIEW_KNIFE]=WORLD_MODEL(WORLD_KNIFE,world_knife,NULL,0),
+    [VIEW_SHOTGUN]=WORLD_MODEL(WORLD_SHOTGUN,world_shotgun,world_shotgun_muzzle,.525f),
     [VIEW_SMG]=WORLD_MODEL(WORLD_SMG,world_smg,world_smg_muzzle,.385f),
     [VIEW_CARBINE]=WORLD_MODEL(WORLD_CARBINE,world_carbine,world_carbine_muzzle,.35f),
     [VIEW_SNIPER]=WORLD_MODEL(WORLD_SNIPER,world_sniper,world_sniper_muzzle,.7f)
@@ -69,7 +76,7 @@ enum { SHADOW_CAPACITY=3*(2*(sizeof(body_indices)+WORLD_GUN_INDEX_BYTES))/sizeof
 static Position *shadow_positions, shadow_tip;
 static unsigned shadow_count;
 static unsigned pose_cursor;
-enum { STREAM_CAPACITY = 2048 + 4*MARK_CAPACITY };
+enum { STREAM_CAPACITY = 2048 + 4*(MARK_CAPACITY+SCORCH_CAPACITY) };
 static Vertex *stream;
 static unsigned cursor, first;
 static unsigned char tint[4] = {255,255,255,255};
@@ -111,84 +118,115 @@ static voidpf zalloc_gpu(voidpf opaque, uInt count, uInt size) {
 }
 static void zfree_gpu(voidpf opaque, voidpf data) { (void)opaque; free(data); }
 
+static int gpu_failure(int line,int texture) {
+    FILE *f=fopen("D:\\gpu-init-error.txt","w");
+    if(f) {fprintf(f,"Renderer initialization failed at line %d, texture %d\n",line,texture);fclose(f);}
+    return 0;
+}
+static int unpack_asset(const unsigned char *packed,unsigned length,void *out,unsigned size) {
+    z_stream z={0};
+    z.zalloc=zalloc_gpu;z.zfree=zfree_gpu;
+    z.next_in=(Bytef *)packed;z.avail_in=length;
+    z.next_out=out;z.avail_out=size;
+    if(inflateInit(&z)!=Z_OK) return 0;
+    int ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
+    inflateEnd(&z);
+    return ok;
+}
+static int upload_texture(unsigned i,unsigned slot) {
+    const ImageInfo *im=&images[i];
+    unsigned char *pixels=malloc(im->unpacked);
+    if(!pixels) return 0;
+    if(!unpack_asset(gpu_textures+im->offset,im->bytes,pixels,im->unpacked)) {free(pixels);return 0;}
+    glBindTexture(GL_TEXTURE_2D,textures[slot]);
+    glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip && !im->indexed);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,im->mip?GL_LINEAR_MIPMAP_LINEAR:GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
+    if (im->indexed) {
+        const unsigned char *indices=pixels+256*3;
+        unsigned w=im->width,h=im->height;
+        for (unsigned level=0;;++level) {
+            glColorTableEXT(GL_TEXTURE_2D,GL_RGB,256,GL_RGB,GL_UNSIGNED_BYTE,pixels);
+            glTexImage2D(GL_TEXTURE_2D,level,GL_COLOR_INDEX8_EXT,w,h,0,GL_COLOR_INDEX,GL_UNSIGNED_BYTE,indices);
+            if (w==1 && h==1) break;
+            indices+=w*h;
+            w=w>1?w/2:1; h=h>1?h/2:1;
+        }
+        // Refresh pbGL's sampler state after uploading the complete mip chain.
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+    } else {
+        GLenum format=im->grayscale?GL_LUMINANCE_ALPHA:GL_RGBA;
+        glTexImage2D(GL_TEXTURE_2D,0,format,im->width,im->height,0,format,GL_UNSIGNED_BYTE,pixels);
+    }
+    free(pixels);
+    return glGetError()==GL_NO_ERROR;
+}
+// Only the two players visible in this duel need resident NV2A skin textures.
+static void update_player_skins(const MatchView *v) {
+    static int resident[2]={0,4};
+    for(int local=0;local<2;++local) {
+        int skin=(!local && v->stock_round)?v->offline_bot_skin:lan_skin(local);
+        if(skin==resident[local]) continue;
+        glFinish();
+        if(upload_texture(FIRST_PLAYER_SKIN+skin,FIRST_PLAYER_SKIN+4*local))
+            resident[local]=skin;
+    }
+}
+
 int gpu_init(int width, int height) {
+    int texture_index=-1;
     tick_hz=(unsigned)KeQueryPerformanceFrequency();
     for (unsigned i=0;i<=RADAR_SEGMENTS;++i) {
         float a=i*(6.2831853f/RADAR_SEGMENTS);
         radar_rim[i].x=cosf(a);
         radar_rim[i].y=sinf(a);
     }
-    if (pbgl_init(1)) return 0;
+    if (pbgl_init(1)) return gpu_failure(__LINE__,texture_index);
     shot_light_init();
     stream = pbgl_alloc(STREAM_CAPACITY*sizeof(Vertex));
-    if (!stream) return 0;
+    if (!stream) return gpu_failure(__LINE__,texture_index);
     aspect = (float)width/height;
     hud_width = aspect*720;
     glViewport(0,0,width,height);
     pbgl_set_swap_interval(0);
     pb_show_debug_screen();
     void *buffer = pbgl_alloc(VERTEX_BYTES);
-    if (!buffer) return 0;
-    memcpy(buffer,gpu_vertices,VERTEX_BYTES);
+    if (!buffer) return gpu_failure(__LINE__,texture_index);
+    extern const unsigned char gpu_geometry[],gpu_geometry_end[];
+    // Inflate in cached memory. NV2A geometry is write-combined and expensive
+    // for the CPU to read back, including while generating light coordinates.
+    Vertex *source=malloc(VERTEX_BYTES);
+    if(!source || !unpack_asset(gpu_geometry,(uintptr_t)gpu_geometry_end-(uintptr_t)gpu_geometry,source,VERTEX_BYTES))
+        return gpu_failure(__LINE__,texture_index);
+    memcpy(buffer,source,VERTEX_BYTES);
     geometry = buffer;
     const Batch *last_world=&batches[WORLD_BATCHES-1];
     unsigned world_count=last_world->first+last_world->count;
     world_light_uv=pbgl_alloc(world_count*sizeof(*world_light_uv));
-    if (!world_light_uv) return 0;
-    const Vertex *source=(const Vertex *)gpu_vertices;
+    if (!world_light_uv) return gpu_failure(__LINE__,texture_index);
     for (unsigned i=0;i<world_count;++i)
         world_light_uv[i]=(LightUV){(source[i].x+.5f)/256,(source[i].y+.5f)/256};
+    free(source);
     unsigned world_gun=WORLD_WEAPON_MAX_INDICES;
     unsigned extra=batches[BODY_BATCH].count+world_gun;
     for (unsigned i=0;i<sizeof(weapon_art)/sizeof(weapon_art[0]);++i) {
         const WeaponArt *art=weapon_art+i;
         unsigned count=0;
-        for (unsigned j=0;j<art->surfaces;++j) count+=batches[art->poses[0]+j].count;
+        for (unsigned j=0;j<art->surfaces;++j) count+=batches[hud_frames[art->poses[0]+j].batch].count;
         extra=MAX_COUNT(extra,count);
         if (art->death_batch) extra=MAX_COUNT(extra,batches[BODY_BATCH].count+batches[art->death_batch].count);
     }
     unsigned count=batches[BODY_BATCH].count+world_gun+extra;
     pose_positions=pbgl_alloc(count*sizeof(Position));
-    if (!pose_positions) return 0;
+    if (!pose_positions) return gpu_failure(__LINE__,texture_index);
     shadow_positions=pbgl_alloc(SHADOW_CAPACITY*sizeof(Position));
-    if (!shadow_positions) return 0;
+    if (!shadow_positions) return gpu_failure(__LINE__,texture_index);
     glGenTextures(sizeof(textures)/sizeof(textures[0]),textures);
     for (unsigned i=0;i<sizeof(textures)/sizeof(textures[0]);++i) {
-        const ImageInfo *im = &images[i];
-        unsigned size = im->unpacked;
-        unsigned char *pixels = malloc(size);
-        if (!pixels) return 0;
-        z_stream z = {0};
-        z.zalloc=zalloc_gpu; z.zfree=zfree_gpu;
-        z.next_in=(Bytef *)(gpu_textures+im->offset); z.avail_in=im->bytes;
-        z.next_out=pixels; z.avail_out=size;
-        int ok = inflateInit(&z)==Z_OK;
-        if (ok) {
-            ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
-            inflateEnd(&z);
-        }
-        if (!ok) { free(pixels); return 0; }
-        glBindTexture(GL_TEXTURE_2D,textures[i]);
-        glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip && !im->indexed);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,im->mip?GL_LINEAR_MIPMAP_LINEAR:GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
-        if (im->indexed) {
-            const unsigned char *indices=pixels+256*3;
-            unsigned w=im->width,h=im->height;
-            for (unsigned level=0;;++level) {
-                glColorTableEXT(GL_TEXTURE_2D,GL_RGB,256,GL_RGB,GL_UNSIGNED_BYTE,pixels);
-                glTexImage2D(GL_TEXTURE_2D,level,GL_COLOR_INDEX8_EXT,w,h,0,GL_COLOR_INDEX,GL_UNSIGNED_BYTE,indices);
-                if (w==1 && h==1) break;
-                indices+=w*h;
-                w=w>1?w/2:1; h=h>1?h/2:1;
-            }
-            // Refresh pbGL's sampler state after uploading the complete mip chain.
-            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
-        } else glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,im->width,im->height,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
-        free(pixels);
-        if (glGetError()!=GL_NO_ERROR) return 0;
+        if(i>=FIRST_PLAYER_SKIN && i<FIRST_PLAYER_SKIN+10 && i!=FIRST_PLAYER_SKIN && i!=FIRST_PLAYER_SKIN+4) continue;
+        if(!upload_texture(i,i)) return gpu_failure(__LINE__,i);
     }
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
@@ -220,23 +258,23 @@ static void model_color(float x,float y) {
     glColor4ub(rgb[0],rgb[1],rgb[2],255);
 }
 static void update_shot_lighting(const MatchView *v) {
-    ShotLight lights[2]={{(int)v->px,(int)v->py,v->player_light},{(int)v->tx,(int)v->ty,v->bot_light}};
-    LightPatch dirty[4];
-    unsigned changes=shot_light_update(lights,dirty);
+    LightPatch dirty[MAX_DIRTY_LIGHTS];
+    unsigned changes=shot_light_update(v,dirty);
     if (!changes) return;
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D,textures[WORLD_LIGHT_TEX]);
     for (unsigned i=0;i<changes;++i) {
         int x=dirty[i].x,y=dirty[i].y;
-        uint8_t rgba[LIGHT_WIDTH][LIGHT_WIDTH][4];
-        for (int row=0;row<LIGHT_WIDTH;++row) memcpy(rgba[row],lit_cell(x,y+row),sizeof(rgba[row]));
-        glTexSubImage2D(GL_TEXTURE_2D,0,x,y,LIGHT_WIDTH,LIGHT_WIDTH,GL_RGBA,GL_UNSIGNED_BYTE,rgba);
+        int width=dirty[i].width;
+        static uint8_t rgba[LIGHT_WIDTH_MAX*LIGHT_WIDTH_MAX*4];
+        for (int row=0;row<width;++row) memcpy(rgba+row*width*4,lit_cell(x,y+row),width*4);
+        glTexSubImage2D(GL_TEXTURE_2D,0,x,y,width,width,GL_RGBA,GL_UNSIGNED_BYTE,rgba);
     }
     glActiveTexture(GL_TEXTURE0);
     for (unsigned i=0;i<sizeof(prop_lights)/sizeof(prop_lights[0]);++i) {
         const PropLightSpan *p=prop_lights+i;
         for (unsigned j=0;j<changes;++j) {
-            if ((unsigned)(p->x-dirty[j].x)>=LIGHT_WIDTH || (unsigned)(p->y-dirty[j].y)>=LIGHT_WIDTH) continue;
+            if ((unsigned)(p->x-dirty[j].x)>=(unsigned)dirty[j].width || (unsigned)(p->y-dirty[j].y)>=(unsigned)dirty[j].width) continue;
             const uint8_t *rgb=lit_cell(p->x,p->y);
             for (unsigned k=0;k<p->count;++k) memcpy(geometry[p->first+k].rgba,rgb,4);
             break;
@@ -263,21 +301,22 @@ static void batch(unsigned n) {
 // Pose pairs share topology and UVs. Read positions from cached XBE memory
 // and write each mesh to its own GPU span until this frame has finished.
 static void animated_batch(unsigned current,unsigned next,float blend) {
-    const Batch *b=&batches[current];
-    if (blend<=0) {
-        bind_vertices(geometry);
-        batch(current);
+    const HudFrame *frame=&hud_frames[current],*other=&hud_frames[next];
+    const Batch *b=&batches[frame->batch];
+    if(frame->idle && (blend<=0 || other->idle)) {
+        batch(frame->batch);
         return;
     }
-    const Vertex *source=(const Vertex *)gpu_vertices;
-    const Vertex *a=source+b->first, *z=source+batches[next].first;
+    const Position *a=hud_poses+frame->offset,*z=hud_poses+other->offset;
     Position *out=pose_positions+pose_cursor;
     pose_cursor+=b->count;
-    for (unsigned i=0;i<b->count;++i) {
-        out[i]=(Position){a[i].x+(z[i].x-a[i].x)*blend,
-                          a[i].y+(z[i].y-a[i].y)*blend,
-                          a[i].z+(z[i].z-a[i].z)*blend};
+    static Position mixed[HUD_MAX_VERTICES];
+    if(blend>0 && frame->offset!=other->offset) {
+        for(unsigned i=0;i<frame->vertices;++i) mixed[i]=mix_point(a[i],z[i],blend);
+        a=mixed;
     }
+    const unsigned short *indices=hud_indices+frame->indices;
+    for(unsigned i=0;i<b->count;++i) out[i]=a[indices[i]];
     bind_vertices(geometry+b->first);
     glVertexPointer(3,GL_FLOAT,sizeof(Position),out);
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
@@ -339,10 +378,10 @@ static void world_weapon(MatchWeapon weapon,BotPose current,BotPose previous,flo
     const WorldWeapon *w=&world_weapons[weapon];
     actor_batch(w->batch,w->pose_base,w->vertices,w->indices,w->neighbors,current,previous,transition,batches[w->batch].texture);
 }
-static void projection(float near,float half_h) {
+static void projection(float near,float half_h,float ratio) {
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glFrustum(-half_h*aspect,half_h*aspect,-half_h,half_h,near,1200);
+    glFrustum(-half_h*ratio,half_h*ratio,-half_h,half_h,near,1200);
     glMatrixMode(GL_MODELVIEW);
 }
 static void quad(float x,float y,float w,float h,float u,float v,float du,float dv) {
@@ -472,7 +511,14 @@ static void level(const MatchView *v) {
     float cp=cosf(v->camera_pitch), sp=sinf(v->camera_pitch);
     const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
     // PC world FOV is horizontal: tan(90 degrees / 2) == 1.
-    projection(.15f,.15f*(v->scoped?SCOPE_TAN_HALF_FOV:1.f)/aspect);
+    float world_aspect=aspect,tan_half_y=(v->scoped?SCOPE_TAN_HALF_FOV:1.f)/aspect;
+    if(v->camera.z<WATER_SURFACE) {
+        // gl_drawframe distorts only the world projection below the surface.
+        float wave=sinf(v->elapsed_ms/1000.f);
+        tan_half_y=tanf(atanf(tan_half_y)+wave*.017453293f);
+        world_aspect-=wave*.1f;
+    }
+    projection(.15f,.15f*tan_half_y,world_aspect);
     glLoadMatrixf(camera);
     glTranslatef(-v->camera.x,-v->camera.y,-v->camera.z);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
@@ -502,13 +548,13 @@ static void level(const MatchView *v) {
         shadow_tip=(Position){ct*forward+st*down,10*(cy-sy),-st*forward+ct*down};
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
-                    v->current_pose,v->previous_pose,v->pose_transition,batches[BODY_BATCH].texture);
+                    v->current_pose,v->previous_pose,v->pose_transition,FIRST_PLAYER_SKIN);
         world_weapon(v->bot_weapon,v->current_pose,v->previous_pose,v->pose_transition);
         stencil_reference(64);
         glPopMatrix();
     }
     unsigned bot_shadow_count=shadow_count;
-    if (v->respawning) {
+    if (v->respawning && !v->hide_player_body) {
         unsigned frame=(unsigned)v->death_frame,next=frame<5?frame+1:frame;
         float blend=v->death_frame-frame;
         glPushMatrix(); glTranslatef(v->px,v->py,v->player_floor);
@@ -519,7 +565,7 @@ static void level(const MatchView *v) {
         BotPose pose={184+(int)frame,184+(int)next,blend};
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
-                    pose,pose,1,PLAYER_SKIN);
+                    pose,pose,1,FIRST_PLAYER_SKIN+4);
         unsigned base=weapon_art[v->weapon].death_batch;
         if (base) {
             animated_batch(base+frame,base+next,blend);
@@ -551,6 +597,14 @@ static void level(const MatchView *v) {
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
     glDisableClientState(GL_COLOR_ARRAY);
+    for(unsigned i=0;i<v->grenade_count;++i) {
+        const GrenadeView *g=&v->grenades[i];
+        glPushMatrix();
+        glTranslatef(g->pos.x,g->pos.y,g->pos.z);
+        glRotatef(g->rotation,0,0,1);glRotatef(g->rotation,1,0,0);
+        model_color(g->pos.x,g->pos.y);batch(GRENADE_PROJECTILE_BATCH);
+        glPopMatrix();
+    }
     for (unsigned i=0;i<v->gib_count;++i) {
         const GibView *g=&v->gibs[i];
         glPushMatrix();
@@ -615,6 +669,24 @@ static void level(const MatchView *v) {
         }
         end_quads();
     }
+    if(v->scorch_count) {
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        glBindTexture(GL_TEXTURE_2D,textures[SCORCH_TEX]);
+        begin_quads();
+        for(unsigned i=0;i<v->scorch_count;++i) {
+            const ExplosionView *mark=&v->scorches[i];
+            MatchPoint p=mark->pos;
+            const uint8_t *rgb=lit_cell((int)p.x,(int)p.y);
+            color(fminf(1,rgb[0]/127.5f),fminf(1,rgb[1]/127.5f),fminf(1,rgb[2]/127.5f),
+                  fminf(.7f,(mark->end_ms-v->elapsed_ms)/1000.f));
+            for(int j=0;j<4;++j) {
+                unsigned k=(j+mark->end_ms)%4;
+                vertex(p.x+(j==0 || j==3?1.5f:-1.5f),p.y+(j<2?1.5f:-1.5f),
+                       p.z,k==1 || k==2,k<2);
+            }
+        }
+        end_quads();
+    }
     glEnable(GL_BLEND); glBlendFunc(GL_DST_COLOR,GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();
@@ -676,25 +748,41 @@ static void level(const MatchView *v) {
         }
     }
     end_quads();
+    if(v->explosion_count) {
+        bind_vertices(geometry);
+        glDisableClientState(GL_COLOR_ARRAY);
+        for(unsigned i=0;i<v->explosion_count;++i) {
+            const ExplosionView *e=&v->explosions[i];
+            float age=1-(e->end_ms-v->elapsed_ms)/600.f;
+            float radius=1+6*age,fade=(7-radius)/7;
+            glPushMatrix();
+            glTranslatef(e->pos.x,e->pos.y,e->pos.z);
+            glRotatef(v->elapsed_ms/7.f,0,0,1);glScalef(radius,radius,radius);
+            glColor4f(fade,.5f*fade,.5f*fade,1);batch(EXPLOSION_BATCH);
+            glPopMatrix();
+        }
+        glEnableClientState(GL_COLOR_ARRAY);bind_vertices(stream);
+    }
     draw_water(v->elapsed_ms);
     glDisable(GL_BLEND);
     color(1,1,1,1);
     glDepthMask(GL_TRUE);
 }
-static void weapon_transform(const MatchView *v) {
+static void weapon_transform(const MatchView *v,int mirror) {
     // Reserve the front of the depth buffer for the view weapon.
     // The view weapon uses the PC's separate 75-degree vertical field of view.
-    projection(.30f,.30f*.76732699f);
+    projection(.30f,.30f*.76732699f,aspect);
     const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1};
     glLoadMatrixf(camera);
     glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up);
     glRotatef(v->gun_rotation,1,0,0);
     // PC MD3 units are 1/16 of a cube, and weapon::renderhudmodel uses scale 1.28.
     glScalef(.08f,.08f,.08f);
+    if(mirror) glScalef(-1,1,1);
 }
 static void weapon(const MatchView *v) {
     if(v->respawning) return;
-    weapon_transform(v);
+    weapon_transform(v,v->weapon==VIEW_AKIMBO && v->akimbo_left);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
     glDisableClientState(GL_COLOR_ARRAY);
     model_color(v->px,v->py);
@@ -702,12 +790,20 @@ static void weapon(const MatchView *v) {
     const WeaponArt *art=&weapon_art[v->weapon];
     unsigned current=art->poses[v->gun_pose],next=art->poses[v->next_gun_pose];
     for (unsigned i=0;i<art->surfaces;++i) animated_batch(current+i,next+i,current==next?0:v->gun_pose_blend);
+    if(v->weapon==VIEW_AKIMBO) {
+        // Stock draws the other copy of the pistol with its own last action.
+        // At 80 ms between shots only the most recently fired hand is active.
+        MatchView idle=*v;
+        if(v->gun_pose) idle.gun_rotation=idle.gun_back=0;
+        weapon_transform(&idle,!v->akimbo_left);
+        for(unsigned i=0;i<art->surfaces;++i) batch(hud_frames[art->poses[0]+i].batch);
+    }
     glEnableClientState(GL_COLOR_ARRAY);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
 }
 static void muzzle_flash(const MatchView *v) {
     if (v->flash && !v->respawning) {
-        weapon_transform(v);
+        weapon_transform(v,v->weapon==VIEW_AKIMBO && v->akimbo_left);
         bind_vertices(stream);
         const WeaponArt *art=&weapon_art[v->weapon];
         const float (*muzzle)[3]=art->muzzle;
@@ -802,7 +898,36 @@ static void system_overlay(const SystemMenu *menu) {
     glDisable(GL_BLEND);
 }
 
-static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,const SystemMenu *menu) {
+static void scoreboard(const MatchView *v) {
+    LanScore rows[2];
+    int network=lan_connected(),count=2;
+    if(network) count=lan_scores(rows,v);
+    else {
+        rows[0]=(LanScore){"Xbox",v->player_frags,v->player_deaths,0};
+        rows[1]=(LanScore){v->bot_name,v->bot_frags,v->bot_deaths,0};
+    }
+    if(count==2 && (rows[1].frags>rows[0].frags ||
+            (rows[1].frags==rows[0].frags && rows[1].deaths<rows[0].deaths))) {
+        LanScore first=rows[0];rows[0]=rows[1];rows[1]=first;
+    }
+    float x=(hud_width-600)*.5f;
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    color(.025f,.035f,.045f,.86f);
+    begin_quads(); quad(x,220,600,104+32*count,0,0,1,1); end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
+    color(1,1,1,1);
+    text(x+20,235,25,v->phase==INTERMISSION?"ac_desert  /  Game over":"ac_desert  /  Deathmatch");
+    text(x+20,278,19,"Player");text(x+298,278,19,"Frags");
+    text(x+393,278,19,"Deaths");if(network) text(x+508,278,19,"Ping");
+    for(int i=0;i<count;++i) {
+        char value[16];float y=309+32*i;
+        text(x+20,y,21,rows[i].name);
+        snprintf(value,sizeof(value),"%d",rows[i].frags);text(x+298,y,21,value);
+        snprintf(value,sizeof(value),"%d",rows[i].deaths);text(x+393,y,21,value);
+        if(network) {snprintf(value,sizeof(value),"%d",rows[i].ping);text(x+508,y,21,value);}
+    }
+}
+static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int scores,int aimed,const SystemMenu *menu) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
@@ -885,31 +1010,39 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
         begin_quads(); quad(-75.2f,-75.2f,150.4f,150.4f,0,0,1,1); end_quads();
         glPopMatrix();
     }
-    if(v->phase!=PLAYING) {
+    int setup=v->phase!=PLAYING && !lan_connected() && !(v->stock_round && v->phase==INTERMISSION);
+    if(setup) {
         color(.03f,.04f,.05f,.78f); begin_quads();
-        quad(28,24,528,173,0,0,0,0); end_quads();
-    } else if(!v->respawning) {
+        quad(28,24,528,194,0,0,0,0); end_quads();
+    } else if(v->phase==PLAYING && !v->respawning) {
         color(1,1,1,1);
         equipment(8,2,3,v->health,-1);
         if (v->armour) equipment(196,(v->armour-1)/25,2,v->armour,-1);
         const WeaponArt *art=&weapon_art[v->weapon];
-        equipment(384,art->icon_x,art->icon_y,v->weapon==VIEW_KNIFE?-1:v->magazine,v->reserve);
+        equipment(384,art->icon_x,art->icon_y,v->weapon==VIEW_KNIFE?-1:v->magazine,v->weapon==VIEW_GRENADE?-1:v->reserve);
+        if(v->grenade_ammo && v->weapon!=VIEW_GRENADE) equipment(590,3,1,v->grenade_ammo,-1);
     }
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);
     char line[100];
+    if(aimed && v->phase==PLAYING && !v->respawning && !scores && !showmap) {
+        if(lan_connected())
+            snprintf(line,sizeof(line),"%s [cn:%d]",lan_opponent_name(),lan_opponent_number());
+        else snprintf(line,sizeof(line),"%s",v->bot_name);
+        text(8,625,20,line);
+    }
     if(v->phase==READY) {
         text(42,30,27,"ac_desert   /   Bot Deathmatch");
-        text(42,59,23,"START to play    /    First to 3");
+        text(42,59,23,v->stock_round?"START to play    /    15 minutes":"START to play    /    First to 3");
     } else {
         if (lan_connected()) snprintf(line,sizeof(line),"%s",lan_status());
         else snprintf(line,sizeof(line),"YOU %d    BOT %d",v->player_frags,v->bot_frags);
         text(42,28,22,line);
         snprintf(line,sizeof(line),"%u:%02u",v->seconds/60,v->seconds%60);
         text(hud_width-122,2,20,line);
-        if(v->phase==INTERMISSION)
+        if(v->phase==INTERMISSION && !lan_connected())
             text(42,59,23,v->player_frags>v->bot_frags?"You win   /   START for rematch":v->player_frags<v->bot_frags?"Bot wins   /   START for rematch":"Draw   /   START for rematch");
-        else if(v->respawning) text(42,58,22,"Fragged   /   Respawning");
+        else if(v->respawning) text(42,58,22,(lan_connected() || v->stock_round)?"Fragged   /   Tap RT to respawn":"Fragged   /   Respawning");
         else if(v->reload) text(hud_width*.33f,620,18,"Reloading");
     }
     for (unsigned i=0;i<3 && v->frag_messages[i].text;++i) {
@@ -921,15 +1054,17 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,cons
         text((hud_width-width)*.5f,540+i*size+180*t*t*t*t,size,message);
     }
     color(.95f,.94f,.87f,1);
-    if(v->phase!=PLAYING) {
+    if(setup) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
         text(42,164,19,lan_status()?lan_status():"D-pad Up   System menu");
         text(42,136,19,weapon_art[v->selected_primary].choice);
+        text(42,186,19,v->stock_round?"X   Round: Stock Bot Deathmatch":"X   Round: Quick duel");
         text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);
     text(hud_width-128,v->phase==READY?29:676,19,line);
+    if((lan_connected() || v->stock_round) && v->phase!=READY && (scores || v->phase==INTERMISSION)) scoreboard(v);
     glDisable(GL_BLEND);
 }
 // An opt-in 12-second capture. Defer disk I/O until the sample is complete.
@@ -956,7 +1091,7 @@ static unsigned duel_count;
 enum { DUEL_CAPACITY=5500 }; // 90 seconds at 60 Hz plus clock tolerance.
 
 static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,int aimed) {
-    float chest=v->bot_floor+PLAYER_EYE_HEIGHT-1;
+    float chest=v->bot_floor+v->bot_height-1;
     int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
     return (TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,v->tx,v->ty,chest,
         input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};
@@ -980,6 +1115,7 @@ void gpu_trace_init(void) {
 unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected,const SystemMenu *menu) {
     cursor=0;
     pose_cursor=0;
+    update_player_skins(v);
     update_shot_lighting(v);
     bind_vertices(stream);
     glDepthMask(GL_TRUE);
@@ -993,13 +1129,14 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glStencilFunc(GL_ALWAYS,64,255);
     glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);
     glDepthRange(0,.04);
-    if (!v->scoped) weapon(v);
+    int view_weapon=!v->scoped && !((lan_connected() || v->stock_round) && v->phase==INTERMISSION);
+    if (view_weapon) weapon(v);
     glDepthRange(.04,1);
     level(v);
     glDepthRange(0,.04);
-    if (!v->scoped) muzzle_flash(v);
+    if (view_weapon) muzzle_flash(v);
     glDepthRange(0,1);
-    hud(v,fps10,connected,input->showmap,menu);
+    hud(v,fps10,connected,input->showmap,input->scores,aimed,menu);
     // Show the completed surface at vblank. The default pbkit queue can expose
     // an in-progress frame on this console when rendering the full 720p scene.
     glFinish();

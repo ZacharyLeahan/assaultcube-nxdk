@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 224 };
+enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 224, SCORCH_CAPACITY = 24 };
 #define PLAYER_EYE_HEIGHT 4.5f
 #define PLAYER_ABOVE_EYE .7f
 // tan(50 degrees / 2) relative to the normal 90-degree horizontal FOV.
@@ -17,17 +17,19 @@ typedef struct {
     int8_t floor, ceil;
     uint8_t wall, ground, roof, upper, tag;
 } Cube;
-typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select, scope; } MatchInput;
+typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap, knife_select, scope, grenade_select, scores; } MatchInput;
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
-typedef enum { VIEW_RIFLE,VIEW_SMG,VIEW_CARBINE,VIEW_PISTOL,VIEW_KNIFE,VIEW_SNIPER } MatchWeapon;
+typedef enum { VIEW_RIFLE,VIEW_SMG,VIEW_CARBINE,VIEW_PISTOL,VIEW_KNIFE,VIEW_SNIPER,VIEW_SHOTGUN,VIEW_GRENADE,VIEW_AKIMBO } MatchWeapon;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     PLAYER_JUMP, PLAYER_LAND, PLAYER_PAIN, PLAYER_DEATH,
     PICKUP_AMMO, PICKUP_HEALTH, PICKUP_HELMET, PICKUP_ARMOUR, WEAPON_CHANGE,
     BOT_PAIN1,BOT_PAIN2,BOT_PAIN3,BOT_PAIN4,BOT_PAIN5,ALT_DEATH,WATER_ENTER,WATER_EXIT,
     FOOTSTEPS,CROUCH_STEPS,WATER_STEPS,WATER_CROUCH_STEPS,CROUCH_IN,CROUCH_OUT,
-    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING,SMG_SHOT,SMG_RELOAD,CARBINE_SHOT,CARBINE_RELOAD,SNIPER_SHOT,SNIPER_RELOAD } MatchSound;
+    BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING,SMG_SHOT,SMG_RELOAD,CARBINE_SHOT,CARBINE_RELOAD,SNIPER_SHOT,SNIPER_RELOAD,SHOTGUN_SHOT,SHOTGUN_RELOAD,GRENADE_PULL,GRENADE_THROW,GRENADE_BOUNCE1,GRENADE_BOUNCE2,GRENADE_EXPLODE,AKIMBO_RELOAD,AKIMBO_PICKUP,AKIMBO_END } MatchSound;
 typedef struct { float x,y,z; } MatchPoint;
 typedef struct { MatchPoint pos; float yaw,pitch,sink; unsigned model; } GibView;
+typedef struct { MatchPoint pos; float rotation; } GrenadeView;
+typedef struct { MatchPoint pos; unsigned end_ms; } ExplosionView;
 typedef struct { MatchPoint pos; MatchSound sound; } PositionalSound;
 typedef struct { MatchPoint start,end; unsigned expires; } ShotLine;
 typedef struct { int x, y, icon; float base; } ItemView;
@@ -44,32 +46,44 @@ static inline MatchPoint mix_point(MatchPoint a,MatchPoint b,float t) {
     return result;
 }
 typedef struct {
-    float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt,bot_sink;
+    float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_height, bot_yaw,bot_tilt,bot_sink;
     MatchPoint bot_head,camera;
     float camera_yaw,camera_pitch,player_floor,death_frame;
+    MatchPoint player_velocity;
+    int on_floor,on_ladder,crouching;
     struct { const char *text; unsigned age; } frag_messages[3];
-    int health, armour, magazine, reserve, player_frags, bot_frags, bot_alive, radar_active;
+    const char *bot_name; int offline_bot_skin;
+    int player_deaths,bot_deaths;
+    int health, armour, magazine, reserve, grenade_ammo, player_frags, bot_frags, bot_alive, radar_active;
     MatchWeapon bot_weapon;
-    const GibView *gibs; unsigned gib_count; int hide_bot, gib_sound;
+    GrenadeView grenades[8]; unsigned grenade_count;
+    const ExplosionView *explosions; unsigned explosion_count;
+    const ExplosionView *scorches; unsigned scorch_count;
+    const GibView *gibs; unsigned gib_count; int hide_bot,hide_player_body,gib_sound; MatchPoint gib_origin;
     BotPose current_pose,previous_pose;
     float pose_transition,gun_pose_blend,flash_angle;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     unsigned gun_pose, next_gun_pose;
     unsigned bot_flash_end_ms,player_light,bot_light;
+    int akimbo_left;
     int scoped, respawning, reload, hide_crosshair, flash, wide_crosshair;
+    int underwater_audio,ear_ringing;
     float damage_alpha;
     int bot_shot_pending,respawn_work_pending,empty_click;
     const unsigned *damage_directions;
     unsigned seconds;
     MatchPhase phase;
-    int classic_assist;
+    int classic_assist,stock_round;
     MatchWeapon weapon,selected_primary;
     int bot_supply,bot_rifle_mag,bot_rifle_ammo,bot_pistol_mag,bot_pistol_ammo;
     MatchSound bot_sound, movement_sound, pickup_sound, pain_sound, bot_voice;
     MatchSound footsteps,bot_footsteps,stance_sound;
+    MatchSound actor_effects[8];
+    unsigned actor_effect_count;
     PositionalSound air,impact;
     ShotLine bot_line;
     MatchPoint shot_end,shot_direction;
+    int shotgun_info; // stock hit message: bonus, center, middle and outer pellet counts
     int shot_contact; // 0 miss, 1 body, 2 head
     const ItemView *items;
     int item_count;

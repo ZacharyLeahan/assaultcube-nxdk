@@ -11,16 +11,23 @@ asset world
 asset deltas
 asset cell_light
 asset ambience
-asset gpu_vertices
+asset gpu_geometry
+asset prop_triangles
+asset hud_poses
 asset bot_poses
 asset gpu_textures
 asset knife
 asset usp
 asset pistol_reload
+asset pistol_akreload
+asset tick9
+asset tick11
 asset auto
 asset auto_reload
 asset sub
 asset sub_reload
+asset shotgun
+asset shotgun_reload
 asset carbine
 asset carbine_reload
 asset sniper
@@ -56,3 +63,9 @@ asset pickup_helmet
 asset pickup_armour
 asset change_gun
 .set "@feat.00", 1
+
+asset grenade_pull
+asset grenade_throw
+asset grenade_bounce1
+asset grenade_bounce2
+asset grenade_exp

@@ -23,6 +23,10 @@ DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
 DECLARE_CLIP(sub); DECLARE_CLIP(sub_reload);
 DECLARE_CLIP(sniper); DECLARE_CLIP(sniper_reload);
+DECLARE_CLIP(grenade_pull); DECLARE_CLIP(grenade_throw); DECLARE_CLIP(grenade_exp);
+DECLARE_CLIP(grenade_bounce1); DECLARE_CLIP(grenade_bounce2);
+DECLARE_CLIP(pistol_akreload); DECLARE_CLIP(tick9); DECLARE_CLIP(tick11);
+DECLARE_CLIP(shotgun); DECLARE_CLIP(shotgun_reload);
 DECLARE_CLIP(carbine); DECLARE_CLIP(carbine_reload);
 DECLARE_CLIP(step);
 DECLARE_CLIP(clip_empty);
@@ -35,13 +39,16 @@ DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup
 static const Clip clips[] = {
     [RIFLE_SHOT]={shot_audio,shot_end}, [RIFLE_RELOAD]=CLIP(auto_reload),
     [SNIPER_SHOT]=CLIP(sniper), [SNIPER_RELOAD]=CLIP(sniper_reload),
+    [SHOTGUN_SHOT]=CLIP(shotgun), [SHOTGUN_RELOAD]=CLIP(shotgun_reload),
     [CARBINE_SHOT]=CLIP(carbine), [CARBINE_RELOAD]=CLIP(carbine_reload),
     [SMG_SHOT]=CLIP(sub), [SMG_RELOAD]=CLIP(sub_reload),
-    [KNIFE_SWING]=CLIP(knife),
+    [KNIFE_SWING]=CLIP(knife), [GRENADE_PULL]=CLIP(grenade_pull), [GRENADE_THROW]=CLIP(grenade_throw),
+    [GRENADE_BOUNCE1]=CLIP(grenade_bounce1), [GRENADE_BOUNCE2]=CLIP(grenade_bounce2), [GRENADE_EXPLODE]=CLIP(grenade_exp),
     [WEAPON_CHANGE]=CLIP(change_gun),
     [BULLET_AIR1]=CLIP(ric1), [BULLET_AIR2]=CLIP(ric2),
     [BULLET_IMPACT]=CLIP(ric3), [BULLET_WATER]=CLIP(waterimpact),
     [WATER_ENTER]=CLIP(splash2), [WATER_EXIT]=CLIP(splash1),
+    [AKIMBO_RELOAD]=CLIP(pistol_akreload), [AKIMBO_PICKUP]=CLIP(tick9), [AKIMBO_END]=CLIP(tick11),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
     [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land),
     [SOFT_LAND]=CLIP(step),
@@ -56,16 +63,17 @@ static const Clip clips[] = {
 static SDL_AudioDeviceID audio_device;
 
 enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS, EMPTY_CLICK, GIB };
-typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; } Voice;
+typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; MatchSound effect; } Voice;
 static const int volume[]={96,96,48,70,64,96,85,96,96,40,40,96,96};
 // A rifle sample lasts 626 ms with 120 ms between rounds. Reserve enough
 // voices for both fighters to finish their bursts and begin a reload.
 enum { SHOT_VOLUME=64, WEAPON_VOICES=8, LOCAL_WEAPONS=GIB+1, BOT_WEAPONS=LOCAL_WEAPONS+WEAPON_VOICES };
-static Voice voices[BOT_WEAPONS+WEAPON_VOICES];
+enum { ACTOR_SOUNDS=BOT_WEAPONS+WEAPON_VOICES, ACTOR_VOICES=4 };
+static Voice voices[ACTOR_SOUNDS+ACTOR_VOICES];
 
-static Voice *weapon_voice(unsigned first) {
+static Voice *available_voice(unsigned first,unsigned count) {
     Voice *shortest=&voices[first];
-    for (unsigned i=first;i<first+WEAPON_VOICES;++i) {
+    for (unsigned i=first;i<first+count;++i) {
         if (!voices[i].remaining) return &voices[i];
         if (voices[i].remaining<shortest->remaining) shortest=&voices[i];
     }
@@ -85,28 +93,55 @@ static void set_footsteps(unsigned channel,MatchSound sound,unsigned now,int act
     unsigned offset=((now*2654435761u>>12)%500)*len/500;
     *v=(Voice){(const int16_t *)clip->start+offset,len-offset,volume[channel],volume[channel],sound,now};
 }
+static int low_pitch;
+static void mix_world(int (*mix)[2],unsigned count) {
+    ambience_mix(mix,count);
+    for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
+        Voice *v=&voices[i];
+        for (unsigned j=0;j<count && (v->remaining || v->loop);) {
+            if (!v->remaining) {
+                const Clip *clip=&clips[v->loop];
+                v->data=(const int16_t *)clip->start;
+                v->remaining=((uintptr_t)clip->end-(uintptr_t)clip->start)/2;
+            }
+            unsigned n=v->remaining<count-j ? v->remaining : count-j;
+            for (unsigned k=0;k<n;++k,++j) {
+                mix[j][0]+=v->data[k]*v->left;
+                mix[j][1]+=v->data[k]*v->right;
+            }
+            v->data+=n; v->remaining-=n;
+        }
+    }
+}
 static void mix_audio(void *unused, Uint8 *out, int len) {
     (void)unused;
     int16_t *stereo=(int16_t *)out;
+    static int history[2][2];
+    static unsigned fraction;
     for (int frames=len/4;frames>0;) {
         int mix[256][2]={{0}};
         unsigned count=frames>256 ? 256 : (unsigned)frames;
-        ambience_mix(mix,count);
-        for (unsigned i=0;i<sizeof(voices)/sizeof(voices[0]);++i) {
-            Voice *v=&voices[i];
-            for (unsigned j=0;j<count && (v->remaining || v->loop);) {
-                if (!v->remaining) {
-                    const Clip *clip=&clips[v->loop];
-                    v->data=(const int16_t *)clip->start;
-                    v->remaining=((uintptr_t)clip->end-(uintptr_t)clip->start)/2;
+        if(low_pitch) {
+            // Resample all active world sounds together at the stock 0.65 pitch.
+            int source[167][2]={{0}};
+            mix_world(source,(fraction+13*count)/20);
+            unsigned pos=0;
+            for(unsigned j=0;j<count;++j) {
+                fraction+=13;
+                if(fraction>=20) {
+                    fraction-=20;
+                    memcpy(history[0],history[1],sizeof(history[0]));
+                    memcpy(history[1],source[pos++],sizeof(history[1]));
                 }
-                unsigned n=v->remaining<count-j ? v->remaining : count-j;
-                for (unsigned k=0;k<n;++k,++j) {
-                    mix[j][0]+=v->data[k]*v->left;
-                    mix[j][1]+=v->data[k]*v->right;
-                }
-                v->data+=n; v->remaining-=n;
+                for(unsigned ch=0;ch<2;++ch)
+                    mix[j][ch]=history[0][ch]+(history[1][ch]-history[0][ch])/20*(int)fraction;
             }
+            ambience_listener_mix(mix,count);
+        } else {
+            mix_world(mix,count);
+            memcpy(history[0],mix[count-1],sizeof(history[0]));
+            memcpy(history[1],history[0],sizeof(history[1]));
+            fraction=0;
         }
         for (unsigned j=0;j<count;++j) for (int ch=0;ch<2;++ch) {
             int sample=mix[j][ch]/128;
@@ -123,14 +158,37 @@ static void spatial_gain(const MatchView *v,MatchPoint pos,float *left,float *ri
     float gain=4/fmaxf(4,distance);
     *left=gain*sqrtf(.5f*(1-pan)); *right=gain*sqrtf(.5f*(1+pan));
 }
+static float actor_fade(MatchSound sound,float distance) {
+    int radius=0;
+    switch(sound) {
+    case SOFT_LAND:case PLAYER_LAND:radius=24;break;
+    case CROUCH_IN:case CROUCH_OUT:radius=14;break;
+    case FOOTSTEPS:case WATER_STEPS:radius=20;break;
+    case CROUCH_STEPS:case WATER_CROUCH_STEPS:radius=10;break;
+    default:break;
+    }
+    return radius?fmaxf(0,1-distance/radius):1.f;
+}
+static int actor_volume(MatchSound sound) {
+    switch(sound) {
+    case PLAYER_JUMP:return 80;
+    case SOFT_LAND:return 90;
+    case PLAYER_LAND:return 95;
+    case CROUCH_IN:return 85;
+    case CROUCH_OUT:return 75;
+    default:return 100;
+    }
+}
 static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
     const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
     SDL_LockAudioDevice(audio_device);
+    low_pitch=v->underwater_audio || v->ear_ringing;
+    ambience_listener(v->underwater_audio,v->ear_ringing);
     ambience_update(v->camera.x,v->camera.y,v->camera.z,v->camera_yaw);
     if (v->gib_sound) {
         float left,right;
-        spatial_gain(v,(MatchPoint){v->tx,v->ty,v->bot_floor+PLAYER_EYE_HEIGHT},&left,&right);
+        spatial_gain(v,v->gib_origin,&left,&right);
         voices[GIB]=(Voice){(const int16_t *)gib,((uintptr_t)gib_end-(uintptr_t)gib)/2,
                             (int)(volume[GIB]*left),(int)(volume[GIB]*right)};
     }
@@ -142,8 +200,8 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         const Clip *clip=&clips[effects[i]];
         int gain=volume[i];
         Voice *voice=&voices[i];
-        if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT || effects[i]==SMG_SHOT || effects[i]==CARBINE_SHOT || effects[i]==SNIPER_SHOT) {
-            voice=weapon_voice(i==LOCAL_GUN?LOCAL_WEAPONS:BOT_WEAPONS);
+        if (effects[i]==RIFLE_SHOT || effects[i]==PISTOL_SHOT || effects[i]==SMG_SHOT || effects[i]==CARBINE_SHOT || effects[i]==SNIPER_SHOT || effects[i]==SHOTGUN_SHOT) {
+            voice=available_voice(i==LOCAL_GUN?LOCAL_WEAPONS:BOT_WEAPONS,WEAPON_VOICES);
             gain=SHOT_VOLUME;
         }
         *voice=(Voice){(const int16_t *)clip->start,
@@ -169,14 +227,39 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     }
     voices[BOT_VOICE].left=(int)(volume[BOT_VOICE]*left+.5f);
     voices[BOT_VOICE].right=(int)(volume[BOT_VOICE]*right+.5f);
-    voices[BOT_STEPS].left=(int)(volume[BOT_STEPS]*left+.5f);
-    voices[BOT_STEPS].right=(int)(volume[BOT_STEPS]*right+.5f);
+    float dist=hypotf(hypotf(v->tx-v->camera.x,v->ty-v->camera.y),v->bot_floor+v->bot_height-v->camera.z);
+    float gain=volume[BOT_STEPS]*actor_fade(voices[BOT_STEPS].loop,dist);
+    voices[BOT_STEPS].left=(int)(gain*left+.5f);
+    voices[BOT_STEPS].right=(int)(gain*right+.5f);
+    for(unsigned i=0;i<v->actor_effect_count;++i) {
+        MatchSound sound=v->actor_effects[i];
+        if(!actor_fade(sound,dist)) continue;
+        const Clip *clip=&clips[sound];
+        Voice *voice=available_voice(ACTOR_SOUNDS,ACTOR_VOICES);
+        *voice=(Voice){.data=(const int16_t *)clip->start,
+            .remaining=((uintptr_t)clip->end-(uintptr_t)clip->start)/2,.effect=sound};
+    }
+    for(unsigned i=ACTOR_SOUNDS;i<ACTOR_SOUNDS+ACTOR_VOICES;++i) if(voices[i].remaining) {
+        gain=actor_volume(voices[i].effect)*actor_fade(voices[i].effect,dist);
+        voices[i].left=(int)(gain*left+.5f);voices[i].right=(int)(gain*right+.5f);
+    }
     SDL_UnlockAudioDevice(audio_device);
 }
 
 static float axis(SDL_GameController *pad, SDL_GameControllerAxis a) {
     float v = SDL_GameControllerGetAxis(pad,a)/32768.f;
     return fabsf(v) < .18f ? 0 : copysignf((fabsf(v)-.18f)/.82f,v);
+}
+
+static void read_movement(SDL_GameController *pad, float *forward, float *side) {
+    float x=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTX)/32768.f;
+    float y=-SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTY)/32768.f;
+    float radius=hypotf(x,y);
+    if(radius<=.18f) return;
+    // Full stick travel reaches the two independent movement keys used by stock.
+    float scale=(fminf(1,radius)-.18f)/(.82f*fmaxf(fabsf(x),fabsf(y)));
+    *forward+=y*scale;
+    *side+=x*scale;
 }
 
 // A circular deadzone lets small diagonal aim corrections follow the stick direction.
@@ -218,7 +301,7 @@ int main(void) {
     SystemMenu system={MENU_CLOSED,0};
     enum { UP=1, DOWN=2, ACCEPT=4, CANCEL=8 };
     unsigned previous_buttons=0;
-    int releasing=0;
+    int releasing=0,audio_paused=0;
     for (;;) {
         gpu_begin_input(refresh_hz,view.respawning || view.respawn_work_pending,view.bot_shot_pending);
         SDL_PumpEvents();
@@ -236,12 +319,12 @@ int main(void) {
         int classic=0, tuned=0;
         unsigned buttons=0;
         int scope=0, jump=0, crouch=0, showmap=0;
-        int knife_select=0, lan_knife=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
+        int grenade_select=0, knife_select=0, lan_knife=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
             Pad *pad = &pads[i];
             SDL_GameController *p = pad->handle;
             ++connected;
-            move -= axis(p,SDL_CONTROLLER_AXIS_LEFTY); strafe += axis(p,SDL_CONTROLLER_AXIS_LEFTX);
+            read_movement(p,&move,&strafe);
             read_aim(p,&turn,&look);
             jump |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_A);
             crouch |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_B);
@@ -264,7 +347,8 @@ int main(void) {
             pad->previous_knife=down;
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
             classic |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_LEFT);
-            tuned |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+            int right=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+            tuned|=right;grenade_select|=right && !pad->previous_grenade;pad->previous_grenade=right;
             swap |= y && !pad->previous_swap;
             start |= menu && !pad->previous_start;
             pad->previous_swap = y;
@@ -282,7 +366,6 @@ int main(void) {
         int paused=system.choice!=MENU_CLOSED;
         if (!paused && ((pressed&UP) || (start && view.phase==PLAYING))) {
             system=(SystemMenu){MENU_RESUME,0};
-            if (audio_device) SDL_PauseAudioDevice(audio_device,1);
         } else if (paused) {
             if ((pressed&CANCEL) || start) {
                 if (system.confirming) system.confirming=0;
@@ -302,34 +385,39 @@ int main(void) {
                 if ((pressed&UP) && system.choice>MENU_RESUME) --system.choice;
                 if ((pressed&DOWN) && system.choice<MENU_SHUTDOWN) ++system.choice;
             }
-            if (system.choice==MENU_CLOSED) {
-                releasing=1;
-                if (audio_device) SDL_PauseAudioDevice(audio_device,0);
-            }
+            if (system.choice==MENU_CLOSED) releasing=1;
+        }
+        int network=lan_connected(),menu_input=paused || system.choice!=MENU_CLOSED;
+        int pause_audio=system.choice!=MENU_CLOSED && !network;
+        if(audio_device && pause_audio!=audio_paused) {
+            SDL_PauseAudioDevice(audio_device,pause_audio);
+            audio_paused=pause_audio;
         }
         if (releasing && !buttons && !fire) releasing=0;
         MatchInput input = {
-            .move = move, .strafe = strafe, .turn = turn, .look = look,
-            .scope = scope, .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .start = start,
-            .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
+            .move = fmaxf(-1,fminf(1,move)), .strafe = fmaxf(-1,fminf(1,strafe)), .turn = turn, .look = look,
+            .scope = scope, .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .grenade_select=grenade_select, .start = start,
+            .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap, .scores=classic
         };
         int aimed=0;
         MatchSound effect=SILENT;
-        if(lan_connected()) {
-            if(input.knife_select && !releasing && !paused && system.choice==MENU_CLOSED) lan_toggle_primary(now);
+        if(network) {
+            if(input.knife_select && !releasing && !menu_input) lan_toggle_primary(now);
             input.knife_select=lan_knife;
             input.start=0;
         }
-        if (system.choice==MENU_CLOSED && !paused) {
-            if (releasing) input=(MatchInput){0};
+        if (network || !menu_input) {
+            // Other players and grenade fuses stay live in the multiplayer menu.
+            if (menu_input || releasing) input=(MatchInput){0};
             match_update(&input, elapsed, refreshes*refresh_period);
             match_view(&view);
             aimed=match_targeted(&view);
             effect=match_attack(&input);
             match_view(&view);
             update_audio(&view,effect);
+            if(network) lan_send_sounds(&view);
         }
-        if (lan_connected()) lan_send(&view,&input,effect,now);
+        if (network) lan_send(&view,&input,effect,now);
         unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected,&system);
         refreshes=vblank-previous_vblank;
         previous_vblank=vblank;
