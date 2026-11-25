@@ -6,6 +6,8 @@
 #include <pbgl.h>
 #include <xboxkrnl/xboxkrnl.h>
 #include <pbkit/pbkit.h>
+#include <pbkit/pbkit_pushbuffer.h>
+#include <pbkit/nv_regs.h>
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include <math.h>
@@ -27,6 +29,10 @@ static LightUV *world_light_uv;
 typedef MatchPoint Position;
 extern const Position bot_poses[];
 static Position *pose_positions;
+// Each silhouette edge emits at most one triangle to the shadow tip.
+enum { SHADOW_CAPACITY=3*(sizeof(body_indices)+sizeof(bot_gun_indices))/sizeof(unsigned short) };
+static Position *shadow_positions, shadow_tip;
+static unsigned shadow_count;
 static unsigned pose_cursor;
 enum { STREAM_CAPACITY = 2048 };
 static Vertex *stream;
@@ -95,6 +101,8 @@ int gpu_init(int width, int height) {
     unsigned count=batches[BODY_BATCH].count+batches[BOT_GUN_BATCH].count+(rifle>pistol?rifle:pistol);
     pose_positions=pbgl_alloc(count*sizeof(Position));
     if (!pose_positions) return 0;
+    shadow_positions=pbgl_alloc(SHADOW_CAPACITY*sizeof(Position));
+    if (!shadow_positions) return 0;
     glGenTextures(sizeof(textures)/sizeof(textures[0]),textures);
     for (unsigned i=0;i<sizeof(textures)/sizeof(textures[0]);++i) {
         const ImageInfo *im = &images[i];
@@ -220,10 +228,31 @@ static MatchPoint muzzle_pose(BotPose pose) {
     return mix_point((MatchPoint){a[0],a[1],a[2]},(MatchPoint){b[0],b[1],b[2]},pose.blend);
 }
 
-static void bot_batch(unsigned batch_id,unsigned base,unsigned count,const unsigned short *indices,
+static void shadow_edges(const Position *p,const unsigned short *idx,const unsigned short *neighbor,
+                         unsigned faces) {
+    unsigned char lit[sizeof(body_indices)/sizeof(unsigned short)/3+
+                      sizeof(bot_gun_indices)/sizeof(unsigned short)/3];
+    for (unsigned f=0;f<faces;++f) {
+        Position a=p[idx[3*f]],b=p[idx[3*f+1]],c=p[idx[3*f+2]];
+        float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z;
+        float vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
+        lit[f]=(uy*vz-uz*vy)*shadow_tip.x+(uz*vx-ux*vz)*shadow_tip.y+
+               (ux*vy-uy*vx)*shadow_tip.z<=0;
+    }
+    for (unsigned f=0;f<faces;++f) if (lit[f]) {
+        for (unsigned e=0;e<3;++e) {
+            unsigned other=neighbor[3*f+e];
+            if (other!=65535 && lit[other]) continue;
+            shadow_positions[shadow_count++]=p[idx[3*f+(e+1)%3]];
+            shadow_positions[shadow_count++]=p[idx[3*f+e]];
+            shadow_positions[shadow_count++]=shadow_tip;
+        }
+    }
+}
+
+static void bot_batch(unsigned batch_id,unsigned base,unsigned count,const unsigned short *indices,const unsigned short *neighbors,
                       const MatchView *v) {
     BotPose cur=v->current_pose;
-    if (!cur.first && cur.blend==0 && v->pose_transition==1) { batch(batch_id); return; }
     // UV seams duplicate positions in the draw buffer. Mix each MD2 vertex
     // once before expanding to triangle order.
     static Position mixed[BODY_VERTICES>BOT_GUN_VERTICES?BODY_VERTICES:BOT_GUN_VERTICES];
@@ -237,6 +266,7 @@ static void bot_batch(unsigned batch_id,unsigned base,unsigned count,const unsig
             mixed[i]=mix_point(mix_point(a[i],b[i],prev.blend),mixed[i],v->pose_transition);
     }
     const Batch *mesh=&batches[batch_id];
+    shadow_edges(mixed,indices,neighbors,mesh->count/3);
     Position *out=pose_positions+pose_cursor;
     pose_cursor+=mesh->count;
     for (unsigned i=0;i<mesh->count;++i) out[i]=mixed[indices[i]];
@@ -302,6 +332,61 @@ static void draw_water(unsigned ms) {
     }
     end_quads();
 }
+static void bot_transform(const MatchView *v) {
+    glTranslatef(v->tx,v->ty,v->bot_floor);
+    glRotatef(v->bot_yaw*57.29578f,0,0,1);
+    glRotatef(-v->bot_tilt*57.29578f,0,1,0);
+}
+static void stencil_reference(unsigned value) {
+    // The bundled pbGL stores glStencilFunc's reference but omits the NV2A register.
+    uint32_t *p=pb_begin();
+    p=pb_push1(p,NV097_SET_STENCIL_FUNC_REF,value);
+    pb_end(p);
+}
+static void draw_bot_shadow(const MatchView *v) {
+    if (!shadow_count) return;
+    glPushMatrix();
+    bot_transform(v);
+    glDisable(GL_TEXTURE_2D);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+    glVertexPointer(3,GL_FLOAT,sizeof(Position),shadow_positions);
+    glEnable(GL_STENCIL_TEST);
+    // The caster's visible pixels keep bit seven so the open silhouette
+    // volume shades receivers without darkening the bot that emitted it.
+    glStencilFunc(GL_EQUAL,0,128);
+    glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_FRONT);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
+    glDrawArrays(GL_TRIANGLES,0,shadow_count);
+    glCullFace(GL_BACK);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_DECR);
+    glDrawArrays(GL_TRIANGLES,0,shadow_count);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    // Both untouched sky (0) and opaque surfaces (64) have zero low bits.
+    glStencilFunc(GL_NOTEQUAL,0,63);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_KEEP);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    glEnableClientState(GL_COLOR_ARRAY);
+    bind_vertices(stream);
+    color(0,0,0,.4f);
+    begin_quads(); quad(-1,-1,2,2,0,0,1,1); end_quads();
+    color(1,1,1,1);
+    glMatrixMode(GL_PROJECTION); glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glDisable(GL_BLEND);
+    glDisable(GL_STENCIL_TEST);
+    glEnable(GL_DEPTH_TEST);
+    glPopMatrix();
+}
 static void level(const MatchView *v) {
     float c=cosf(v->angle),s=sinf(v->angle);
     float cp=cosf(v->pitch), sp=sinf(v->pitch);
@@ -320,7 +405,7 @@ static void level(const MatchView *v) {
     glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
     glStencilOp(GL_KEEP,GL_KEEP,GL_KEEP);
     batch(SKY_PORTAL_BATCH);
-    glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
     glActiveTexture(GL_TEXTURE1);
     glEnable(GL_TEXTURE_2D);
@@ -346,11 +431,16 @@ static void level(const MatchView *v) {
     model_color(v->tx,v->ty);
     {
         glPushMatrix();
-        glTranslatef(v->tx,v->ty,v->bot_floor);
-        glRotatef(v->bot_yaw*57.29578f,0,0,1);
-        glRotatef(-v->bot_tilt*57.29578f,0,1,0);
-        bot_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,v);
-        bot_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,v);
+        bot_transform(v);
+        // ac_desert uses the PC default 45-degree yaw and 20-unit player shadow.
+        float cy=cosf(v->bot_yaw),sy=sinf(v->bot_yaw),ct=cosf(v->bot_tilt),st=sinf(v->bot_tilt);
+        float forward=10*(cy+sy),down=-14.142136f;
+        shadow_tip=(Position){ct*forward+st*down,10*(cy-sy),-st*forward+ct*down};
+        shadow_count=0;
+        stencil_reference(192);
+        bot_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,v);
+        bot_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,v);
+        stencil_reference(64);
         glPopMatrix();
     }
     bind_vertices(geometry);
@@ -369,6 +459,7 @@ static void level(const MatchView *v) {
     bind_vertices(stream);
     // Transparent effects blend against the sky or the nearest opaque surface.
     glDepthMask(GL_FALSE);
+    stencil_reference(0);
     glStencilFunc(GL_EQUAL,0,255);
     glStencilOp(GL_KEEP,GL_KEEP,GL_KEEP);
     glDisable(GL_DEPTH_TEST);
@@ -377,6 +468,7 @@ static void level(const MatchView *v) {
     glPopMatrix();
     glDisable(GL_STENCIL_TEST);
     glEnable(GL_DEPTH_TEST);
+    draw_bot_shadow(v);
     if (v->bot_line.expires>v->elapsed_ms) {
         const ShotLine *line=&v->bot_line;
         glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
@@ -694,8 +786,9 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glEnable(GL_DEPTH_TEST);
     // The clear leaves stencil zero. Opaque pixels, including the gun, hide the sky.
     glEnable(GL_STENCIL_TEST);
-    glStencilFunc(GL_ALWAYS,0,255);
-    glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
+    stencil_reference(64);
+    glStencilFunc(GL_ALWAYS,64,255);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);
     glDepthRange(0,.04);
     weapon(v);
     glDepthRange(.04,1);
