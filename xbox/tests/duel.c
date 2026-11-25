@@ -69,7 +69,57 @@ static void test_weapon_switch(void) {
     match_update(&in,1,.001f);
     assert(match_attack(&in)==PISTOL_SHOT);
 }
+static void test_well_ladder(void) {
+    MatchView v;
+    MatchInput in={.start=1};
+    match_prepare(); match_update(&in,16,.016f);
+    // Walk from the opening spawn around the west side of the courtyard.
+    const float route[][2]={{117.5f,132.5f},{117.5f,142.5f},{123.5f,142.5f},
+        {123.5f,143.5f},{127.5f,143.5f},{127.5f,147.5f},{128.5f,147.5f},
+        {128.5f,148.5f},{129.5f,148.5f},{129.5f,149.5f},{145.5f,149.5f},{145.5f,161.5f}};
+    for (unsigned i=0;i<sizeof(route)/sizeof(route[0]);++i) {
+        int n;
+        for (n=0;n<150;++n) {
+            match_view(&v);
+            float dx=route[i][0]-v.px,dy=route[i][1]-v.py;
+            if (hypotf(dx,dy)<.12f) break;
+            float scale=1/fmaxf(1.5f,hypotf(dx,dy));
+            in=(MatchInput){.move=scale*(dx*cosf(v.angle)+dy*sinf(v.angle)),
+                            .strafe=scale*(dy*cosf(v.angle)-dx*sinf(v.angle))};
+            match_update(&in,16,.016f);
+        }
+        assert(n<150);
+    }
+    // Face east and jump backward over the rim.
+    for (int i=0;i<100;++i) {
+        match_view(&v);
+        in=(MatchInput){.turn=fmaxf(-.8f,fminf(.8f,-remainderf(v.angle,6.2831853f)/(.016f*150*.017453293f)))};
+        match_update(&in,16,.016f);
+    }
+    in=(MatchInput){.move=-1,.jump=1};
+    for (int i=0;i<32;++i) match_update(&in,16,.016f);
+    in=(MatchInput){0};
+    for (int i=0;i<65;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(v.eye < -8);
+    in.move=1;
+    for (int i=0;i<40;++i) match_update(&in,16,.016f);
+    match_view(&v); float halfway=v.eye;
+    assert(halfway>-8 && halfway<3);
+    in.move=0;
+    for (int i=0;i<12;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(fabsf(v.eye-halfway)<.001f);
+    in.move=-1;
+    for (int i=0;i<8;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(v.eye<halfway-1);
+    in=(MatchInput){.crouch=1};
+    for (int i=0;i<60;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(v.eye < -9);
+    in=(MatchInput){.move=1};
+    for (int i=0;i<110;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(v.px>142 && v.eye>3);
+}
 int main(void) {
+    test_well_ladder();
     test_weapon_switch();
     MatchInput floor_shot={.start=1};
     MatchView effects;

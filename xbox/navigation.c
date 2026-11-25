@@ -41,6 +41,15 @@ void walk(float *x, float *y, float dx, float dy) {
         if (passable(*x,ny,map_floor(map_cube((int)*x,(int)*y)))) *y = ny;
     }
 }
+#include "generated/ladders.h"
+int ladder_space(float x,float y,float feet,float *top) {
+    for (unsigned i=0;i<sizeof(ladders)/sizeof(ladders[0]);++i) {
+        const short *p=ladders[i];
+        float dx=x-p[0],dy=y-p[1],end=map_cube(p[0],p[1])->floor+p[2];
+        if (dx*dx+dy*dy<2.25f && feet<=end) { *top=end; return 1; }
+    }
+    return 0;
+}
 void body_space(float x,float y,float *floor,float *ceiling) {
     *floor=-128; *ceiling=127;
     for (int i=0;i<4;++i) {

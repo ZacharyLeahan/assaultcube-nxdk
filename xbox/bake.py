@@ -24,6 +24,7 @@ def bake():
     names = re.findall(rb'^texture 0 "([^"]+)"', config, re.M)
     starts = []
     pickups = []
+    ladders = []
     item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
     for i in range(count):
         x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
@@ -31,6 +32,8 @@ def bake():
             starts.append((x, y, yaw))
         elif kind in item_kinds:
             pickups.append((x, y, yaw, item_kinds[kind]))
+        elif kind == 12:
+            ladders.append((x,y,yaw))  # attr1 is height above the cell floor
     pos = offset + 16*count
     cells = bytearray()
     deltas = bytearray()
@@ -59,6 +62,8 @@ def bake():
         if max(cells[index::8]) >= len(names):
             raise ValueError("Map references a missing texture")
     (OUT / "world.bin").write_bytes(cells)
+    (OUT / "ladders.h").write_text("static const short ladders[][3] = {\n"+
+        "".join(f"    {{{x}, {y}, {height}}},\n" for x,y,height in ladders)+"};\n")
     (OUT / "deltas.bin").write_bytes(deltas)
     (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")

@@ -5,6 +5,7 @@ extern "C" {
 #endif
 void walk(float *x, float *y, float dx, float dy);
 void body_space(float x,float y,float *floor,float *ceiling);
+int ladder_space(float x,float y,float feet,float *top);
 void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float step);
 int visible(float x, float y, float z, float tx, float ty, float tz);
 typedef struct { float x,y,z; int axis; } SurfaceHit;

@@ -277,17 +277,20 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
 
         float floor,ceiling;
         body_space(player.x,player.y,&floor,&ceiling);
+        float ladder_top=0;
+        bool climbing=!in->crouch && ladder_space(player.x,player.y,feet_z,&ladder_top);
         float target=fminf(in->crouch?2.7f:3.6f,ceiling-feet_z-.9f);
         stance+=fmaxf(-8*dt,fminf(8*dt,target-stance));
-        if (grounded && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
+        if (grounded && !climbing && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
             grounded=false; jump_speed=32; air_seconds=0;
             movement_sound=PLAYER_JUMP;
         }
         held_jump=in->jump;
         float speed=(stance<3.59f?6.4f:16.f)/fmaxf(1,hypotf(in->move,in->strafe));
         float c=cosf(player.yaw), s=sinf(player.yaw);
-        float dx=(in->move*c-in->strafe*s)*speed-player.velocity_x;
-        float dy=(in->move*s+in->strafe*c)*speed-player.velocity_y;
+        float forward=climbing && !grounded && in->move<0 ? 0 : in->move;
+        float dx=(forward*c-in->strafe*s)*speed-player.velocity_x;
+        float dy=(forward*s+in->strafe*c)*speed-player.velocity_y;
         float change=hypotf(dx,dy);
         float acceleration=(in->move || in->strafe) ? 128.f : 240.f;
         float fraction=change>0 ? fminf(1,acceleration*dt/change) : 0;
@@ -295,7 +298,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         player.velocity_y+=dy*fraction;
         float old_x=player.x,old_y=player.y;
         walk_body(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt,
-                  feet_z,stance+.9f,grounded?1.5f:0.f);
+                  feet_z,stance+.9f,grounded||climbing?1.5f:0.f);
         if (grounded && !in->crouch) {
             step_distance+=distance(old_x,old_y,player.x,player.y);
             if (step_distance>=5.6f) { step_distance-=5.6f; movement_sound=PLAYER_STEP; }
@@ -308,7 +311,11 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         body_space(player.x,player.y,&floor,&ceiling);
         float old_feet=feet_z;
         if (feet_z>floor+.01f) grounded=false;
-        if (!grounded) {
+        if (climbing) {
+            feet_z=fminf(fminf(ladder_top,ceiling-stance-.9f),feet_z+16*in->move*dt);
+            air_seconds=jump_speed=0;
+            grounded=feet_z<=floor;
+        } else if (!grounded) {
             // PC air friction and its time-in-air-dependent downward step.
             air_seconds+=dt;
             jump_speed*=expf(-dt/.60f);
