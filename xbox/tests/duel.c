@@ -117,6 +117,7 @@ int main(void) {
     int saw_bot_death = 0, saw_bot_respawn = 0, saw_player_death = 0, saw_player_respawn = 0;
     unsigned burst_shots=0;
     int saw_pain=0,saw_fall=0,saw_corpse=0;
+    int heard_bot_pain=0,heard_bot_death=0;
     for (unsigned tick = 0; tick < 3000; ++tick) {
         match_view(&view);
         input.fire = !view.player_frags;
@@ -132,6 +133,8 @@ int main(void) {
         match_view(&view);
         assert(view.wide_crosshair == (burst_shots>3));
         if (view.bot_alive && view.bot_pose>=54 && view.bot_pose<=57) saw_pain=1;
+        if (view.bot_voice>=BOT_PAIN1 && view.bot_voice<=BOT_PAIN5) heard_bot_pain=1;
+        if (view.bot_voice==PLAYER_DEATH || view.bot_voice==ALT_DEATH) heard_bot_death=1;
         if (!view.bot_alive) {
             assert(!match_targeted(&view));
             if (view.bot_pose>178 && view.bot_pose<183) saw_fall=1;
@@ -146,6 +149,7 @@ int main(void) {
     // This scenario caught the bot getting stuck on a ledge after the first respawn.
     assert(saw_bot_death && saw_bot_respawn && saw_player_death && saw_player_respawn);
     assert(saw_pain && saw_fall && saw_corpse);
+    assert(heard_bot_pain && heard_bot_death);
     assert(view.phase == INTERMISSION && view.player_frags == 1 && view.bot_frags == FRAG_LIMIT);
     input.start = 1;
     match_update(&input,16,16*.001f);

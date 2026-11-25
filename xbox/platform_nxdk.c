@@ -16,6 +16,8 @@ typedef struct { const uint8_t *start,*end; } Clip;
 #define DECLARE_CLIP(n) extern const uint8_t n[], n##_end[]
 DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(step); DECLARE_CLIP(pain1); DECLARE_CLIP(die1);
 DECLARE_CLIP(change_gun);
+DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
+DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
 DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup_helmet); DECLARE_CLIP(pickup_armour);
 #define CLIP(n) {n,n##_end}
 static const Clip clips[] = {
@@ -23,14 +25,16 @@ static const Clip clips[] = {
     [WEAPON_CHANGE]=CLIP(change_gun),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
     [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land), [PLAYER_STEP]=CLIP(step),
-    [PLAYER_PAIN]=CLIP(pain1), [PLAYER_DEATH]=CLIP(die1), [PICKUP_AMMO]=CLIP(pickup_ammo_clip),
+    [PLAYER_PAIN]=CLIP(pain6), [PLAYER_DEATH]=CLIP(die1), [ALT_DEATH]=CLIP(die2),
+    [BOT_PAIN1]=CLIP(pain1), [BOT_PAIN2]=CLIP(pain2), [BOT_PAIN3]=CLIP(pain3),
+    [BOT_PAIN4]=CLIP(pain4), [BOT_PAIN5]=CLIP(pain5), [PICKUP_AMMO]=CLIP(pickup_ammo_clip),
     [PICKUP_HEALTH]=CLIP(pickup_health), [PICKUP_HELMET]=CLIP(pickup_helmet), [PICKUP_ARMOUR]=CLIP(pickup_armour)
 };
 static SDL_AudioDeviceID audio_device;
 
-enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN };
+enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE };
 typedef struct { const int16_t *data; unsigned remaining; int left,right; } Voice;
-static const int volume[]={96,96,48,70,64};
+static const int volume[]={96,96,48,70,64,96};
 static Voice voices[sizeof(volume)/sizeof(volume[0])];
 
 static void mix_audio(void *unused, Uint8 *out, int len) {
@@ -58,7 +62,7 @@ static void mix_audio(void *unused, Uint8 *out, int len) {
 }
 static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
-    const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound};
+    const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice};
     SDL_LockAudioDevice(audio_device);
     for (unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i) {
         if (effects[i]==SILENT) continue;
@@ -66,7 +70,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         voices[i]=(Voice){(const int16_t *)clip->start,
             ((uintptr_t)clip->end-(uintptr_t)clip->start)/sizeof(int16_t),volume[i],volume[i]};
     }
-    if (voices[BOT_GUN].remaining) {
+    if (voices[BOT_GUN].remaining || voices[BOT_VOICE].remaining) {
         float dx=v->tx-v->px,dy=v->ty-v->py;
         float dz=map_floor(map_cube((int)v->tx,(int)v->ty))+3.6f-v->eye;
         float distance=sqrtf(dx*dx+dy*dy+dz*dz);
@@ -76,6 +80,8 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         float gain=volume[BOT_GUN]*4/fmaxf(4,distance);
         voices[BOT_GUN].left=(int)(gain*sqrtf(.5f*(1-pan))+.5f);
         voices[BOT_GUN].right=(int)(gain*sqrtf(.5f*(1+pan))+.5f);
+        voices[BOT_VOICE].left=voices[BOT_GUN].left;
+        voices[BOT_VOICE].right=voices[BOT_GUN].right;
     }
     SDL_UnlockAudioDevice(audio_device);
 }
@@ -169,8 +175,8 @@ int main(void) {
         match_view(&view);
         int aimed = match_targeted(&view);
         MatchSound effect = match_attack(&input);
-        update_audio(&view,effect);
         match_view(&view);
+        update_audio(&view,effect);
         unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected);
         refreshes=vblank-previous_vblank;
         previous_vblank=vblank;

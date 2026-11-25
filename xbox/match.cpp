@@ -44,7 +44,7 @@ int next_gun;
 MatchPhase phase;
 bool classic_assist;
 MatchSound bot_sound;
-MatchSound movement_sound, pickup_sound, pain_sound;
+MatchSound movement_sound, pickup_sound, pain_sound, bot_voice;
 float step_distance;
 ItemView item_views[item_count];
 BulletMark marks[64];
@@ -139,14 +139,16 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
 void damage(Fighter &victim, Fighter &attacker, int gun) {
     int dealt=victim.state.dodamage(guns[gun].damage,gun);
     victim.pain_until=clock_ms+300;
+    bool dead=victim.state.health<=0;
+    MatchSound death=dead && effect_random(2) ? ALT_DEATH : PLAYER_DEATH;
     if (&victim == &player) {
         unsigned remaining=hurt_until>clock_ms?hurt_until-clock_ms:0;
         hurt_until=clock_ms+fminf(3999,remaining+7*dealt);
         float relative=atan2f(attacker.y-player.y,attacker.x-player.x)-player.yaw;
         int sector=(int)floorf(relative/(45*radians)+.5f);
         damage_directions[(unsigned)sector%8]=clock_ms+1000;
-        pain_sound=victim.state.health>0 ? PLAYER_PAIN : PLAYER_DEATH;
-    }
+        pain_sound=dead ? death : PLAYER_PAIN;
+    } else bot_voice=dead ? death : (MatchSound)(BOT_PAIN1+effect_random(5));
     if (victim.state.health > 0) return;
     victim.state.health = 0;
     victim.respawn_at = clock_ms+2000;
@@ -243,7 +245,7 @@ void update_bot(float dt) {
 
 void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
-    bot_sound=movement_sound=pickup_sound=pain_sound=SILENT;
+    bot_sound=movement_sound=pickup_sound=pain_sound=bot_voice=SILENT;
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<2000) intermission_age+=elapsed;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
@@ -456,6 +458,7 @@ void match_view(MatchView *v) {
     v->damage_directions=damage_directions;
     v->phase = phase; v->bot_sound = bot_sound;
     v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;
+    v->bot_voice=bot_voice;
     v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
     for (int i = 0; i < item_count; ++i) if (clock_ms >= unavailable_until[i]) {
