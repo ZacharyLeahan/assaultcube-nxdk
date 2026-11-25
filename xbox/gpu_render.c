@@ -1,5 +1,6 @@
 #include "gpu_render.h"
 #include "geometry.h"
+#include "shot_light.h"
 #include "navigation.h"
 #define GL_GLEXT_PROTOTYPES
 #include <pbgl.h>
@@ -16,11 +17,11 @@
 typedef struct { unsigned offset, bytes, width, height, mip; } ImageInfo;
 typedef struct { unsigned texture, first, count, primitive; } Batch;
 typedef struct { int x, y, w, h; } Glyph;
+typedef struct { int x,y; unsigned first,count; } PropLightSpan;
 #include "generated/gpu.h"
 #include "generated/water.h"
 extern const unsigned char gpu_textures[];
-extern const unsigned char cell_light[256][256][3];
-static const Vertex *geometry;
+static Vertex *geometry;
 typedef struct { float u,v; } LightUV;
 static LightUV *world_light_uv;
 typedef MatchPoint Position;
@@ -70,6 +71,7 @@ static void zfree_gpu(voidpf opaque, voidpf data) { (void)opaque; free(data); }
 int gpu_init(int width, int height) {
     tick_hz=(unsigned)KeQueryPerformanceFrequency();
     if (pbgl_init(1)) return 0;
+    shot_light_init();
     stream = pbgl_alloc(STREAM_CAPACITY*sizeof(Vertex));
     if (!stream) return 0;
     aspect = (float)width/height;
@@ -145,8 +147,32 @@ static void color(float r,float g,float b,float a) {
     tint[0]=r*255; tint[1]=g*255; tint[2]=b*255; tint[3]=a*255;
 }
 static void model_color(float x,float y) {
-    const unsigned char *rgb=cell_light[(unsigned)y & 255][(unsigned)x & 255];
+    const unsigned char *rgb=lit_cell((unsigned)x & 255,(unsigned)y & 255);
     glColor4ub(rgb[0],rgb[1],rgb[2],255);
+}
+static void update_shot_lighting(const MatchView *v) {
+    ShotLight lights[2]={{(int)v->px,(int)v->py,v->player_light},{(int)v->tx,(int)v->ty,v->bot_light}};
+    LightPatch dirty[4];
+    unsigned changes=shot_light_update(lights,dirty);
+    if (!changes) return;
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D,textures[WORLD_LIGHT_TEX]);
+    for (unsigned i=0;i<changes;++i) {
+        int x=dirty[i].x,y=dirty[i].y;
+        uint8_t rgba[LIGHT_WIDTH][LIGHT_WIDTH][4];
+        for (int row=0;row<LIGHT_WIDTH;++row) memcpy(rgba[row],lit_cell(x,y+row),sizeof(rgba[row]));
+        glTexSubImage2D(GL_TEXTURE_2D,0,x,y,LIGHT_WIDTH,LIGHT_WIDTH,GL_RGBA,GL_UNSIGNED_BYTE,rgba);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    for (unsigned i=0;i<sizeof(prop_lights)/sizeof(prop_lights[0]);++i) {
+        const PropLightSpan *p=prop_lights+i;
+        for (unsigned j=0;j<changes;++j) {
+            if ((unsigned)(p->x-dirty[j].x)>=LIGHT_WIDTH || (unsigned)(p->y-dirty[j].y)>=LIGHT_WIDTH) continue;
+            const uint8_t *rgb=lit_cell(p->x,p->y);
+            for (unsigned k=0;k<p->count;++k) memcpy(geometry[p->first+k].rgba,rgb,4);
+            break;
+        }
+    }
 }
 static void begin_quads(void) { first=cursor; }
 static void vertex(float x,float y,float z,float u,float v) {
@@ -659,6 +685,7 @@ void gpu_trace_init(void) {
 unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected) {
     cursor=0;
     pose_cursor=0;
+    update_shot_lighting(v);
     bind_vertices(stream);
     glDepthMask(GL_TRUE);
     // The sky covers the background. Clear the full tiled Z24S8 surface for z compression.

@@ -29,7 +29,7 @@ struct Fighter {
     unsigned shots, shot_until;
     int turn_direction;
     int frags;
-    unsigned respawn_at, ready_at, reload_at, flash_until, pain_until;
+    unsigned respawn_at, ready_at, reload_at, flash_until, light_until, pain_until;
 };
 Fighter player, bot;
 float feet_z, stance, jump_speed, sway_vertical;
@@ -140,7 +140,7 @@ void spawn(Fighter &f, int index) {
     f.turn_direction=0;
     f.state.respawn();
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
-    f.respawn_at = f.ready_at = f.reload_at = f.flash_until = f.pain_until = 0;
+    f.respawn_at = f.ready_at = f.reload_at = f.flash_until = f.light_until = f.pain_until = 0;
 }
 void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.yaw = atan2f(opponent.y-f.y,opponent.x-f.x);
@@ -257,6 +257,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
         action=f.ready_at;
     f.ready_at = action+delay;
     f.flash_until = action+90;
+    f.light_until=clock_ms+100;
     return gun == GUN_PISTOL ? PISTOL_SHOT : RIFLE_SHOT;
 }
 void collect(Fighter &f) {
@@ -651,6 +652,9 @@ MatchSound match_attack(const MatchInput *in) {
     return shot;
 }
 void match_view(MatchView *v) {
+    unsigned now=clock_ms+intermission_age;
+    v->player_light=player.light_until>now?(unsigned)fminf(50,player.light_until-now):0;
+    v->bot_light=bot.light_until>now?(unsigned)fminf(50,bot.light_until-now):0;
     v->empty_click=empty_click;
     v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
     v->bot_line=bot_line;
