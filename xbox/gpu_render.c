@@ -339,15 +339,17 @@ static void level(const MatchView *v) {
         }
         end_quads();
     }
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND); glBlendFunc(GL_DST_COLOR,GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();
     for (unsigned i=0;i<v->mark_count;++i) {
         const BulletMark *m=v->marks+i;
         if (m->expires<=v->elapsed_ms) continue;
+        float fade=fminf(1,(m->expires-v->elapsed_ms)/1000.f);
+        color(fade,fade,fade,fade);
         for (int j=0;j<4;++j) {
             int u=j==1||j==2, w=j>=2;
-            float a=u?.30f:-.30f, b=w?.30f:-.30f;
+            float a=.6f*(u?HOLE_RIGHT:HOLE_LEFT), b=.6f*(w?HOLE_BOTTOM:HOLE_TOP);
             vertex(m->x+(m->axis==0?0:a),m->y+(m->axis==0?a:m->axis==2?b:0),
                    m->z+(m->axis==2?0:b),u,w);
         }

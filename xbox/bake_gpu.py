@@ -260,10 +260,26 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     texture(Image.open(packages/"misc/compass-rose.png"),(256,256),False)
     mark("BULLET_TEX",len(textures))
     # AssaultCube decal textures encode neutral at 128, shadows below and highlights above.
-    gray=np.asarray(Image.open(packages/"misc/bullethole.png").convert("L")).astype(int)
-    decal=np.zeros((*gray.shape,4),np.uint8)
-    decal[:,:,:3]=np.where(gray[:,:,None]>128,255,0)
-    decal[:,:,3]=np.minimum(255,2*abs(gray-128))
+    gray=np.asarray(Image.open(packages/"misc/bullethole.png").convert("L")
+                    .resize((64,64),Image.Resampling.LANCZOS)).astype(int)
+    delta=2*(gray-128)
+    # Remove the nearly neutral compression fringe before cropping. Each
+    # projected texel can cover many pixels when the rifle touches a wall.
+    delta[np.abs(delta)<=4]=0
+    rows,cols=np.nonzero(delta)
+    x0,x1=max(0,cols.min()-1),min(64,cols.max()+2)
+    y0,y1=max(0,rows.min()-1),min(64,rows.max()+2)
+    mark("HOLE_LEFT",float(x0/64-.5))
+    mark("HOLE_RIGHT",float(x1/64-.5))
+    mark("HOLE_TOP",float(y0/64-.5))
+    mark("HOLE_BOTTOM",float(y1/64-.5))
+    delta=delta[y0:y1,x0:x1]
+    decal=np.empty((*delta.shape,4),np.uint8)
+    decal[:,:,:3]=np.maximum(delta,0)[:,:,None]
+    decal[:,:,3]=np.minimum(255,np.maximum(-delta,0))
+    # Store straight RGBA independently: bright pixels have RGB but zero alpha.
+    decal=np.stack([np.asarray(Image.fromarray(ch).resize((64,64),Image.Resampling.BILINEAR))
+                    for ch in decal.transpose(2,0,1)],axis=2)
     texture(Image.fromarray(decal),(64,64))
     mark("SPARK_TEX",len(textures))
     texture(Image.open(packages/"misc/base.png"),(32,32),False)
