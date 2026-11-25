@@ -190,7 +190,15 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             break;
         }
         case SV_SETTEAM:r.skip(2);break;
-        case SV_PONG:case SV_PAUSEMODE:case SV_SERVERMODE:case SV_CLIENTPING:case SV_WEAPCHANGE:r.skip(1);break;
+        case SV_PONG:{
+            unsigned sent=r.integer(),latency=now-sent;
+            if(r.valid && latency<=10000) {m.word(SV_CLIENTPING);m.word(latency);m.transmit();}
+            break;
+        }
+        case SV_SHOTFX:case SV_HITPUSH:r.skip(5);break;
+        case SV_RELOAD:case SV_ITEMACC:r.skip(2);break;
+        case SV_SERVMSG:case SV_SERVMSGVERB:r.string(nullptr,0);break;
+        case SV_ITEMSPAWN:case SV_SOUND:case SV_VOICECOM:case SV_PAUSEMODE:case SV_SERVERMODE:case SV_CLIENTPING:case SV_WEAPCHANGE:r.skip(1);break;
         default:return; // Unknown message may have variable length; discard this packet's remainder.
         }
     }
