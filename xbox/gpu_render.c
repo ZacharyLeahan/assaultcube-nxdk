@@ -430,19 +430,28 @@ static void level(const MatchView *v) {
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
     glDisableClientState(GL_COLOR_ARRAY);
-    model_color(v->tx,v->ty);
-    {
+    shadow_count=0;
+    if (!v->hide_bot) {
+        model_color(v->tx,v->ty);
         glPushMatrix();
         bot_transform(v);
         // ac_desert uses the PC default 45-degree yaw and 20-unit player shadow.
         float cy=cosf(v->bot_yaw),sy=sinf(v->bot_yaw),ct=cosf(v->bot_tilt),st=sinf(v->bot_tilt);
         float forward=10*(cy+sy),down=-14.142136f;
         shadow_tip=(Position){ct*forward+st*down,10*(cy-sy),-st*forward+ct*down};
-        shadow_count=0;
         stencil_reference(192);
         bot_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,v);
         bot_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,v);
         stencil_reference(64);
+        glPopMatrix();
+    }
+    for (unsigned i=0;i<v->gib_count;++i) {
+        const GibView *g=&v->gibs[i];
+        glPushMatrix();
+        glTranslatef(g->pos.x,g->pos.y,g->pos.z-g->sink);
+        glRotatef(g->yaw,0,0,1); glRotatef(g->pitch,0,1,0);
+        model_color(g->pos.x,g->pos.y);
+        batch(GIB_BATCH+g->model);
         glPopMatrix();
     }
     bind_vertices(geometry);

@@ -181,7 +181,19 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         _,_,sw,sh,stride,_,nv,nt,nf,_,_,_,st,tr,frame,commands,_=struct.unpack_from("<17i",d)
         cfg=(path/"md2.cfg").read_text()
         model_scale=float(re.search(r"^mdlscale (\d+)",cfg,re.M)[1])/1600
-        translate=np.array(re.search(r"^mdltrans (.+)",cfg,re.M)[1].split(),float)
+        offset=re.search(r"^mdltrans (.+)",cfg,re.M)
+        translate=np.array(offset[1].split(),float) if offset else np.zeros(3)
+        uv=np.frombuffer(d,"<i2",nt*2,st).reshape(-1,2)/[sw,sh]
+        faces=np.frombuffer(d,"<u2",nf*6,tr).reshape(-1,6)
+        tex=model_skin(skin,size)
+        def positions(pose):
+            off=frame+pose*stride
+            scale=np.array(struct.unpack_from("<3f",d,off))
+            pos=np.frombuffer(d,np.uint8,nv*4,off+40).reshape(-1,4)[:,:3]*scale+struct.unpack_from("<3f",d,off+12)
+            return (pos+translate)*[model_scale,-model_scale,model_scale]
+        if name is None:
+            model_batch(tex,positions(0),uv,faces[:,:3],faces[:,3:])
+            return
         heads=[]
         # md2tag indices address the PC loader's unique (UV, vertex)
         # triples in GL command order, not the MD2 frame vertex array.
@@ -197,9 +209,6 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         vertices=list(indices.values())
         if muzzle is None:
             head_indices=[vertices[int(i)] for i in re.search(r"^md2tag tag_head (.+)",cfg,re.M)[1].split()]
-        uv=np.frombuffer(d,"<i2",nt*2,st).reshape(-1,2)/[sw,sh]
-        faces=np.frombuffer(d,"<u2",nf*6,tr).reshape(-1,6)
-        tex=model_skin(skin,size)
         mark(name+"_VERTICES",nv)
         mark(name+"_POSE_BASE",len(bot_positions)//12)
         symbols.append("static const unsigned short "+name.lower()+"_indices[] = {"+
@@ -219,10 +228,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         symbols.append("static const unsigned short "+name.lower()+"_neighbors[] = {"+
                        ",".join(map(str,neighbors.flatten()))+"};\n")
         for pose in bot_frames:
-            off=frame+pose*stride
-            scale=np.array(struct.unpack_from("<3f",d,off))
-            pos=np.frombuffer(d,np.uint8,nv*4,off+40).reshape(-1,4)[:,:3]*scale+struct.unpack_from("<3f",d,off+12)
-            pos=(pos+translate)*[model_scale,-model_scale,model_scale]
+            pos=positions(pose)
             if muzzle is None:
                 heads.append((pose,pos[head_indices].mean(axis=0)))
             if muzzle is not None:
@@ -285,6 +291,10 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
+    mark("GIB_BATCH",len(batches))
+    for i in range(1,4):
+        folder=packages/f"models/misc/gib0{i}"
+        md2(folder,folder/"skin.jpg",(64,64),None)
     mark("PICKUP_BATCH",len(batches))
     for name in ("pistolclips","ammobox","health","helmet","kevlar"):
         folder=packages/"models/pickups"/name

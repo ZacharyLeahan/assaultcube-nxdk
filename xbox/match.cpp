@@ -69,10 +69,66 @@ unsigned next_mark, mark_count;
 SplashParticle sparks[64];
 BloodParticle blood[64];
 unsigned next_blood,blood_count;
+struct Gib {
+    GibView view;
+    MatchPoint velocity;
+    unsigned remaining;
+    bool resting;
+};
+Gib gibs[12]; // Two knife frags reach the three-point duel limit.
+GibView gib_views[12];
+unsigned gib_count,gib_remainder;
+bool hide_bot,gib_sound;
 unsigned next_spark,spark_count,effect_seed;
 unsigned effect_random(unsigned limit) {
     effect_seed=1664525u*effect_seed+1013904223u;
     return (effect_seed>>8)%limit;
+}
+void spawn_gibs(const Fighter &f) {
+    hide_bot=gib_sound=true;
+    for (unsigned i=0;i<6 && gib_count<12;++i) {
+        Gib &g=gibs[gib_count++];
+        float angle=effect_random(360)*radians;
+        g.view={{f.x,f.y,f.eye_height-PLAYER_ABOVE_EYE},(float)effect_random(360),(float)effect_random(360),0,effect_random(3)};
+        g.velocity={sinf(angle)*effect_random(1000)*.0003f,cosf(angle)*effect_random(1000)*.0003f,
+                    effect_random(1000)*.0003f};
+        g.remaining=7000+100*effect_random(10);
+        g.resting=false;
+    }
+}
+static bool gib_blocked(MatchPoint p,MatchPoint d) {
+    SurfaceHit hit;
+    trace_surface(p.x,p.y,p.z,p.x+d.x,p.y+d.y,p.z+d.z,&hit);
+    return hit.fraction<1 || prop_depth(p,d,1)<1;
+}
+void update_gibs(unsigned elapsed) {
+    gib_remainder+=elapsed;
+    unsigned ticks=gib_remainder/5;
+    gib_remainder%=5;
+    for (unsigned i=0;i<gib_count;) {
+        Gib &g=gibs[i];
+        if (elapsed>=g.remaining) { g=gibs[--gib_count]; continue; }
+        g.remaining-=elapsed;
+        float decay=g.remaining<2000?2000-g.remaining:0;
+        g.view.sink=decay*decay*decay/4e9f;
+        MatchPoint &p=g.view.pos,&v=g.velocity;
+        for (unsigned t=0;t<ticks && !g.resting;++t) {
+            float speed=p.z<WATER_LEVEL?.15f/12:.15f;
+            v.z-=.5f*9.81f/4*.005f;
+            float dx=v.x*speed,dy=v.y*speed,dz=v.z*speed;
+            float rot=3*sqrtf(dx*dx+dy*dy+dz*dz);
+            g.view.yaw+=rot; g.view.pitch+=rot;
+            if (dx && gib_blocked(p,{dx+copysignf(.2f,dx),0,0})) { v.x*=-.7f; v.y*=.7f; v.z*=.7f; }
+            else p.x+=dx;
+            if (dy && gib_blocked(p,{0,dy+copysignf(.2f,dy),0})) { v.y*=-.7f; v.x*=.7f; v.z*=.7f; }
+            else p.y+=dy;
+            if (gib_blocked(p,{0,0,dz+(dz<0?-.3f:0)})) {
+                g.resting=dz<0 && fabsf(v.z)<.02f && hypotf(v.x,v.y)<.02f;
+                v.z*=-.5f; v.x*=.5f; v.y*=.5f;
+            } else p.z+=dz;
+        }
+        ++i;
+    }
 }
 SplashParticle splash_particle(float x,float y,float z,unsigned max_lifetime) {
     short dx,dy,dz;
@@ -133,7 +189,7 @@ void spawn(Fighter &f, int index) {
         sway_ms=0; sway_vertical=0;
         was_crouching=false; step_sound=stance_sound=SILENT;
     }
-    if (&f==&bot) { current_clip={}; previous_clip={}; }
+    if (&f==&bot) { hide_bot=false; current_clip={}; previous_clip={}; }
     f.velocity_x=f.velocity_y=f.turn_boost=0;
     f.sway_x=f.sway_y=0;
     f.pitch_velocity=0; f.shots=f.shot_until=0;
@@ -149,7 +205,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
 }
 void begin(MatchPhase initial) {
     next_mark=mark_count=0;
-    bot_line={};
+    bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
     intermission_age=0;
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
@@ -221,6 +277,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
         }
     }
     if (victim.state.health > 0) return;
+    if (&victim==&bot && gun==GUN_KNIFE) spawn_gibs(victim);
     victim.state.health = 0;
     victim.respawn_at = clock_ms+2000;
     victim.flash_until = 0;
@@ -384,6 +441,8 @@ void update_bot(float dt) {
 
 void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
+    gib_sound=false;
+    if (gib_count) update_gibs(elapsed);
     if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
     bot_sound=movement_sound=pickup_sound=pain_sound=bot_voice=SILENT;
     step_sound=stance_sound=SILENT;
@@ -759,6 +818,7 @@ void match_view(MatchView *v) {
     }
     v->wide_crosshair = gun==GUN_ASSAULT && player.shots>3;
     v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
+    v->bot_respawn_pending=bot.respawn_at && bot.respawn_at<=clock_ms+40;
     v->bot_shot_pending=phase==PLAYING && bot_saw_player && !bot.respawn_at &&
                         bot_attack_at<=clock_ms+40 && bot.ready_at<=clock_ms+40;
     v->damage_directions=damage_directions;
@@ -768,7 +828,9 @@ void match_view(MatchView *v) {
     v->footsteps=phase==PLAYING && !player.respawn_at && clock_ms>=player.pain_until ? step_sound:SILENT;
     v->bot_footsteps=phase==PLAYING && !bot.respawn_at && bot_pose && clock_ms>=bot.pain_until &&
         hypotf(distance(bot.x,bot.y,player.x,player.y),eye(bot)-eye(player))<20 ? FOOTSTEPS:SILENT;
-    v->bot_voice=bot_voice;
+    v->bot_voice=bot_voice; v->gib_sound=gib_sound; v->hide_bot=hide_bot;
+    for (unsigned i=0;i<gib_count;++i) gib_views[i]=gibs[i].view;
+    v->gibs=gib_views; v->gib_count=gib_count;
     v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
     for (int i = 0; i < item_count; ++i) if (clock_ms >= unavailable_until[i]) {

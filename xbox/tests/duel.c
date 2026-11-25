@@ -334,11 +334,27 @@ static void test_knife(void) {
         match_update(&in,16,.016f); match_attack(&in); match_view(&v);
     }
     assert(v.player_frags==2 && !v.bot_alive);
+    assert(v.gib_count==6 && v.gib_sound && v.hide_bot);
+    MatchPoint origin=v.gibs[0].pos;
     in=(MatchInput){.knife_select=1}; match_update(&in,16,.016f);
+    match_view(&v);
+    assert(!v.gib_sound && v.gib_count==6 && v.gibs[0].pos.z!=origin.z);
     assert(match_attack(&in)==WEAPON_CHANGE);
     in=(MatchInput){.fire=1}; match_update(&in,401,.016f);
     assert(match_attack(&in)==RIFLE_SHOT); match_view(&v);
     assert(!v.knife && !v.pistol && v.magazine==19);
+    in=(MatchInput){0};
+    int saw_respawn_warning=0;
+    for (int i=0;i<510;++i) {
+        match_update(&in,16,.016f);
+        match_view(&v);
+        if (v.bot_respawn_pending) {
+            assert(!v.bot_alive && v.hide_bot);
+            saw_respawn_warning=1;
+        }
+        if (i==110) assert(v.bot_alive && !v.hide_bot && v.gib_count==6);
+    }
+    assert(saw_respawn_warning && v.gib_count==0);
 }
 static void test_fighter_contact(void) {
     MatchView v;
