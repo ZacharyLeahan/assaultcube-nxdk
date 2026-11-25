@@ -955,10 +955,10 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
         begin_quads(); quad(-75.2f,-75.2f,150.4f,150.4f,0,0,1,1); end_quads();
         glPopMatrix();
     }
-    if(v->phase!=PLAYING) {
+    if(v->phase!=PLAYING && !lan_connected()) {
         color(.03f,.04f,.05f,.78f); begin_quads();
         quad(28,24,528,173,0,0,0,0); end_quads();
-    } else if(!v->respawning) {
+    } else if(v->phase==PLAYING && !v->respawning) {
         color(1,1,1,1);
         equipment(8,2,3,v->health,-1);
         if (v->armour) equipment(196,(v->armour-1)/25,2,v->armour,-1);
@@ -1065,11 +1065,12 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glStencilFunc(GL_ALWAYS,64,255);
     glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);
     glDepthRange(0,.04);
-    if (!v->scoped) weapon(v);
+    int view_weapon=!v->scoped && !(lan_connected() && v->phase==INTERMISSION);
+    if (view_weapon) weapon(v);
     glDepthRange(.04,1);
     level(v);
     glDepthRange(0,.04);
-    if (!v->scoped) muzzle_flash(v);
+    if (view_weapon) muzzle_flash(v);
     glDepthRange(0,1);
     hud(v,fps10,connected,input->showmap,input->scores,menu);
     // Show the completed surface at vblank. The default pbkit queue can expose

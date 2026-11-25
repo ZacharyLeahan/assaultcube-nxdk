@@ -1561,6 +1561,11 @@ void match_view(MatchView *v) {
     v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
     v->camera_yaw=player.respawn_at?death_yaw:player.yaw;
     v->camera_pitch=player.respawn_at?death_pitch:player.pitch;
+    if(lan_match && phase==INTERMISSION) {
+        v->camera={vantage[0]/DMF,vantage[1]/DMF,vantage[2]/DMF};
+        v->camera_yaw=(vantage[3]-90)*radians;
+        v->camera_pitch=vantage[4]*radians;
+    }
     v->bot_supply=supply_index;
     v->bot_rifle_mag=bot.state.mag[GUN_ASSAULT]; v->bot_rifle_ammo=bot.state.ammo[GUN_ASSAULT];
     v->bot_pistol_mag=bot.state.mag[GUN_PISTOL]; v->bot_pistol_ammo=bot.state.ammo[GUN_PISTOL];

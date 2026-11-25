@@ -47,6 +47,29 @@ def bake_ambience(config, entities):
         ','.join(map(str,decoded))+"};\n")
 
 
+def map_vantage(header):
+    data=iter(header)
+    def natural():
+        value=0
+        for shift in (0,7,14,21):
+            byte=next(data)
+            value|=(byte&127)<<shift
+            if not byte&128:
+                return value
+        return value
+    while True:
+        size,flags=natural(),natural()
+        record=iter(bytes(next(data) for _ in range(size)))
+        if flags&63==6:  # HX_VANTAGEPOINT in the official map header
+            def integer():
+                first=next(record)
+                if first in (128,129):
+                    n=2 if first==128 else 4
+                    return int.from_bytes(bytes(next(record) for _ in range(n)),"little",signed=True)
+                return first if first<128 else first-256
+            return [integer() for _ in range(5)]
+
+
 def bake():
     data = gzip.decompress((PKG / "maps/official/ac_desert.cgz").read_bytes())
     magic, version, offset, factor, count = struct.unpack_from("<4s4i", data)
@@ -115,7 +138,8 @@ def bake():
         "".join("    {"+", ".join(map(str,c))+"},\n" for c in clips)+"};\n")
     (OUT / "deltas.bin").write_bytes(deltas)
     (OUT / "starts.h").write_text("static const short starts[][4] = {\n" +
-        "".join(f"    {{{x}, {y}, {yaw}, {z}}},\n" for x,y,yaw,z in starts) + "};\n")
+        "".join(f"    {{{x}, {y}, {yaw}, {z}}},\n" for x,y,yaw,z in starts) + "};\n" +
+        "static const short vantage[] = {"+", ".join(map(str,map_vantage(config)))+"};\n")
     (OUT / "items.h").write_text("static const ItemLocation locations[] = {\n" +
         "".join(f"    {{{x}, {y}, {height}, {kind}, {entity}}},\n" for x, y, height, kind, entity in pickups) + "};\n")
     from bake_corners import map_corners
