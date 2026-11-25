@@ -229,7 +229,13 @@ void messages(Reader &r,unsigned now,int sender=-1) {
                 match_lan_shot(gun,x/DMF,y/DMF,z/DMF);
             break;
         }
-        case SV_HITPUSH:r.skip(5);break;
+        case SV_HITPUSH: {
+            int gun=r.integer(),damage=r.integer();
+            int x=r.integer(),y=r.integer(),z=r.integer();
+            if(r.valid && alive && sender<0 && gun>=0 && gun<NUMGUNS)
+                match_lan_hitpush(gun,damage,x/DNF,y/DNF,z/DNF);
+            break;
+        }
         case SV_WEAPCHANGE: {
             int gun=r.integer();
             if(r.valid && sender>=0 && sender!=own && gun>=0 && gun<NUMGUNS) {

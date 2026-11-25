@@ -431,3 +431,22 @@ extern "C" void test_lan_knife(void) {
     assert(v.hide_bot && v.gib_count==6 && v.gib_sound);
     match_lan_stop();
 }
+
+extern "C" void test_lan_hitpush(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    player.x=121;player.y=121;player.yaw=0;
+    feet_z=ground(player.x,player.y);
+    player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    match_lan_hitpush(GUN_PISTOL,18,1,0,0);
+    MatchInput in={};
+    for(int i=0;i<200;++i) match_update(&in,5,.005f);
+    // Stock floor friction retains 23/24 of velocity every 5 ms.
+    assert(fabsf(player.x-121-.18f*16*.005f*23)<.001f);
+    assert(player.y==121 && player.state.health==100);
+    player.velocity_y=.7f;
+    match_lan_hitpush(GUN_PISTOL,18,-.99f,0,-.1f);
+    assert(fabsf(player.velocity_x+.99f*.18f)<.0001f && player.velocity_y==.7f);
+    match_lan_stop();
+}

@@ -783,6 +783,10 @@ void match_lan_shot(int gun,float x,float y,float z) {
     bot_line={from,{x,y,z},clock_ms+75};
     spark_splash(x,y,z);
 }
+void match_lan_hitpush(int gun,int damage,float x,float y,float z) {
+    if(lan_match && !player.respawn_at && damage>0 && gun>=0 && gun<NUMGUNS)
+        impulse(player,x,y,z,damage/100.f*guns[gun].pushfactor);
+}
 void match_lan_health(int hp,int armour) {
     if(hp<player.state.health) hurt_until=clock_ms+250;
     if(hp<=0 && !player.respawn_at) {
