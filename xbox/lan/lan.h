@@ -9,6 +9,7 @@ void lan_poll(unsigned now);
 void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsigned now);
 const char *lan_status(void);
 int lan_connected(void);
+int lan_skin(int local);
 typedef struct { const char *name; int frags,deaths,ping; } LanScore;
 int lan_scores(LanScore rows[2],const MatchView *view);
 void lan_toggle_primary(unsigned now);

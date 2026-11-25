@@ -34,10 +34,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
             raw = image.tobytes()
         return store_texture(raw, size, mip, False, grayscale)
 
-    def weapon_skin(path):
-        # Each close-up skin keeps its original texels with its own NV2A palette.
+    def indexed_skin(path,size=None):
         with Image.open(path) as source:
             rgb = source.convert("RGB")
+        if size and rgb.size!=size:
+            rgb=rgb.resize(size,Image.Resampling.LANCZOS)
         indexed = rgb.quantize(256)
         raw = bytearray(bytes(indexed.getpalette()).ljust(256*3, b"\0"))
         raw.extend(indexed.tobytes())
@@ -293,6 +294,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
 
     mark("BODY_BATCH",len(batches))
     player=packages/"models/playermodels"
+    mark("FIRST_PLAYER_SKIN",len(textures))
+    for team,count in (("CLA",4),("RVSF",6)):
+        for skin in range(1,count+1):
+            path=player/team/f"{skin:02d}.jpg"
+            model_textures[path,(256,256)]=indexed_skin(path,(256,256))
     md2(player,player/"CLA/01.jpg",(256,256),"BODY")
     world_models=(("assault","bot_gun"),("pistol","world_pistol"),("knife","world_knife"),
                   ("subgun","world_smg"),("carbine","world_carbine"),("sniper","world_sniper"),("shotgun","world_shotgun"),("grenade","world_grenade"))
@@ -313,11 +319,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     hud_frames=[]
     hud_indices=[]
     max_hud_vertices=0
-    hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
+    hands=indexed_skin(packages/"models/weapons/knife/skin_hands.jpg")
     for name in ("assault","pistol","knife","subgun","carbine","sniper","shotgun","grenade"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
-        tex=weapon_skin(folder/"skin_weapon.jpg")
+        tex=indexed_skin(folder/"skin_weapon.jpg")
         header=struct.unpack_from("<4si64s9i",d)
         muzzle=[]
         shoot=re.search(r'^md3anim "gun shoot" (\d+) (\d+)',(folder/"md3.cfg").read_text(),re.M)
@@ -358,7 +364,6 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
-    mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
     for name in ("knife","subgun","carbine","sniper","shotgun","grenade"):
         folder=packages/"models/weapons"/name/"world"
         mark(name.upper()+"_DEATH_BATCH",len(batches))

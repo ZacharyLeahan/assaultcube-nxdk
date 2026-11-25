@@ -25,6 +25,8 @@ unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
 char player_names[MAXCLIENTS][16];
 int deaths[MAXCLIENTS],pings[MAXCLIENTS];
+struct Appearance { int team,skin[2]; };
+Appearance appearances[MAXCLIENTS];
 struct PrimaryChoice { int gun; const char *config,*label; };
 constexpr PrimaryChoice primaries[]={
     {GUN_ASSAULT,"assault","Next spawn: MTP-57 rifle"},
@@ -145,7 +147,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         case SV_SERVINFO: {
             own=r.integer();
             int version=r.integer(),auth=r.integer(),password=r.integer();
-            if(!r.valid || version!=PROTOCOL_VERSION || auth || password) {stop("requires a compatible open LAN server");return;}
+            if(!r.valid || own<0 || own>=MAXCLIENTS || version!=PROTOCOL_VERSION || auth || password) {stop("requires a compatible open LAN server");return;}
             m.word(SV_SERVINFO_RESPONSE);m.word(now);m.word(time(nullptr)/60);m.word(address.port);
             unsigned ip=lwip_ntohl(address.host);
             for(int i=0;i<4;i++) m.byte(ip>>(i*8));
@@ -238,7 +240,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         }
         case SV_CDIS: {
             int cn=r.integer();
-            if(cn>=0 && cn<MAXCLIENTS) {deaths[cn]=pings[cn]=0;player_names[cn][0]=0;}
+            if(cn>=0 && cn<MAXCLIENTS) {deaths[cn]=pings[cn]=0;player_names[cn][0]=0;appearances[cn]={};}
             if(cn==remote) {remote=-1;match_lan_hide();snprintf(status,sizeof(status),"LAN  ac_desert    PC left");}
             break;
         }
@@ -272,7 +274,11 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         case SV_INITCLIENT:case SV_SWITCHNAME: {
             int cn=type==SV_INITCLIENT?r.integer():sender;
             char name[16];r.string(name,sizeof(name));
-            if(type==SV_INITCLIENT) r.skip(8);
+            if(type==SV_INITCLIENT) {
+                int cla=r.integer(),rvsf=r.integer(),team=r.integer();
+                r.skip(5);
+                if(r.valid && cn>=0 && cn<MAXCLIENTS) appearances[cn]={team,{cla,rvsf}};
+            }
             if(r.valid && cn>=0 && cn<MAXCLIENTS) {
                 unsigned n=0;
                 for(const char *ch=name;*ch;++ch) if(*ch>=32 && *ch<=126) player_names[cn][n++]=*ch;
@@ -288,7 +294,18 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             }
             break;
         }
-        case SV_SETTEAM:r.skip(2);break;
+        case SV_SWITCHSKIN:{
+            int cla=r.integer(),rvsf=r.integer();
+            if(r.valid && sender>=0 && sender<MAXCLIENTS) {
+                appearances[sender].skin[0]=cla;appearances[sender].skin[1]=rvsf;
+            }
+            break;
+        }
+        case SV_SETTEAM:{
+            int cn=r.integer(),team=r.integer()&15;
+            if(r.valid && cn>=0 && cn<MAXCLIENTS) appearances[cn].team=team;
+            break;
+        }
         case SV_PONG:{
             unsigned sent=r.integer(),latency=now-sent;
             if(r.valid && latency<=10000) {
@@ -367,6 +384,13 @@ const char *lan_status(void) {
     return status[0]?status:nullptr;
 }
 int lan_connected(void) {return ready;}
+int lan_skin(int local) {
+    int cn=local?own:remote;
+    if(!ready || cn<0 || cn>=MAXCLIENTS) return local?4:0;
+    const Appearance &a=appearances[cn];
+    int team=a.team&1;
+    return (team?4:0)+(a.skin[team]&63)%(team?6:4);
+}
 int lan_scores(LanScore rows[2],const MatchView *v) {
     if(!ready || own<0 || own>=MAXCLIENTS) return 0;
     rows[0]={"Xbox",v->player_frags,deaths[own],pings[own]};

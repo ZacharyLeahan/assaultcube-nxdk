@@ -123,6 +123,58 @@ static int gpu_failure(int line,int texture) {
     if(f) {fprintf(f,"Renderer initialization failed at line %d, texture %d\n",line,texture);fclose(f);}
     return 0;
 }
+static int upload_texture(unsigned i,unsigned slot) {
+    const ImageInfo *im = &images[i];
+    unsigned size = im->unpacked;
+    unsigned char *pixels = malloc(size);
+    if (!pixels) return 0;
+    z_stream z = {0};
+    z.zalloc=zalloc_gpu; z.zfree=zfree_gpu;
+    z.next_in=(Bytef *)(gpu_textures+im->offset); z.avail_in=im->bytes;
+    z.next_out=pixels; z.avail_out=size;
+    int ok = inflateInit(&z)==Z_OK;
+    if (ok) {
+        ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
+        inflateEnd(&z);
+    }
+    if (!ok) { free(pixels); return 0; }
+    glBindTexture(GL_TEXTURE_2D,textures[slot]);
+    glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip && !im->indexed);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,im->mip?GL_LINEAR_MIPMAP_LINEAR:GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
+    if (im->indexed) {
+        const unsigned char *indices=pixels+256*3;
+        unsigned w=im->width,h=im->height;
+        for (unsigned level=0;;++level) {
+            glColorTableEXT(GL_TEXTURE_2D,GL_RGB,256,GL_RGB,GL_UNSIGNED_BYTE,pixels);
+            glTexImage2D(GL_TEXTURE_2D,level,GL_COLOR_INDEX8_EXT,w,h,0,GL_COLOR_INDEX,GL_UNSIGNED_BYTE,indices);
+            if (w==1 && h==1) break;
+            indices+=w*h;
+            w=w>1?w/2:1; h=h>1?h/2:1;
+        }
+        // Refresh pbGL's sampler state after uploading the complete mip chain.
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+    } else {
+        GLenum format=im->grayscale?GL_LUMINANCE_ALPHA:GL_RGBA;
+        glTexImage2D(GL_TEXTURE_2D,0,format,im->width,im->height,0,format,GL_UNSIGNED_BYTE,pixels);
+    }
+    free(pixels);
+    return glGetError()==GL_NO_ERROR;
+}
+// Only the two players visible in this duel need resident NV2A skin textures.
+static void update_player_skins(void) {
+    static int resident[2]={0,4};
+    for(int local=0;local<2;++local) {
+        int skin=lan_skin(local);
+        if(skin==resident[local]) continue;
+        glFinish();
+        if(upload_texture(FIRST_PLAYER_SKIN+skin,FIRST_PLAYER_SKIN+4*local))
+            resident[local]=skin;
+    }
+}
+
 int gpu_init(int width, int height) {
     int texture_index=-1;
     tick_hz=(unsigned)KeQueryPerformanceFrequency();
@@ -167,45 +219,8 @@ int gpu_init(int width, int height) {
     if (!shadow_positions) return gpu_failure(__LINE__,texture_index);
     glGenTextures(sizeof(textures)/sizeof(textures[0]),textures);
     for (unsigned i=0;i<sizeof(textures)/sizeof(textures[0]);++i) {
-        texture_index=(int)i;
-        const ImageInfo *im = &images[i];
-        unsigned size = im->unpacked;
-        unsigned char *pixels = malloc(size);
-        if (!pixels) return gpu_failure(__LINE__,texture_index);
-        z_stream z = {0};
-        z.zalloc=zalloc_gpu; z.zfree=zfree_gpu;
-        z.next_in=(Bytef *)(gpu_textures+im->offset); z.avail_in=im->bytes;
-        z.next_out=pixels; z.avail_out=size;
-        int ok = inflateInit(&z)==Z_OK;
-        if (ok) {
-            ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
-            inflateEnd(&z);
-        }
-        if (!ok) { free(pixels); return gpu_failure(__LINE__,texture_index); }
-        glBindTexture(GL_TEXTURE_2D,textures[i]);
-        glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip && !im->indexed);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,im->mip?GL_LINEAR_MIPMAP_LINEAR:GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
-        if (im->indexed) {
-            const unsigned char *indices=pixels+256*3;
-            unsigned w=im->width,h=im->height;
-            for (unsigned level=0;;++level) {
-                glColorTableEXT(GL_TEXTURE_2D,GL_RGB,256,GL_RGB,GL_UNSIGNED_BYTE,pixels);
-                glTexImage2D(GL_TEXTURE_2D,level,GL_COLOR_INDEX8_EXT,w,h,0,GL_COLOR_INDEX,GL_UNSIGNED_BYTE,indices);
-                if (w==1 && h==1) break;
-                indices+=w*h;
-                w=w>1?w/2:1; h=h>1?h/2:1;
-            }
-            // Refresh pbGL's sampler state after uploading the complete mip chain.
-            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
-        } else {
-            GLenum format=im->grayscale?GL_LUMINANCE_ALPHA:GL_RGBA;
-            glTexImage2D(GL_TEXTURE_2D,0,format,im->width,im->height,0,format,GL_UNSIGNED_BYTE,pixels);
-        }
-        free(pixels);
-        if (glGetError()!=GL_NO_ERROR) return gpu_failure(__LINE__,texture_index);
+        if(i>=FIRST_PLAYER_SKIN && i<FIRST_PLAYER_SKIN+10 && i!=FIRST_PLAYER_SKIN && i!=FIRST_PLAYER_SKIN+4) continue;
+        if(!upload_texture(i,i)) return gpu_failure(__LINE__,i);
     }
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
@@ -520,7 +535,7 @@ static void level(const MatchView *v) {
         shadow_tip=(Position){ct*forward+st*down,10*(cy-sy),-st*forward+ct*down};
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
-                    v->current_pose,v->previous_pose,v->pose_transition,batches[BODY_BATCH].texture);
+                    v->current_pose,v->previous_pose,v->pose_transition,FIRST_PLAYER_SKIN);
         world_weapon(v->bot_weapon,v->current_pose,v->previous_pose,v->pose_transition);
         stencil_reference(64);
         glPopMatrix();
@@ -537,7 +552,7 @@ static void level(const MatchView *v) {
         BotPose pose={184+(int)frame,184+(int)next,blend};
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
-                    pose,pose,1,PLAYER_SKIN);
+                    pose,pose,1,FIRST_PLAYER_SKIN+4);
         unsigned base=weapon_art[v->weapon].death_batch;
         if (base) {
             animated_batch(base+frame,base+next,blend);
@@ -1052,6 +1067,7 @@ void gpu_trace_init(void) {
 unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected,const SystemMenu *menu) {
     cursor=0;
     pose_cursor=0;
+    update_player_skins();
     update_shot_lighting(v);
     bind_vertices(stream);
     glDepthMask(GL_TRUE);
