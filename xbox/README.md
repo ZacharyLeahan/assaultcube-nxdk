@@ -25,6 +25,10 @@ The HUD shows frags, time remaining, health, and armour. The large ammo count is
 
 The radar and overhead map show the well water and map models, including barrels and crates. The player marker pulses briefly when you fire, reload, or switch weapons.
 
+Rifle and pistol reports overlap during a burst. Gunfire, impacts and map sounds follow the camera when you look around after a frag.
+
+To compare HDMI recordings, begin a local rifle burst within the first four seconds of each capture and run `python xbox/tests/rifle_audio.py before.wav after.wav`. The reported prior-shot gain measures how much of the preceding rounds remains audible under the next shot.
+
 The map supplies six ambient sound sources. The courtyard has stereo wind and a distant hawk, water becomes audible near the well, and three air conditioners can be located by ear.
 
 Local rifle and pistol impacts use the crosshair depth of the map and its props. A round that hits a barrel throws sparks at the barrel. Bullet holes on level surfaces last ten seconds and fade over the final second, including during sustained fire from both fighters.
