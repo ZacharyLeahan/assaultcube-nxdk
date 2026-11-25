@@ -199,6 +199,8 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
                 hit->fraction=t; // Geometric depth before the bullet-mark offset, including sky.
                 if (sky) return 0;
                 hit->x=x+t*dx; hit->y=y+t*dy; hit->z=z+t*(tz-z); hit->axis=axis;
+                // PC raycube supplies no decal normal for heightfield floors and ceilings.
+                hit->can_mark=axis!=2 || !slope;
                 if (axis==0) hit->x-=sx*.015f;
                 if (axis==1) hit->y-=sy*.015f;
                 if (axis==2) hit->z+=tz<z?.015f:-.015f;
