@@ -450,3 +450,28 @@ extern "C" void test_lan_hitpush(void) {
     assert(fabsf(player.velocity_x+.99f*.18f)<.0001f && player.velocity_y==.7f);
     match_lan_stop();
 }
+
+extern "C" void test_lan_primary_loadouts(void) {
+    const int weapons[]={GUN_SUBGUN,GUN_CARBINE};
+    for (int gun:weapons) {
+        int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+        mag[gun]=magsize(gun);ammo[gun]=2*magsize(gun);
+        match_prepare();
+        match_lan_spawn(100,0,gun,gun,ammo,mag);
+        MatchInput in={};in.fire=1;
+        MatchWeapon weapon=view_weapon(gun);
+        assert(match_attack(&in)==feedback[weapon].shot);
+        match_update(&in,attackdelay(gun),.016f);
+        assert(match_attack(&in)==(gun==GUN_SUBGUN?SMG_SHOT:SILENT));
+        unsigned fired=gun==GUN_SUBGUN?2:1;
+        assert(player.state.mag[gun]==magsize(gun)-(int)fired);
+        in.fire=0;in.refill=1;
+        assert(match_attack(&in)==feedback[weapon].reload);
+        assert(player.state.mag[gun]==magsize(gun) && player.state.ammo[gun]==2*magsize(gun)-(int)fired);
+        match_lan_remote_weapon(gun);
+        match_lan_remote(124,121,0,0,0,0);
+        MatchView v={};match_view(&v);
+        assert(v.weapon==weapon && v.bot_weapon==weapon);
+        match_lan_stop();
+    }
+}

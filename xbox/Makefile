@@ -39,7 +39,8 @@ $(CURDIR)/navigation.obj: generated/ladders.h generated/clips.h generated/corner
 $(CURDIR)/prop_depth.obj: generated/prop_bounds.h
 $(addprefix $(CURDIR)/,prop_depth.obj gpu_render.obj match.obj): geometry.h
 $(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h generated/bot_head.h
-$(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj shot_light.obj): match.h
+$(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj shot_light.obj prop_depth.obj lan/lan.obj): match.h
+$(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj lan/lan.obj): lan/lan.h
 $(addprefix $(CURDIR)/,match.obj gpu_render.obj navigation.obj): navigation.h
 $(addprefix $(CURDIR)/,controllers.obj platform_nxdk.obj): controllers.h
 
