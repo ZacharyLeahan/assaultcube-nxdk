@@ -22,9 +22,11 @@ This development build joins a stock AssaultCube 1.3.0.2 dedicated server on a P
 4. In the stock PC client's console, enter `/connect 192.168.1.210 28763`, substituting your PC's address.
 5. Copy the development `default.xbe` and a plain-text file named `lan-server.txt` to the same folder on the Xbox. Put only the PC's IPv4 address on the first line. Launch the XBE. The Xbox joins automatically as **Xbox**. Remove the text file and relaunch to play the offline bot match.
 
-The default primary is the MTP-57 rifle. Set the second line of `lan-server.txt` to `assault`, `sniper`, `subgun`, or `carbine` to choose a starting weapon. During the match, press D-pad Down to cycle those four choices for your next spawn. Press Y to switch between your current primary and the MK-77 pistol. Hold RT for automatic fire with the rifle or SMG. Tap RT for each carbine, sniper, or pistol shot. Press X to reload or hold LT to use the sniper scope.
+The default primary is the MTP-57 rifle. Set the second line of `lan-server.txt` to `assault`, `sniper`, `subgun`, `carbine`, or `shotgun` to choose a starting weapon. During the match, press D-pad Down to cycle those five choices for your next spawn. Press Y to switch between your current primary and the MK-77 pistol. Hold RT for automatic fire with the rifle or SMG. Tap RT for each carbine, sniper, shotgun, or pistol shot. Press X to reload or hold LT to use the sniper scope.
 
 On original hardware, the Xbox timestamped all 30 shots in an SMG magazine 80 ms apart, and Windows received all 30 from the stock server. Firing wide left the opponent at full health. After reloading, seven 16-damage hits scored the frag. Both clients also fired a single carbine round on a held trigger for 60 damage.
+
+In a V-19 shotgun duel on `ac_desert`, the stock server registered a miss, a partial pellet hit, and a close-range frag from each client. Partial hits dealt 33 damage from Xbox and 41 from Windows. At close range, both landed all 63 pellets for 155 damage.
 
 Ammo and health pickups use the stock server's item list. If the other player takes a box first, the Xbox hides it and keeps its current inventory until the server awards another pickup.
 

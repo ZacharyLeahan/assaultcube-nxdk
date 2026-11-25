@@ -12,10 +12,10 @@ Barrels and crates can break the bot's sightline and stop its shots. The easy bo
 | A | Jump |
 | B | Hold to crouch |
 | Back | Hold for the overhead map |
-| Right trigger | Hold for automatic rifle or SMG fire. Tap for each sniper, carbine or pistol shot or knife swing |
+| Right trigger | Hold for automatic rifle or SMG fire. Tap for each sniper, carbine, shotgun or pistol shot or knife swing |
 | X | Reload from reserve ammunition. An empty magazine reloads automatically when reserves are available |
 | Left trigger | Hold to scope the AD-81 at a 50-degree horizontal FOV with reduced stick sensitivity. Release to return to the normal 90-degree view. |
-| Y | Before a match, cycle through the MTP-57 rifle, A-ARD/10 SMG, TMP-M&A carbine and AD-81 sniper rifle. During play, switch between the chosen primary and the MK-77 pistol |
+| Y | Before a match, cycle through the MTP-57 rifle, A-ARD/10 SMG, TMP-M&A carbine, AD-81 sniper rifle and V-19 shotgun. During play, switch between the chosen primary and the MK-77 pistol |
 | D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
 | Start | Begin a match, pause during play, or play again from the result screen |
 | D-pad Up | Open the system menu from any screen |
@@ -79,7 +79,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | `gpu_render.c` | NV2A world and model drawing, skybox, HUD, and vblank presentation through pbGL and pbkit |
 | `bake.py`, `bake_gpu.py`, `bake_lighting.py`, `assets.s` | Import and embed the original map, lighting, models, textures, and sounds |
 
-The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The player can choose the rifle, SMG or carbine and carries the pistol and knife.
+The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The player can choose the rifle, SMG, carbine, sniper rifle or shotgun and carries the pistol and knife.
 
 ## Verification
 
