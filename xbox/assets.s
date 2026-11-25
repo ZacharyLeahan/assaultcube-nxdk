@@ -23,6 +23,7 @@ asset ric3
 asset waterimpact
 asset jump
 asset land
+asset step
 asset footsteps
 asset crouch
 asset watersteps

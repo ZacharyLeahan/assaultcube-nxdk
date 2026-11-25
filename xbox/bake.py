@@ -128,7 +128,7 @@ def bake():
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting)
     sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
             "weapon/ric1","weapon/ric2","weapon/ric3","weapon/waterimpact",
-            "player/jump","player/land","player/footsteps","player/crouch","player/watersteps",
+            "player/jump","player/land","player/step","player/footsteps","player/crouch","player/watersteps",
             "player/watercrouch","player/crouch_in","player/crouch_out",*(f"player/pain{i}" for i in range(1,7)),
             "player/die1","player/die2","player/splash1","player/splash2",
             "misc/pickup_ammo_clip","misc/pickup_health","misc/pickup_helmet","misc/pickup_armour","misc/change_gun")

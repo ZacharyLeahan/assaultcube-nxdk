@@ -19,6 +19,7 @@ DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(pain1); DECLARE_CLIP(die1);
 DECLARE_CLIP(footsteps); DECLARE_CLIP(crouch); DECLARE_CLIP(watersteps); DECLARE_CLIP(watercrouch);
 DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
+DECLARE_CLIP(step);
 DECLARE_CLIP(ric1); DECLARE_CLIP(ric2); DECLARE_CLIP(ric3); DECLARE_CLIP(waterimpact);
 DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
 DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
@@ -33,6 +34,7 @@ static const Clip clips[] = {
     [WATER_ENTER]=CLIP(splash2), [WATER_EXIT]=CLIP(splash1),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
     [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land),
+    [SOFT_LAND]=CLIP(step),
     [FOOTSTEPS]=CLIP(footsteps), [CROUCH_STEPS]=CLIP(crouch),
     [WATER_STEPS]=CLIP(watersteps), [WATER_CROUCH_STEPS]=CLIP(watercrouch),
     [CROUCH_IN]=CLIP(crouch_in), [CROUCH_OUT]=CLIP(crouch_out),
