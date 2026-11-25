@@ -16,7 +16,7 @@
 #include <string.h>
 #include <zlib.h>
 
-typedef struct { unsigned offset, bytes, width, height, mip; } ImageInfo;
+typedef struct { unsigned offset, bytes, width, height, mip, indexed, unpacked; } ImageInfo;
 typedef struct { unsigned texture, first, count, primitive; } Batch;
 typedef struct { int x, y, w, h; } Glyph;
 typedef struct { int x,y; unsigned first,count; } PropLightSpan;
@@ -115,27 +115,39 @@ int gpu_init(int width, int height) {
     glGenTextures(sizeof(textures)/sizeof(textures[0]),textures);
     for (unsigned i=0;i<sizeof(textures)/sizeof(textures[0]);++i) {
         const ImageInfo *im = &images[i];
-        unsigned size = im->width*im->height*4;
-        unsigned char *rgba = malloc(size);
-        if (!rgba) return 0;
+        unsigned size = im->unpacked;
+        unsigned char *pixels = malloc(size);
+        if (!pixels) return 0;
         z_stream z = {0};
         z.zalloc=zalloc_gpu; z.zfree=zfree_gpu;
         z.next_in=(Bytef *)(gpu_textures+im->offset); z.avail_in=im->bytes;
-        z.next_out=rgba; z.avail_out=size;
+        z.next_out=pixels; z.avail_out=size;
         int ok = inflateInit(&z)==Z_OK;
         if (ok) {
             ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
             inflateEnd(&z);
         }
-        if (!ok) { free(rgba); return 0; }
+        if (!ok) { free(pixels); return 0; }
         glBindTexture(GL_TEXTURE_2D,textures[i]);
-        glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip);
+        glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip && !im->indexed);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,im->mip?GL_LINEAR_MIPMAP_LINEAR:GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,i<SKY_TEX?GL_REPEAT:GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,im->width,im->height,0,GL_RGBA,GL_UNSIGNED_BYTE,rgba);
-        free(rgba);
+        if (im->indexed) {
+            const unsigned char *indices=pixels+256*3;
+            unsigned w=im->width,h=im->height;
+            for (unsigned level=0;;++level) {
+                glColorTableEXT(GL_TEXTURE_2D,GL_RGB,256,GL_RGB,GL_UNSIGNED_BYTE,pixels);
+                glTexImage2D(GL_TEXTURE_2D,level,GL_COLOR_INDEX8_EXT,w,h,0,GL_COLOR_INDEX,GL_UNSIGNED_BYTE,indices);
+                if (w==1 && h==1) break;
+                indices+=w*h;
+                w=w>1?w/2:1; h=h>1?h/2:1;
+            }
+            // Refresh pbGL's sampler state after uploading the complete mip chain.
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+        } else glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,im->width,im->height,0,GL_RGBA,GL_UNSIGNED_BYTE,pixels);
+        free(pixels);
         if (glGetError()!=GL_NO_ERROR) return 0;
     }
     glEnable(GL_TEXTURE_2D);
