@@ -12,16 +12,16 @@ Barrels and crates can break the bot's sightline and stop its shots. The easy bo
 | A | Jump |
 | B | Hold to crouch |
 | Back | Hold for the overhead map |
-| Right trigger | Hold for automatic rifle or SMG fire. Tap for each pistol shot or knife swing |
+| Right trigger | Hold for automatic rifle or SMG fire. Tap for each carbine shot, pistol shot or knife swing |
 | X | Reload from reserve ammunition. An empty magazine reloads automatically when reserves are available |
-| Y | Before a match, choose the MTP-57 rifle or A-ARD/10 SMG. During play, switch between the chosen primary and the MK-77 pistol |
+| Y | Before a match, cycle through the MTP-57 rifle, A-ARD/10 SMG and TMP-M&A carbine. During play, switch between the chosen primary and the MK-77 pistol |
 | D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
 | Start | Begin the match or play again from the result screen |
 | LT + RT + Back + Black | Hold for one second to reboot |
 
 Controllers can be plugged in or replaced while the game is running. Any of the four ports can control the duel. The title and result screens show the number of connected controllers.
 
-The first-person rifle and SMG use their original 1024x512 textures. The pistol, knife and hands use 512x512 textures. Each has a 256-color palette and offline mipmaps.
+The first-person rifle, SMG and carbine use their original 1024x512 textures. The pistol, knife and hands use 512x512 textures. Each has a 256-color palette and offline mipmaps.
 
 The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot also collects pickups. When low on ammunition, it seeks a reachable supply and switches back to the rifle after restocking.
 
@@ -71,7 +71,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | `gpu_render.c` | NV2A world and model drawing, skybox, HUD, and vblank presentation through pbGL and pbkit |
 | `bake.py`, `bake_gpu.py`, `bake_lighting.py`, `assets.s` | Import and embed the original map, lighting, models, textures, and sounds |
 
-The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The player can choose the rifle or SMG and carries the pistol and knife.
+The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props, diagonal walls and ledges, and sloped floors and ceilings. The player can choose the rifle, SMG or carbine and carries the pistol and knife.
 
 ## Verification
 

@@ -291,27 +291,39 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     (out/"bot_poses.bin").write_bytes(bot_positions)
 
     hands=weapon_skin(packages/"models/weapons/knife/skin_hands.jpg")
-    for name in ("assault","pistol","knife","subgun"):
+    for name in ("assault","pistol","knife","subgun","carbine"):
         folder=packages/"models/weapons"/name
         d=(folder/"tris_high.md3").read_bytes()
         tex=weapon_skin(folder/"skin_weapon.jpg")
         header=struct.unpack_from("<4si64s9i",d)
-        mark(name.upper()+"_BATCH",len(batches))
         muzzle=[]
-        for pose in (0,*range(8,20 if name=="knife" else 16)):
+        shoot=re.search(r'^md3anim "gun shoot" (\d+) (\d+)',(folder/"md3.cfg").read_text(),re.M)
+        start,count=map(int,shoot.groups())
+        poses=(0,*range(start,start+count))
+        pose_batches=[]
+        unique={}
+        mark(name.upper()+"_SURFACES",header[6])
+        for pose in poses:
             for tag in range(header[5]):
                 label,*origin=struct.unpack_from("<64s3f",d,header[-3]+112*(pose*header[5]+tag))
                 if label.rstrip(b"\0")==b"tag_muzzle": muzzle.append(tuple(origin))
-            for label,pos,uv,tri in md3_surfaces(d,header,pose):
-                # MD3 weapon assets point down +Y, with Z up and the grip on camera right.
-                model_batch(hands if label==b"hands" else tex,pos,uv,tri,tri)
+            surfaces=list(md3_surfaces(d,header,pose))
+            # The MD3 topology, materials and UVs are shared by every pose.
+            key=tuple(pos.tobytes() for _,pos,_,_ in surfaces)
+            if key not in unique:
+                unique[key]=len(batches)
+                for label,pos,uv,tri in surfaces:
+                    model_batch(hands if label==b"hands" else tex,pos,uv,tri,tri)
+            pose_batches.append(unique[key])
+        symbols.append(f"static const unsigned short {name}_batches[] = {{"+
+                       ",".join(map(str,pose_batches))+"};\n")
         if name=="knife": continue
-        if len(muzzle)!=9: raise ValueError(f"Missing muzzle tag for {name}")
+        if len(muzzle)!=len(poses): raise ValueError(f"Missing muzzle tag for {name}")
         symbols.append(f"static const float {name}_muzzle[][3] = {{"+
                        ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
     mark("PLAYER_SKIN",model_skin(player/"RVSF/01.jpg",(256,256)))
-    for name in ("knife","subgun"):
+    for name in ("knife","subgun","carbine"):
         folder=packages/"models/weapons"/name/"world"
         mark(name.upper()+"_DEATH_BATCH",len(batches))
         md2(folder,folder/"skin.jpg",(128,64),None,frames=range(184,190))

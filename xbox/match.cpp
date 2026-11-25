@@ -10,6 +10,23 @@ typedef unsigned char uchar;
 #include "../source/src/weaponstats.inc"
 
 namespace {
+struct WeaponFeedback { MatchSound shot,reload; const char *frag; };
+const WeaponFeedback feedback[]={
+    {RIFLE_SHOT,RIFLE_RELOAD,"you shredded Bot"},
+    {SMG_SHOT,SMG_RELOAD,"you sprayed Bot"},
+    {CARBINE_SHOT,CARBINE_RELOAD,"you picked off Bot"},
+    {PISTOL_SHOT,PISTOL_RELOAD,"you busted Bot"},
+    {KNIFE_SWING,SILENT,"you slashed Bot"}
+};
+MatchWeapon view_weapon(int gun) {
+    switch (gun) {
+    case GUN_PISTOL: return VIEW_PISTOL;
+    case GUN_KNIFE: return VIEW_KNIFE;
+    case GUN_SUBGUN: return VIEW_SMG;
+    case GUN_CARBINE: return VIEW_CARBINE;
+    default: return VIEW_RIFLE;
+    }
+}
 struct ItemLocation { int x, y, height_tenths, kind; };
 #include "generated/starts.h"
 #include "generated/items.h"
@@ -348,7 +365,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
     victim.state.health = 0;
     bool local_frag=&attacker==&player;
     const char *message;
-    if (local_frag) message=gun==GUN_KNIFE?"you slashed Bot":gun==GUN_PISTOL?"you busted Bot":gun==GUN_SUBGUN?"you sprayed Bot":"you shredded Bot";
+    if (local_frag) message=feedback[view_weapon(gun)].frag;
     else message=gun==GUN_PISTOL?"you were busted by Bot":"you were shredded by Bot";
     frag_messages[2]=frag_messages[1];
     frag_messages[1]=frag_messages[0];
@@ -380,7 +397,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
         if (&f==&player) radar_action_until=clock_ms+500;
         f.reload_at=f.ready_at;
         f.reload_hud_until=clock_ms+reloadtime(gun);
-        return gun==GUN_PISTOL?PISTOL_RELOAD:gun==GUN_SUBGUN?SMG_RELOAD:RIFLE_RELOAD;
+        return feedback[view_weapon(gun)].reload;
     }
     if (!fire || !mag) return SILENT;
     --mag;
@@ -393,7 +410,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
     if (&f==&player) radar_action_until=action+500;
     f.flash_until = action+90;
     f.light_until=clock_ms+100;
-    return gun==GUN_PISTOL?PISTOL_SHOT:gun==GUN_SUBGUN?SMG_SHOT:RIFLE_SHOT;
+    return feedback[view_weapon(gun)].shot;
 }
 void collect(Fighter &f) {
     if (f.respawn_at) return;
@@ -712,7 +729,11 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (phase==INTERMISSION && intermission_age<frag_message_ms) intermission_age+=elapsed;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->swap) {
-            player.state.nextprimary=player.state.nextprimary==GUN_ASSAULT?GUN_SUBGUN:GUN_ASSAULT;
+            switch (player.state.nextprimary) {
+            case GUN_ASSAULT: player.state.nextprimary=GUN_SUBGUN; break;
+            case GUN_SUBGUN: player.state.nextprimary=GUN_CARBINE; break;
+            default: player.state.nextprimary=GUN_ASSAULT; break;
+            }
             if (phase==READY) {
                 player.state.respawn();
                 player.state.spawnstate(GMODE_BOTDEATHMATCH);
@@ -995,7 +1016,7 @@ MatchSound match_attack(const MatchInput *in) {
         return KNIFE_SWING;
     }
     MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill) : SILENT;
-    if (shot==RIFLE_SHOT || shot==SMG_SHOT || shot==PISTOL_SHOT) {
+    if (shot==feedback[view_weapon(player.state.gunselect)].shot) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
         if (!g.isauto) semi_trigger_used=true;
@@ -1045,7 +1066,7 @@ void match_view(MatchView *v) {
     v->air=air_sound; v->impact=impact_sound;
     v->sparks=sparks; v->spark_count=spark_count;
     v->blood=blood; v->blood_count=blood_count;
-    v->classic_assist=classic_assist; v->selected_smg=player.state.nextprimary==GUN_SUBGUN;
+    v->classic_assist=classic_assist; v->selected_primary=view_weapon(player.state.nextprimary);
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
     v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
@@ -1062,8 +1083,7 @@ void match_view(MatchView *v) {
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;
     v->magazine = player.state.mag[gun]; v->reserve = player.state.ammo[gun];
-    v->smg=gun==GUN_SUBGUN;
-    v->pistol = gun == GUN_PISTOL; v->knife=gun==GUN_KNIFE;
+    v->weapon=view_weapon(gun);
     v->respawning = !!player.respawn_at; v->reload = player.reload_at > clock_ms;
     v->hide_crosshair=player.reload_hud_until>clock_ms;
     float lower=0;
@@ -1093,12 +1113,13 @@ void match_view(MatchView *v) {
         float t=age/(float)attackdelay(gun);
         // renderhudmodel samples the MD3 shoot loop every 40 ms.
         float frame=age/40.f;
-        if (v->knife) {
+        if (gun==GUN_KNIFE) {
             v->gun_pose=1+(unsigned)fminf(11,frame);
             v->next_gun_pose=v->gun_pose<12?v->gun_pose+1:12;
             v->gun_pose_blend=frame-floorf(frame);
         } else {
-            v->gun_pose=1+((unsigned)frame%8); v->next_gun_pose=1+v->gun_pose%8;
+            unsigned poses=gun==GUN_CARBINE?50:8;
+            v->gun_pose=1+((unsigned)frame%poses); v->next_gun_pose=1+v->gun_pose%poses;
             v->gun_pose_blend=frame-floorf(frame);
             v->flash=age<(unsigned)fmaxf(120,attackdelay(gun))/4;
         }

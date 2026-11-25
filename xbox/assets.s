@@ -21,6 +21,8 @@ asset auto
 asset auto_reload
 asset sub
 asset sub_reload
+asset carbine
+asset carbine_reload
 asset clip_empty
 asset ric1
 asset ric2

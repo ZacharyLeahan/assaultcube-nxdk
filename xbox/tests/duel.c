@@ -278,10 +278,10 @@ static void test_weapon_switch(void) {
     in=(MatchInput){.fire=1};
     match_update(&in,199,.016f);
     match_view(&v);
-    assert(!v.pistol && v.gun_rotation < -89 && match_attack(&in)==SILENT);
+    assert(v.weapon!=VIEW_PISTOL && v.gun_rotation < -89 && match_attack(&in)==SILENT);
     match_update(&in,2,.002f);
     match_view(&v);
-    assert(v.pistol && v.gun_rotation < -89 && match_attack(&in)==SILENT);
+    assert(v.weapon==VIEW_PISTOL && v.gun_rotation < -89 && match_attack(&in)==SILENT);
     in.fire=0;
     match_update(&in,199,.016f);
     assert(match_attack(&in)==SILENT);
@@ -344,7 +344,7 @@ static void test_knife(void) {
     match_update(&in,401,.016f);
     assert(match_attack(&in)==KNIFE_SWING);
     match_view(&v);
-    assert(v.knife && v.radar_active && !v.flash && !v.blood_count && !v.spark_count && !v.player_light);
+    assert(v.weapon==VIEW_KNIFE && v.radar_active && !v.flash && !v.blood_count && !v.spark_count && !v.player_light);
     match_update(&in,460,.016f); match_view(&v);
     assert(v.gun_pose==12 && v.next_gun_pose==12 && v.radar_active);
     match_update(&in,40,.016f);
@@ -372,7 +372,7 @@ static void test_knife(void) {
     assert(match_attack(&in)==WEAPON_CHANGE);
     in=(MatchInput){.fire=1}; match_update(&in,401,.016f);
     assert(match_attack(&in)==RIFLE_SHOT); match_view(&v);
-    assert(!v.knife && !v.pistol && v.magazine==19);
+    assert(v.weapon!=VIEW_KNIFE && v.weapon!=VIEW_PISTOL && v.magazine==19);
     in=(MatchInput){0};
     int saw_respawn_warning=0;
     for (int i=0;i<510;++i) {
@@ -407,7 +407,7 @@ static void test_pistol_frag_message(void) {
         match_view(&v);
         if (v.player_frags) break;
     }
-    assert(v.pistol && v.player_frags==1 && !v.bot_alive);
+    assert(v.weapon==VIEW_PISTOL && v.player_frags==1 && !v.bot_alive);
     assert(v.frag_messages[0].age==0 && !strcmp(v.frag_messages[0].text,"you busted Bot"));
 }
 static void test_fighter_contact(void) {
@@ -473,7 +473,7 @@ static void test_reload_tap(void) {
         assert(match_attack(&in)==SILENT);
         if (ms==1000 || ms==1090 || ms==2000) {
             match_view(&v);
-            assert(v.reload && !v.pistol && v.hide_crosshair==(ms<2000));
+            assert(v.reload && v.weapon!=VIEW_PISTOL && v.hide_crosshair==(ms<2000));
             if (ms<2000) assert(fabsf(v.gun_rotation+90)<.001f);
             else assert(v.gun_rotation < -12 && v.gun_rotation > -13);
         }
@@ -672,6 +672,7 @@ void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
 void test_easy_bot_aim(void);
 void test_smg_loadout(void);
+void test_carbine_loadout(void);
 void test_bot_ammunition(void);
 void test_wall_impact_lifetime(void);
 
@@ -680,6 +681,7 @@ int main(void) {
     test_easy_bot_spacing();
     test_easy_bot_aim();
     test_smg_loadout();
+    test_carbine_loadout();
     test_bot_ammunition();
     test_wall_impact_lifetime();
     test_prop_depth();
