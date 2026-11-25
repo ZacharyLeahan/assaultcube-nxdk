@@ -371,11 +371,19 @@ extern "C" void test_lan_pickups(void) {
 
 extern "C" void test_lan_sidearm(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
-    ammo[GUN_PISTOL]=50;mag[GUN_PISTOL]=10;mag[GUN_ASSAULT]=1;
+    ammo[GUN_PISTOL]=50;mag[GUN_PISTOL]=10;mag[GUN_ASSAULT]=3;
     match_prepare();
     match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
     MatchInput in={};in.fire=1;
     assert(match_attack(&in)==RIFLE_SHOT);
+    unsigned first=match_lan_shot_time(1000);
+    for (unsigned shot=1;shot<=2;++shot) {
+        while (player.state.mag[GUN_ASSAULT]>2-(int)shot) {
+            match_update(&in,17,.017f);
+            match_attack(&in);
+        }
+        assert(match_lan_shot_time(1000+clock_ms)==first+shot*attackdelay(GUN_ASSAULT));
+    }
     in.swap=1;match_update(&in,16,.016f);
     assert(match_lan_selected_weapon()==-1);
     in.swap=0;match_update(&in,201,.016f);

@@ -329,7 +329,7 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         sent_weapon=gun;
     }
     if(effect==RIFLE_SHOT || effect==PISTOL_SHOT || effect==SNIPER_SHOT) {
-        Message m;m.word(SV_SHOOT);m.word(now);m.word(gun);
+        Message m;m.word(SV_SHOOT);m.word(match_lan_shot_time(now));m.word(gun);
         MatchPoint dir=v->shot_direction;
         m.word(v->shot_end.x*DMF);m.word(v->shot_end.y*DMF);m.word(v->shot_end.z*DMF);
         bool hit=remote>=0 && v->shot_contact;

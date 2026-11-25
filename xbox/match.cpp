@@ -117,6 +117,7 @@ bool hide_bot,gib_sound,lan_match;
 unsigned lan_end_ms,scope_since;
 bool scoped;
 MatchSound lan_shot_sound;
+unsigned player_shot_delay_ms;
 MatchPoint shot_end,shot_direction;
 int shot_contact;
 unsigned next_spark,spark_count,effect_seed;
@@ -420,6 +421,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
     if (f.ready_at && f.ready_at>=frame_start_ms && clock_ms-f.ready_at<delay)
         action=f.ready_at;
     f.ready_at = action+delay;
+    if (&f==&player) player_shot_delay_ms=clock_ms-action;
     if (&f==&player) radar_action_until=action+500;
     f.flash_until = action+90;
     f.light_until=clock_ms+100;
@@ -754,6 +756,7 @@ void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const
     player.state.health=hp; player.state.armour=armour;
 }
 int match_lan_selected_weapon(void) { return switch_end ? -1 : player.state.gunselect; }
+unsigned match_lan_shot_time(unsigned now) { return now-player_shot_delay_ms; }
 void match_lan_remote_weapon(int gun) {
     if(gun>=0 && gun<NUMGUNS) bot.state.gunselect=gun;
 }
