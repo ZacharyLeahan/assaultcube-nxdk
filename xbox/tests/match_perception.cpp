@@ -371,14 +371,21 @@ extern "C" void test_lan_pickups(void) {
     match_lan_stop();
 }
 
+static void finish_spawn_draw() {
+    MatchInput idle={};
+    match_update(&idle,switch_ms/2+1,.016f);
+}
+
 extern "C" void test_lan_sidearm(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     ammo[GUN_PISTOL]=50;mag[GUN_PISTOL]=10;mag[GUN_ASSAULT]=3;
     match_prepare();
     match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
     MatchInput in={};in.fire=1;
-    assert(match_attack(&in)==RIFLE_SHOT);
-    unsigned first=match_lan_shot_time(1000);
+    assert(match_attack(&in)==SILENT);
+    match_update(&in,switch_ms/2,.016f);assert(match_attack(&in)==SILENT);
+    match_update(&in,1,.001f);assert(match_attack(&in)==RIFLE_SHOT);
+    unsigned first=match_lan_shot_time(1000+clock_ms);
     for (unsigned shot=1;shot<=2;++shot) {
         while (player.state.mag[GUN_ASSAULT]>2-(int)shot) {
             match_update(&in,17,.017f);
@@ -416,7 +423,11 @@ static void place_remote(float x,float y,float floor,float yaw,float pitch,int m
 extern "C" void test_lan_knife(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     match_prepare();
-    match_lan_spawn(100,0,GUN_ASSAULT,GUN_KNIFE,ammo,mag);
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    finish_spawn_draw();
+    MatchInput select={};select.knife_select=1;
+    match_update(&select,16,.016f);
+    select={};match_update(&select,switch_ms+1,.016f);
     player.x=121; player.y=121; player.yaw=0; player.pitch=-.2f;
     feet_z=ground(player.x,player.y);
     player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
@@ -425,7 +436,7 @@ extern "C" void test_lan_knife(void) {
     assert(match_attack(&in)==KNIFE_SWING && !shot_contact);
     assert(shot_end.x>123 && shot_end.x<=124);
     place_remote(124,121,feet_z,0,0,0);
-    clock_ms=500;
+    clock_ms+=500;
     assert(match_attack(&in)==SILENT);
     in.fire=0;match_attack(&in);in.fire=1;
     int hp=bot.state.health;
@@ -501,6 +512,7 @@ extern "C" void test_lan_primary_loadouts(void) {
         mag[gun]=magsize(gun);ammo[gun]=2*magsize(gun);
         match_prepare();
         match_lan_spawn(100,0,gun,gun,ammo,mag);
+        finish_spawn_draw();
         MatchInput in={};in.fire=1;
         MatchWeapon weapon=view_weapon(gun);
         assert(match_attack(&in)==feedback[weapon].shot);
@@ -523,6 +535,7 @@ extern "C" void test_shotgun_pellets(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     ammo[GUN_SHOTGUN]=14;mag[GUN_SHOTGUN]=7;
     match_prepare();match_lan_spawn(100,0,GUN_SHOTGUN,GUN_SHOTGUN,ammo,mag);
+    finish_spawn_draw();
     player.x=121;player.y=121;feet_z=ground(121,121);player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
     player.yaw=0;player.pitch=-.2f;
     place_remote(124,121,feet_z,0,0,0);
@@ -782,6 +795,7 @@ extern "C" void test_akimbo(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     ammo[GUN_ASSAULT]=40;
     match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    finish_spawn_draw();
     int index=0;
     while(index<item_count && locations[index].kind!=I_AKIMBO) ++index;
     assert(index<item_count);
@@ -832,6 +846,7 @@ extern "C" void test_remote_grenade(void) {
 extern "C" void test_grenade_controls(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};mag[GUN_GRENADE]=1;
     match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    finish_spawn_draw();
     MatchInput in={};in.grenade_select=1;match_update(&in,16,.016f);
     in={};for(int i=0;i<26;++i) match_update(&in,16,.016f);
     assert(match_lan_selected_weapon()==GUN_GRENADE);

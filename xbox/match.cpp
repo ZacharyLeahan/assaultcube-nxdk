@@ -396,6 +396,10 @@ void spawn(Fighter &f, int index, float offset=.5f) {
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
     f.respawn_at = f.ready_at = f.reload_at = f.flash_until = f.light_until = f.pain_until = 0;
     f.reload_hud_until=0;
+    if(&f==&player && stock_round && !lan_match && phase==PLAYING) {
+        next_gun=f.state.primary;
+        switch_end=clock_ms+switch_ms/2;
+    }
 }
 void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.yaw = atan2f(opponent.y-f.y,opponent.x-f.x);
@@ -1344,6 +1348,7 @@ void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const
     }
     spawn(player,next_ffa_start(visits,hide_bot?nullptr:&bot),0);
     player.state.gunselect=gun;
+    next_gun=primary;switch_end=clock_ms+switch_ms/2;
     memcpy(player.state.ammo,ammo,sizeof(player.state.ammo));
     memcpy(player.state.mag,mag,sizeof(player.state.mag));
     player.state.health=hp; player.state.armour=armour;
