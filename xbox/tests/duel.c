@@ -32,7 +32,7 @@ static void test_rifle_recoil(unsigned hz,int crouch) {
     match_prepare(); match_update(&in,0,0);
     in=(MatchInput){.crouch=crouch};
     for (int i=0;i<10;++i) match_update(&in,20,.02f);
-    match_view(&v); float before=v.pitch;
+    match_view(&v); float before=v.pitch,x=v.px,y=v.py,yaw=v.angle;
     in.fire=1; assert(match_attack(&in)==RIFLE_SHOT); in.fire=0;
     unsigned previous=0;
     for (unsigned frame=1;frame<=hz*3/10;++frame) {
@@ -43,6 +43,13 @@ static void test_rifle_recoil(unsigned hz,int crouch) {
             float expected=(now==100?1.555456f:.947958f)*(crouch?.75f:1);
             match_view(&v);
             assert(fabsf((v.pitch-before)/.017453293f-expected)<.001f);
+            float velocity=-.30f*(crouch?.75f:1),travel=0;
+            for (unsigned tick=0;tick<now/5;++tick) {
+                velocity*=23.f/24;
+                travel+=velocity*.005f*(crouch?6.4f:16.f);
+            }
+            float actual=(v.px-x)*cosf(yaw)+(v.py-y)*sinf(yaw);
+            assert(fabsf(actual-travel)<.002f);
         }
         previous=now;
     }

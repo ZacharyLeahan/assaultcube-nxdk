@@ -499,6 +499,16 @@ MatchSound match_attack(const MatchInput *in) {
         player.shot_until=player.ready_at;
         float ramp=(float)player.shots/g.recoilincrease;
         player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
+        // PC attackphysics applies the impulse along the aim direction before spread.
+        float recoil=g.recoil-(gun==GUN_ASSAULT ? effect_random(8)*.01f : 0.f);
+        float kick=-.01f*recoil*(in->crouch?.75f:1);
+        float horizontal=kick*cosf(player.pitch);
+        player.velocity_x+=horizontal*cosf(player.yaw);
+        player.velocity_y+=horizontal*sinf(player.yaw);
+        if (!grounded || in_water) {
+            float speed=(stance<3.59f?6.4f:16.f)*(in_water?.5f:1.f);
+            jump_speed+=kick*sinf(player.pitch)*speed;
+        }
         int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;
         auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
         float dx=cosf(player.pitch)*cosf(player.yaw)+jitter();
