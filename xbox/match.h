@@ -12,7 +12,7 @@ typedef struct {
     int8_t floor, ceil;
     uint8_t wall, ground, roof, upper, tag;
 } Cube;
-typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch; } MatchInput;
+typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, assist_choice, jump, crouch, showmap; } MatchInput;
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     PLAYER_JUMP, PLAYER_LAND, PLAYER_STEP, PLAYER_PAIN, PLAYER_DEATH,

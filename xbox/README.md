@@ -8,6 +8,7 @@ Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and 
 | Right stick | Turn and aim vertically |
 | A | Jump |
 | B | Hold to crouch |
+| Back | Hold for the overhead map |
 | Right trigger | Fire. Hold for automatic rifle fire, tap for each pistol shot |
 | X | Reload from reserve ammunition |
 | Y | Switch between the MTP-57 rifle and MK-77 pistol |
@@ -51,7 +52,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | `gpu_render.c` | NV2A world and model drawing, skybox, HUD, and vblank presentation through pbGL and pbkit |
 | `bake.py`, `bake_gpu.py`, `assets.s` | Import and embed original game assets including free-for-all player starts |
 
-The duel rules and bot navigation are local to this port. The renderer approximates slopes and diagonal walls with flat grid cells. The complete PC bot AI, recoil and spread simulation, jump physics, placed map models, other weapons, and multiplayer remain future work.
+The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props and sloped floors and ceilings. Diagonal wall cells still use solid squares. The playable loadout is the rifle and pistol.
 
 ## Verification
 
