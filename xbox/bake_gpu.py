@@ -383,7 +383,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         folder=packages/f"models/misc/gib0{i}"
         md2(folder,folder/"skin.jpg",(64,64),None)
     mark("PICKUP_BATCH",len(batches))
-    for name in ("pistolclips","ammobox","nade","health","helmet","kevlar"):
+    for name in ("pistolclips","ammobox","nade","health","helmet","kevlar","akimbo"):
         folder=packages/"models/pickups"/name
         d=(folder/(name+".md3")).read_bytes()
         header=struct.unpack_from("<4si64s9i",d)

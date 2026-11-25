@@ -264,7 +264,9 @@ void messages(Reader &r,unsigned now,int sender=-1) {
         }
         case SV_ITEMACC: {
             int entity=r.integer(),picker=r.integer();
-            if(r.valid) match_lan_item(entity,false,picker==own);
+            if(r.valid && match_lan_item(entity,false,picker==own)) {
+                m.word(SV_AKIMBO);m.word(now);m.transmit();
+            }
             break;
         }
         case SV_INITCLIENT:case SV_SWITCHNAME: {
@@ -481,7 +483,7 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
             m.word(dir.x*DNF);m.word(dir.y*DNF);m.word(dir.z*DNF);}
         m.transmit();
     }
-    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD || effect==SHOTGUN_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
+    if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==AKIMBO_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD || effect==SHOTGUN_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
 }
 
 

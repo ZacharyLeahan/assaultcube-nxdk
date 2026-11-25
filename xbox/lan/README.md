@@ -32,6 +32,8 @@ Press D-pad Right to equip a collected grenade. Hold RT to pull the pin and rele
 
 Hold D-pad Left to see each player's frags, deaths and ping. The scoreboard opens at intermission and clears when the server starts the next match.
 
+The akimbo pickup equips two MK-77s for 30 seconds. Hold RT for automatic fire, press X to reload, or use Y to switch back to your primary. Both clients scored a dual-pistol frag in the same hardware match. The stock server accepted Xbox shots spaced 80 ms apart, and Windows took an unarmoured Xbox player from 100 health to a frag in six 18-damage hits.
+
 Ammo and health pickups use the stock server's item list. If the other player takes a box first, the Xbox hides it and keeps its current inventory until the server awards another pickup.
 
 Click the right stick to draw the knife or return to your previous firearm. Tap RT once per swing. The stock knife deals 50 damage to an unarmoured player and takes 500 ms to recover.

@@ -40,6 +40,7 @@ static const WeaponArt weapon_art[]={
     [VIEW_SNIPER]={sniper_batches,SNIPER_SURFACES,SNIPER_DEATH_BATCH,sniper_muzzle,.50f,1,1,"Y   Primary: AD-81 sniper   /   LT scope"},
     [VIEW_CARBINE]={carbine_batches,CARBINE_SURFACES,CARBINE_DEATH_BATCH,carbine_muzzle,.50f,2,0,"Y   Primary: TMP-M&A CB carbine"},
     [VIEW_PISTOL]={pistol_batches,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
+    [VIEW_AKIMBO]={pistol_batches,PISTOL_SURFACES,0,pistol_muzzle,.25f,1,0,NULL},
     [VIEW_KNIFE]={knife_batches,KNIFE_SURFACES,KNIFE_DEATH_BATCH,NULL,0,0,0,NULL}
 };
 extern const unsigned char gpu_textures[];
@@ -63,6 +64,7 @@ static const WorldWeapon world_weapons[]={
     [VIEW_GRENADE]=WORLD_MODEL(WORLD_GRENADE,world_grenade,NULL,0),
     [VIEW_RIFLE]=WORLD_MODEL(BOT_GUN,bot_gun,bot_gun_muzzle,.525f),
     [VIEW_PISTOL]=WORLD_MODEL(WORLD_PISTOL,world_pistol,world_pistol_muzzle,.175f),
+    [VIEW_AKIMBO]=WORLD_MODEL(WORLD_PISTOL,world_pistol,world_pistol_muzzle,.175f),
     [VIEW_KNIFE]=WORLD_MODEL(WORLD_KNIFE,world_knife,NULL,0),
     [VIEW_SHOTGUN]=WORLD_MODEL(WORLD_SHOTGUN,world_shotgun,world_shotgun_muzzle,.525f),
     [VIEW_SMG]=WORLD_MODEL(WORLD_SMG,world_smg,world_smg_muzzle,.385f),
@@ -720,7 +722,7 @@ static void level(const MatchView *v) {
     color(1,1,1,1);
     glDepthMask(GL_TRUE);
 }
-static void weapon_transform(const MatchView *v) {
+static void weapon_transform(const MatchView *v,int mirror) {
     // Reserve the front of the depth buffer for the view weapon.
     // The view weapon uses the PC's separate 75-degree vertical field of view.
     projection(.30f,.30f*.76732699f);
@@ -730,10 +732,11 @@ static void weapon_transform(const MatchView *v) {
     glRotatef(v->gun_rotation,1,0,0);
     // PC MD3 units are 1/16 of a cube, and weapon::renderhudmodel uses scale 1.28.
     glScalef(.08f,.08f,.08f);
+    if(mirror) glScalef(-1,1,1);
 }
 static void weapon(const MatchView *v) {
     if(v->respawning) return;
-    weapon_transform(v);
+    weapon_transform(v,v->weapon==VIEW_AKIMBO && v->akimbo_left);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
     glDisableClientState(GL_COLOR_ARRAY);
     model_color(v->px,v->py);
@@ -741,12 +744,20 @@ static void weapon(const MatchView *v) {
     const WeaponArt *art=&weapon_art[v->weapon];
     unsigned current=art->poses[v->gun_pose],next=art->poses[v->next_gun_pose];
     for (unsigned i=0;i<art->surfaces;++i) animated_batch(current+i,next+i,current==next?0:v->gun_pose_blend);
+    if(v->weapon==VIEW_AKIMBO) {
+        // Stock draws the other copy of the pistol with its own last action.
+        // At 80 ms between shots only the most recently fired hand is active.
+        MatchView idle=*v;
+        if(v->gun_pose) idle.gun_rotation=idle.gun_back=0;
+        weapon_transform(&idle,!v->akimbo_left);
+        for(unsigned i=0;i<art->surfaces;++i) batch(hud_frames[art->poses[0]+i].batch);
+    }
     glEnableClientState(GL_COLOR_ARRAY);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
 }
 static void muzzle_flash(const MatchView *v) {
     if (v->flash && !v->respawning) {
-        weapon_transform(v);
+        weapon_transform(v,v->weapon==VIEW_AKIMBO && v->akimbo_left);
         bind_vertices(stream);
         const WeaponArt *art=&weapon_art[v->weapon];
         const float (*muzzle)[3]=art->muzzle;

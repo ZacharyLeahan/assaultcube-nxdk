@@ -638,6 +638,38 @@ extern "C" void test_grenade_pickups(void) {
     match_lan_stop();
 }
 
+extern "C" void test_akimbo(void) {
+    match_prepare();
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    ammo[GUN_ASSAULT]=40;
+    match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    int index=0;
+    while(index<item_count && locations[index].kind!=I_AKIMBO) ++index;
+    assert(index<item_count);
+    int entity=locations[index].entity;
+    match_lan_item(entity,true,false);
+    assert(match_lan_item(entity,false,true));
+    assert(!match_lan_item(entity,false,true));
+    MatchInput in={};
+    for(int i=0;i<30;++i) match_update(&in,16,.016f);
+    assert(player.state.gunselect==GUN_AKIMBO && player.state.mag[GUN_AKIMBO]==20);
+    in.fire=1;unsigned shots=0;
+    for(int i=0;i<100;++i) {
+        match_update(&in,8,.008f);
+        if(match_attack(&in)==PISTOL_SHOT) {
+            ++shots;
+            assert(akimbo_left==(shots%2==0));
+        }
+    }
+    assert(shots==10 && player.state.mag[GUN_AKIMBO]==10);
+    in.fire=0;in.refill=1;
+    assert(match_attack(&in)==AKIMBO_RELOAD && player.state.mag[GUN_AKIMBO]==20);
+    in.refill=0;clock_ms=akimbo_expires-1;
+    match_update(&in,1,.001f);
+    assert(!player.state.akimbo && next_gun==GUN_ASSAULT && pickup_sound==AKIMBO_END);
+    match_lan_stop();
+}
+
 extern "C" void test_remote_grenade(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);

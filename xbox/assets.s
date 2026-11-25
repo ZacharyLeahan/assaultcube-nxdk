@@ -18,6 +18,9 @@ asset gpu_textures
 asset knife
 asset usp
 asset pistol_reload
+asset pistol_akreload
+asset tick9
+asset tick11
 asset auto
 asset auto_reload
 asset sub

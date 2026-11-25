@@ -58,7 +58,7 @@ def bake():
     pickups = []
     ladders = []
     clips = []
-    item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 5: "I_GRENADE", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
+    item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 5: "I_GRENADE", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR", 9: "I_AKIMBO"}
     for i in range(count):
         x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
         if kind == 2 and team == 100:
@@ -139,7 +139,7 @@ def bake():
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting, corners, surface, (r,g,b,a))
     sounds=("weapon/knife","weapon/auto","weapon/auto_reload","weapon/sub","weapon/sub_reload","weapon/shotgun","weapon/shotgun_reload","weapon/carbine","weapon/carbine_reload","weapon/sniper","weapon/sniper_reload","weapon/usp","weapon/pistol_reload","weapon/clip_empty",
-            "weapon/grenade_pull","weapon/grenade_throw","weapon/grenade_bounce1","weapon/grenade_bounce2","weapon/grenade_exp",
+            "misc/tick9","misc/tick11","weapon/pistol_akreload","weapon/grenade_pull","weapon/grenade_throw","weapon/grenade_bounce1","weapon/grenade_bounce2","weapon/grenade_exp",
             "weapon/ric1","weapon/ric2","weapon/ric3","weapon/waterimpact",
             "player/jump","player/land","player/step","player/footsteps","player/crouch","player/watersteps",
             "player/watercrouch","player/crouch_in","player/crouch_out",*(f"player/pain{i}" for i in range(1,7)),

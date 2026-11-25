@@ -25,6 +25,7 @@ DECLARE_CLIP(sub); DECLARE_CLIP(sub_reload);
 DECLARE_CLIP(sniper); DECLARE_CLIP(sniper_reload);
 DECLARE_CLIP(grenade_pull); DECLARE_CLIP(grenade_throw); DECLARE_CLIP(grenade_exp);
 DECLARE_CLIP(grenade_bounce1); DECLARE_CLIP(grenade_bounce2);
+DECLARE_CLIP(pistol_akreload); DECLARE_CLIP(tick9); DECLARE_CLIP(tick11);
 DECLARE_CLIP(shotgun); DECLARE_CLIP(shotgun_reload);
 DECLARE_CLIP(carbine); DECLARE_CLIP(carbine_reload);
 DECLARE_CLIP(step);
@@ -47,6 +48,7 @@ static const Clip clips[] = {
     [BULLET_AIR1]=CLIP(ric1), [BULLET_AIR2]=CLIP(ric2),
     [BULLET_IMPACT]=CLIP(ric3), [BULLET_WATER]=CLIP(waterimpact),
     [WATER_ENTER]=CLIP(splash2), [WATER_EXIT]=CLIP(splash1),
+    [AKIMBO_RELOAD]=CLIP(pistol_akreload), [AKIMBO_PICKUP]=CLIP(tick9), [AKIMBO_END]=CLIP(tick11),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
     [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land),
     [SOFT_LAND]=CLIP(step),

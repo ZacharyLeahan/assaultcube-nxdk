@@ -22,11 +22,13 @@ const WeaponFeedback feedback[]={
     {KNIFE_SWING,SILENT,"slashed"},
     {SNIPER_SHOT,SNIPER_RELOAD,"punctured"},
     {SHOTGUN_SHOT,SHOTGUN_RELOAD,"peppered"},
-    {GRENADE_PULL,SILENT,"gibbed"}
+    {GRENADE_PULL,SILENT,"gibbed"},
+    {PISTOL_SHOT,AKIMBO_RELOAD,"busted"}
 };
 MatchWeapon view_weapon(int gun) {
     switch (gun) {
     case GUN_PISTOL: return VIEW_PISTOL;
+    case GUN_AKIMBO: return VIEW_AKIMBO;
     case GUN_KNIFE: return VIEW_KNIFE;
     case GUN_GRENADE: return VIEW_GRENADE;
     case GUN_SHOTGUN: return VIEW_SHOTGUN;
@@ -103,6 +105,8 @@ bool release_after_switch,semi_trigger_used,empty_click,bot_saw_player;
 unsigned switch_end;
 unsigned intermission_age;
 int next_gun, previous_firearm;
+unsigned akimbo_expires;
+bool draw_akimbo,akimbo_left;
 MatchPhase phase;
 bool classic_assist;
 MatchSound bot_sound;
@@ -291,6 +295,7 @@ void spawn(Fighter &f, int index, float offset=.5f) {
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
         scoped=false; grenade_state=GRENADE_IDLE;
+        akimbo_expires=0;draw_akimbo=akimbo_left=false;
         radar_action_until=0;
         release_after_switch=false;switch_end=0; previous_firearm=f.state.nextprimary;
         memset(damage_directions,0,sizeof(damage_directions));
@@ -586,8 +591,16 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
     return feedback[view_weapon(gun)].shot;
 }
 MatchSound pickup_effect(int kind) {
+    if(kind==I_AKIMBO) return AKIMBO_PICKUP;
     return kind==I_HEALTH?PICKUP_HEALTH:kind==I_HELMET?PICKUP_HELMET:
            kind==I_ARMOUR?PICKUP_ARMOUR:PICKUP_AMMO;
+}
+void pickup(Fighter &f,int kind) {
+    f.state.pickup(kind);
+    if(&f==&player && kind==I_AKIMBO) {
+        akimbo_expires=clock_ms+30000;
+        draw_akimbo=true;akimbo_left=true;
+    }
 }
 int collect(Fighter &f) {
     if (f.respawn_at) return -1;
@@ -602,11 +615,11 @@ int collect(Fighter &f) {
             lan_retry_at[i]=clock_ms+500;
             return p.entity;
         }
-        f.state.pickup(p.kind);
+        pickup(f,p.kind);
         if (&f==&player) {
             pickup_sound=pickup_effect(p.kind);
         }
-        unsigned delay = p.kind == I_GRENADE ? 9000 : p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
+        unsigned delay = p.kind == I_AKIMBO ? 60000 : p.kind == I_GRENADE ? 9000 : p.kind == I_HEALTH ? 20000 : (p.kind == I_HELMET || p.kind == I_ARMOUR) ? 25000 : 8000;
         unavailable_until[i] = clock_ms+delay;
     }
     return -1;
@@ -1062,16 +1075,18 @@ void match_lan_reset_items(void) {
     memset(lan_retry_at,0,sizeof(lan_retry_at));
     lan_pickup_sound=SILENT;
 }
-void match_lan_item(int entity,int visible,int picked_by_us) {
+int match_lan_item(int entity,int visible,int picked_by_us) {
     for (int i=0;i<item_count;++i) if (locations[i].entity==entity) {
-        if (lan_item_visible[i] && picked_by_us && lan_match && !player.respawn_at) {
-            player.state.pickup(locations[i].kind);
+        bool awarded=lan_item_visible[i] && picked_by_us && lan_match && !player.respawn_at;
+        if (awarded) {
+            pickup(player,locations[i].kind);
             lan_pickup_sound=pickup_effect(locations[i].kind);
         }
         lan_item_visible[i]=visible;
         lan_retry_at[i]=0;
-        return;
+        return awarded && locations[i].kind==I_AKIMBO;
     }
+    return 0;
 }
 int match_lan_touch_item(void) { return lan_match ? collect(player) : -1; }
 void match_lan_stop(void) { lan_shot_sound=SILENT; if(lan_match) {lan_match=false;begin(READY);} }
@@ -1107,6 +1122,18 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     }
     frame_start_ms=clock_ms;
     clock_ms += elapsed;
+    if(player.state.akimbo && (clock_ms>=akimbo_expires || player.respawn_at)) {
+        player.state.akimbo=false;draw_akimbo=false;
+        if(previous_firearm==GUN_AKIMBO) previous_firearm=GUN_PISTOL;
+        if(player.state.gunselect==GUN_AKIMBO || (switch_end && next_gun==GUN_AKIMBO)) {
+            int primary=player.state.primary;
+            next_gun=player.state.ammo[primary] && !player.respawn_at ? primary :
+                     player.state.mag[GUN_GRENADE] && !player.respawn_at ? GUN_GRENADE :
+                     player.state.ammo[GUN_PISTOL] ? GUN_PISTOL : GUN_KNIFE;
+            switch_end=clock_ms+switch_ms;
+        }
+        if(!player.respawn_at) pickup_sound=AKIMBO_END;
+    }
     update_grenades(frame_start_ms);
     while (mark_count && marks[first_mark].expires<=clock_ms) {
         first_mark=(first_mark+1)%MARK_CAPACITY;
@@ -1256,15 +1283,18 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             if (clock_ms+switch_ms/2>switch_end) player.state.gunselect=next_gun;
             if (clock_ms>switch_end) switch_end=0;
         }
-        if ((in->swap || in->knife_select || (in->grenade_select && player.state.mag[GUN_GRENADE])) &&
+        if ((draw_akimbo || in->swap || in->knife_select || (in->grenade_select && player.state.mag[GUN_GRENADE])) &&
             grenade_state==GRENADE_IDLE && !switch_end && !player.respawn_at && player.reload_at<=clock_ms) {
             int current=player.state.gunselect;
-            if(in->grenade_select && current!=GUN_GRENADE) {
+            if(draw_akimbo) {
+                next_gun=GUN_AKIMBO;draw_akimbo=false;
+            } else if(in->grenade_select && current!=GUN_GRENADE) {
                 if(current!=GUN_KNIFE) previous_firearm=current;
                 next_gun=GUN_GRENADE;
             } else if (current==GUN_KNIFE || current==GUN_GRENADE) next_gun=previous_firearm;
             else if (in->knife_select) { previous_firearm=current; next_gun=GUN_KNIFE; }
-            else next_gun=current==GUN_PISTOL ? player.state.primary : GUN_PISTOL;
+            else next_gun=current==GUN_PISTOL || current==GUN_AKIMBO ? player.state.primary :
+                          player.state.akimbo ? GUN_AKIMBO : GUN_PISTOL;
             radar_action_until=clock_ms+500;
             release_after_switch=in->fire;
             switch_end=clock_ms+switch_ms;
@@ -1427,7 +1457,7 @@ MatchSound match_attack(const MatchInput *in) {
     if (!in->fire) semi_trigger_used=release_after_switch=false;
     bool fire = in->fire && !release_after_switch && (guns[player.state.gunselect].isauto || !semi_trigger_used);
     if(phase==PLAYING && player.state.gunselect==GUN_GRENADE && !switch_end)
-        return use_grenade(in->fire && !release_after_switch);
+        return use_grenade(in->fire && !release_after_switch && !draw_akimbo);
     if (switch_end && !player.respawn_at && phase==PLAYING)
         return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
     // PC gun::attack only observes a trigger release after gunwait expires.
@@ -1465,6 +1495,7 @@ MatchSound match_attack(const MatchInput *in) {
     if (shot==SNIPER_RELOAD) scoped=false;
     if (shot==feedback[view_weapon(player.state.gunselect)].shot) {
         const int gun=player.state.gunselect;
+        if(gun==GUN_AKIMBO) akimbo_left=!akimbo_left;
         const guninfo &g=guns[gun];
         if (!g.isauto) semi_trigger_used=true;
         start_recoil(player,gun);
@@ -1570,6 +1601,7 @@ void match_view(MatchView *v) {
     v->gun_rotation=-90*lower; v->gun_back=0;
     v->gun_pose=v->next_gun_pose=0;
     v->flash=0; v->flash_angle=flash_angle;
+    v->akimbo_left=akimbo_left;
     v->grenade_ammo=player.state.mag[GUN_GRENADE];
     if(gun==GUN_GRENADE && grenade_state!=GRENADE_IDLE) {
         unsigned first=grenade_state==GRENADE_HELD?1:14;
