@@ -20,7 +20,11 @@ This development build joins a stock AssaultCube 1.3.0.2 dedicated server on a P
 
 3. Allow incoming UDP traffic to port 28763 from the Xbox on your private network. The server runs unlisted and accepts guests.
 4. In the stock PC client's console, enter `/connect 192.168.1.210 28763`, substituting your PC's address.
-5. Copy the development `default.xbe` and a plain-text file named `lan-server.txt` to the same folder on the Xbox. Put only the PC's IPv4 address on the first line. Launch the XBE. The Xbox joins automatically as **Xbox** with the assault rifle by default. To start with the AD-81, put `sniper` on the second line of `lan-server.txt`. During a LAN match, press Y to switch between your primary and the MK-77 pistol. Tap RT for each pistol shot and press X to reload. Press D-pad Down to choose the assault rifle or sniper rifle for your next spawn. Hold LT with the AD-81 to use its scope. To play the offline bot match again, remove the text file and relaunch.
+5. Copy the development `default.xbe` and a plain-text file named `lan-server.txt` to the same folder on the Xbox. Put only the PC's IPv4 address on the first line. Launch the XBE. The Xbox joins automatically as **Xbox**. Remove the text file and relaunch to play the offline bot match.
+
+The default primary is the MTP-57 rifle. Set the second line of `lan-server.txt` to `assault`, `sniper`, `subgun`, or `carbine` to choose a starting weapon. During the match, press D-pad Down to cycle those four choices for your next spawn. Press Y to switch between your current primary and the MK-77 pistol. Hold RT for automatic fire with the rifle or SMG. Tap RT for each carbine, sniper, or pistol shot. Press X to reload or hold LT to use the sniper scope.
+
+On original hardware, the Xbox timestamped all 30 shots in an SMG magazine 80 ms apart, and Windows received all 30 from the stock server. Firing wide left the opponent at full health. After reloading, seven 16-damage hits scored the frag. Both clients also fired a single carbine round on a held trigger for 60 damage.
 
 Ammo and health pickups use the stock server's item list. If the other player takes a box first, the Xbox hides it and keeps its current inventory until the server awards another pickup.
 
