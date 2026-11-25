@@ -8,7 +8,7 @@ void walk(float *x, float *y, float dx, float dy);
 int grenade_space(float x,float y,float feet,float *floor,float *ceiling);
 void body_space(float x,float y,float feet,float *floor,float *ceiling);
 int ladder_space(float x,float y,float feet,float *top);
-typedef struct {float x,y,feet,top;} ActorBounds;
+typedef struct {float x,y,feet,top; int round_xy;} ActorBounds;
 void walk_past_actor(float *x,float *y,float dx,float dy,float feet,float height,float step,const ActorBounds *actor);
 void actor_clearance(const ActorBounds *actor,float x,float y,float feet,float height,float *floor,float *ceiling);
 void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float step);

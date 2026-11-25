@@ -105,7 +105,10 @@ static int body_fits(float x,float y,float feet,float height,float step) {
     return floor<=feet+step && fmaxf(floor,feet)+height<=ceiling;
 }
 static int near_actor(const ActorBounds *a,float x,float y) {
-    return a && fabsf(a->x-x)<2*PLAYER_RADIUS && fabsf(a->y-y)<2*PLAYER_RADIUS;
+    if(!a) return 0;
+    float dx=a->x-x,dy=a->y-y,r=2*PLAYER_RADIUS;
+    // plcollide tests a circle for two players and a square for bot contact.
+    return a->round_xy ? dx*dx+dy*dy<r*r : fabsf(dx)<r && fabsf(dy)<r;
 }
 void actor_clearance(const ActorBounds *a,float x,float y,float feet,float height,float *floor,float *ceiling) {
     if (!near_actor(a,x,y)) return;
@@ -113,7 +116,6 @@ void actor_clearance(const ActorBounds *a,float x,float y,float feet,float heigh
     else if (feet+height<=a->feet+.01f) *ceiling=fminf(*ceiling,a->feet);
 }
 static int actor_blocks(const ActorBounds *a,float x,float y,float dx,float dy,float feet,float height) {
-    // PC plcollide uses square XY bounds when either fighter is a bot.
     return near_actor(a,x,y) && feet+height>a->feet && feet<a->top-.01f &&
            (a->x-x)*dx+(a->y-y)*dy>=0;
 }

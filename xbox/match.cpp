@@ -1388,26 +1388,37 @@ void match_lan_remote_spawn(int gun) {
 void match_lan_remote_reload(int gun) {
     if(lan_match && !hide_bot) lan_shot_sound=feedback[view_weapon(gun)].reload;
 }
-void match_lan_remote(const LanPose *pose) {
+void match_lan_remote(const LanPose *received) {
+    LanPose pose=*received;
+    // Stock updateplayerpos moves an overlapping remote out along the axis
+    // of least penetration before calculating its interpolation offset.
+    float dx=player.x-pose.feet.x,dy=player.y-pose.feet.y;
+    float remote_height=hide_bot?PLAYER_EYE_HEIGHT*(pose.crouching?.75f:1.f):remote_stance;
+    float dz=eye(player)-(pose.feet.z+remote_height);
+    float r=2*PLAYER_RADIUS;
+    if(!bot.respawn_at && fabsf(dx)<r && fabsf(dy)<r && fabsf(dz)<PLAYER_ABOVE_EYE+remote_height) {
+        if(fabsf(dx)<fabsf(dy)) pose.feet.y=player.y+(dy<0?r:-r);
+        else pose.feet.x=player.x+(dx<0?r:-r);
+    }
     // clientgame.cpp uses a 75 ms linear correction for position and angles.
     // A spawn or an eight-cube discontinuity starts at the new position.
-    correction={bot.x-pose->feet.x,bot.y-pose->feet.y,eye(bot)-remote_stance-pose->feet.z};
+    correction={bot.x-pose.feet.x,bot.y-pose.feet.y,eye(bot)-remote_stance-pose.feet.z};
     float d2=correction.x*correction.x+correction.y*correction.y+correction.z*correction.z;
     bool discontinuity=hide_bot || d2>=64 || clock_ms-pose_received>1000;
     if(discontinuity) {
-        remote_stance=PLAYER_EYE_HEIGHT*(pose->crouching?.75f:1.f);
+        remote_stance=PLAYER_EYE_HEIGHT*(pose.crouching?.75f:1.f);
         remote_air_ms=0;
-        bot.x=pose->feet.x;bot.y=pose->feet.y;bot.eye_height=pose->feet.z+remote_stance;
-        bot.yaw=pose->yaw;bot.pitch=pose->pitch;
+        bot.x=pose.feet.x;bot.y=pose.feet.y;bot.eye_height=pose.feet.z+remote_stance;
+        bot.yaw=pose.yaw;bot.pitch=pose.pitch;
         correction={};
     }
-    yaw_correction=remainderf(bot.yaw-pose->yaw,360*radians);
-    pitch_correction=bot.pitch-pose->pitch;
-    if(discontinuity || pose->on_floor || pose->on_ladder) remote_air_crouch=false;
-    else if(pose->crouching && !remote_pose.crouching) remote_air_crouch=true;
-    if(pose->on_floor || pose->on_ladder) remote_air_ms=0;
-    remote_pose=*pose; pose_received=clock_ms;
-    bot_pose=pose->move || pose->strafe; hide_bot=false;
+    yaw_correction=remainderf(bot.yaw-pose.yaw,360*radians);
+    pitch_correction=bot.pitch-pose.pitch;
+    if(discontinuity || pose.on_floor || pose.on_ladder) remote_air_crouch=false;
+    else if(pose.crouching && !remote_pose.crouching) remote_air_crouch=true;
+    if(pose.on_floor || pose.on_ladder) remote_air_ms=0;
+    remote_pose=pose; pose_received=clock_ms;
+    bot_pose=pose.move || pose.strafe; hide_bot=false;
 }
 static void predict_remote(float dt) {
     if(hide_bot || bot.respawn_at) return;
@@ -1427,8 +1438,10 @@ static void predict_remote(float dt) {
     float vx=p.velocity.x-tx,vy=p.velocity.y-ty;
     float dx=(tx*dt+vx*carry)*speed,dy=(ty*dt+vy*carry)*speed;
     p.velocity.x-=vx*fraction; p.velocity.y-=vy*fraction;
-    if(dx || dy) walk_body(&p.feet.x,&p.feet.y,dx,dy,p.feet.z,
-                          PLAYER_EYE_HEIGHT*(p.crouching?.75f:1.f)+PLAYER_ABOVE_EYE,p.on_floor || p.on_ladder?1.5f:0);
+    ActorBounds local={player.x,player.y,feet_z,feet_z+stance+PLAYER_ABOVE_EYE,1};
+    const ActorBounds *blocker=player.respawn_at?nullptr:&local;
+    if(dx || dy) walk_past_actor(&p.feet.x,&p.feet.y,dx,dy,p.feet.z,remote_stance+PLAYER_ABOVE_EYE,
+                                 p.on_floor || p.on_ladder?1.5f:0,blocker);
     float k=fmaxf(0,1-age/75.f);
     bot.x=p.feet.x+correction.x*k;bot.y=p.feet.y+correction.y*k;
     float wanted=PLAYER_EYE_HEIGHT*(p.crouching?.75f:1.f);
@@ -1437,6 +1450,7 @@ static void predict_remote(float dt) {
     if(dx || dy || !p.on_floor || p.on_ladder || water) {
         float floor,ceiling;
         body_space(p.feet.x,p.feet.y,p.feet.z,&floor,&ceiling);
+        actor_clearance(blocker,p.feet.x,p.feet.y,p.feet.z,remote_stance+PLAYER_ABOVE_EYE,&floor,&ceiling);
         if(p.on_floor && p.feet.z>floor+.1f) p.on_floor=0;
         for(unsigned i=0,steps=physics_steps();i<steps && i<20;++i) {
             if(p.on_ladder) {
@@ -1675,7 +1689,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
 
         float floor,ceiling;
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
-        ActorBounds opponent={bot.x,bot.y,eye(bot)-(lan_match?remote_stance:PLAYER_EYE_HEIGHT),eye(bot)+PLAYER_ABOVE_EYE};
+        ActorBounds opponent={bot.x,bot.y,eye(bot)-(lan_match?remote_stance:PLAYER_EYE_HEIGHT),eye(bot)+PLAYER_ABOVE_EYE,lan_match};
         const ActorBounds *blocker=(bot.respawn_at || hide_bot)?nullptr:&opponent;
         actor_clearance(blocker,player.x,player.y,feet_z,stance+PLAYER_ABOVE_EYE,&floor,&ceiling);
         float ladder_top=0;

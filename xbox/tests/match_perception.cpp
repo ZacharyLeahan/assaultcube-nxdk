@@ -431,6 +431,10 @@ extern "C" void test_lan_knife(void) {
     player.x=121; player.y=121; player.yaw=0; player.pitch=-.2f;
     feet_z=ground(player.x,player.y);
     player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
+    place_remote(122,120.5f,feet_z,0,0,0);
+    assert(fabsf(bot.x-player.x-2*PLAYER_RADIUS)<.001f && bot.y==120.5f);
+    place_remote(120.5f,120,feet_z,0,0,0);
+    assert(fabsf(bot.y-player.y+2*PLAYER_RADIUS)<.001f && bot.x==120.5f);
     MatchInput in={}; in.fire=1;
     place_remote(126,121,feet_z,0,0,0);
     assert(match_attack(&in)==KNIFE_SWING && !shot_contact);

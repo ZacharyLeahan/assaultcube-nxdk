@@ -449,6 +449,12 @@ static void test_fighter_contact(void) {
     float floor=feet,ceiling=feet+30;
     actor_clearance(&bot,bot.x,bot.y,bot.top,height,&floor,&ceiling);
     assert(floor==bot.top);
+    bot.round_xy=1;
+    floor=feet;
+    actor_clearance(&bot,bot.x-1.8f,bot.y-1.8f,bot.top,height,&floor,&ceiling);
+    assert(floor==feet);
+    actor_clearance(&bot,bot.x-1.4f,bot.y-1.4f,bot.top,height,&floor,&ceiling);
+    assert(floor==bot.top);
 }
 static void test_rifle_trigger(int keep_firing) {
     MatchInput in={.start=1};
