@@ -17,7 +17,12 @@ unsigned match_lan_shot_time(unsigned now);
 void match_lan_remote_spawn(int gun);
 void match_lan_remote_weapon(int gun);
 void match_lan_remote_reload(int gun);
-void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int moving);
+typedef struct {
+    MatchPoint feet,velocity;
+    float yaw,pitch;
+    int move,strafe,on_floor,on_ladder,crouching;
+} LanPose;
+void match_lan_remote(const LanPose *pose);
 void match_lan_hide(void);
 void match_lan_remote_death(int gib);
 void match_lan_shot(int gun,float x,float y,float z);

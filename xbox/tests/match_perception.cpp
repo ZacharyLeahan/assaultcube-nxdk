@@ -407,6 +407,12 @@ extern "C" void test_lan_sidearm(void) {
     match_lan_stop();
 }
 
+static void place_remote(float x,float y,float floor,float yaw,float pitch,int move) {
+    match_lan_hide();
+    LanPose pose={{x,y,floor},{},yaw,pitch,move,0,1,0,0};
+    match_lan_remote(&pose);
+}
+
 extern "C" void test_lan_knife(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     match_prepare();
@@ -415,10 +421,10 @@ extern "C" void test_lan_knife(void) {
     feet_z=ground(player.x,player.y);
     player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
     MatchInput in={}; in.fire=1;
-    match_lan_remote(126,121,feet_z,0,0,0);
+    place_remote(126,121,feet_z,0,0,0);
     assert(match_attack(&in)==KNIFE_SWING && !shot_contact);
     assert(shot_end.x>123 && shot_end.x<=124);
-    match_lan_remote(124,121,feet_z,0,0,0);
+    place_remote(124,121,feet_z,0,0,0);
     clock_ms=500;
     assert(match_attack(&in)==SILENT);
     in.fire=0;match_attack(&in);in.fire=1;
@@ -432,7 +438,7 @@ extern "C" void test_lan_knife(void) {
     in={};match_update(&in,16,.016f);match_view(&v);
     assert(v.hide_bot && v.gib_count==6 && v.gib_sound);
     match_lan_remote_spawn(GUN_PISTOL);
-    match_lan_remote(126,121,feet_z,0,0,0);
+    place_remote(126,121,feet_z,0,0,0);
     match_lan_remote_death(0);
     match_view(&v);
     assert(!v.bot_alive && !v.hide_bot && v.current_pose.first>=178);
@@ -440,7 +446,7 @@ extern "C" void test_lan_knife(void) {
     match_view(&v);
     assert(v.hide_bot && !v.bot_alive && bot.x==126);
     match_lan_remote_spawn(GUN_ASSAULT);
-    match_lan_remote(127,121,feet_z,0,0,0);
+    place_remote(127,121,feet_z,0,0,0);
     match_view(&v);
     assert(!v.hide_bot && v.bot_alive && v.bot_weapon==VIEW_RIFLE);
     match_lan_stop();
@@ -483,7 +489,7 @@ extern "C" void test_lan_primary_loadouts(void) {
         assert(match_attack(&in)==feedback[weapon].reload);
         assert(player.state.mag[gun]==magsize(gun) && player.state.ammo[gun]==2*magsize(gun)-(int)fired);
         match_lan_remote_weapon(gun);
-        match_lan_remote(124,121,0,0,0,0);
+        place_remote(124,121,0,0,0,0);
         MatchView v={};match_view(&v);
         assert(v.weapon==weapon && v.bot_weapon==weapon);
         match_lan_stop();
@@ -496,7 +502,7 @@ extern "C" void test_shotgun_pellets(void) {
     match_prepare();match_lan_spawn(100,0,GUN_SHOTGUN,GUN_SHOTGUN,ammo,mag);
     player.x=121;player.y=121;feet_z=ground(121,121);player.eye_height=feet_z+PLAYER_EYE_HEIGHT;
     player.yaw=0;player.pitch=-.2f;
-    match_lan_remote(124,121,feet_z,0,0,0);
+    place_remote(124,121,feet_z,0,0,0);
     MatchInput in={};in.fire=1;
     assert(match_attack(&in)==SHOTGUN_SHOT);
     assert(shotgun_info==((21<<24)|(21<<16)|(21<<8)|65));
@@ -517,7 +523,7 @@ extern "C" void test_lan_ffa_starts(void) {
     assert(player.x==starts[3][0] && player.y==starts[3][1]);
     assert(fabsf(player.yaw-(starts[3][2]*.1f-90)*radians)<.0001f);
     // An enemy on the last candidate makes the preceding safe start preferable.
-    match_lan_remote(starts[7][0],starts[7][1],starts[7][3],0,0,0);
+    place_remote(starts[7][0],starts[7][1],starts[7][3],0,0,0);
     match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
     assert(player.x==starts[6][0] && player.y==starts[6][1]);
     match_lan_hide();
@@ -530,7 +536,7 @@ extern "C" void test_lan_damage_feedback(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
     player.yaw=0;
-    match_lan_remote(player.x,player.y+6,feet_z,0,0,0);
+    place_remote(player.x,player.y+6,feet_z,0,0,0);
     match_lan_damage(1,1,18,82,0);
     assert(player.state.health==82 && damage_directions[2]==clock_ms+1000);
     assert(hurt_until==clock_ms+18*7 && lan_pain_sound==PLAYER_PAIN);
@@ -563,5 +569,23 @@ extern "C" void test_lan_jump_report(void) {
     assert(v.on_floor && !match_lan_take_jump());
     in={};in.crouch=1;match_update(&in,16,.016f);match_view(&v);
     assert(v.crouching && !v.on_ladder);
+    match_lan_stop();
+}
+
+extern "C" void test_lan_prediction(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    LanPose pose={{122,121,ground(122,121)},{1,0,0},0,0,1,0,1,0,0};
+    match_lan_remote(&pose);
+    MatchInput in={};
+    match_update(&in,16,.016f);
+    assert(bot.x>122.20f && bot.x<122.30f);
+    float old=bot.x;
+    pose.feet.x=123;pose.velocity={};pose.move=0;
+    match_lan_remote(&pose);
+    assert(bot.x==old);
+    match_update(&in,25,.025f);assert(bot.x>old && bot.x<123);
+    match_update(&in,50,.05f);assert(bot.x==123);
+    pose.feet.x=140;match_lan_remote(&pose);assert(bot.x==140);
     match_lan_stop();
 }

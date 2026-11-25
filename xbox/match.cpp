@@ -79,6 +79,10 @@ MatchSound lan_pickup_sound,lan_pain_sound,lan_actor_voice;
 unsigned unavailable_until[item_count], random_state, aim_state;
 int spawn_cycle=-1, initial_spawn_cycles=2;
 unsigned spawn_seed;
+LanPose remote_pose;
+MatchPoint correction;
+float yaw_correction,pitch_correction;
+unsigned pose_received;
 int bot_pose;
 float stride_phase,stride_rate;
 unsigned combat_move_until;
@@ -821,9 +825,43 @@ void match_lan_remote_spawn(int gun) {
 void match_lan_remote_reload(int gun) {
     if(lan_match && !hide_bot) lan_shot_sound=feedback[view_weapon(gun)].reload;
 }
-void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int moving) {
-    bot.x=x;bot.y=y;bot.eye_height=floor+PLAYER_EYE_HEIGHT;
-    bot.yaw=yaw;bot.pitch=pitch;bot_pose=moving;hide_bot=false;
+void match_lan_remote(const LanPose *pose) {
+    // clientgame.cpp uses a 75 ms linear correction for position and angles.
+    // A spawn or an eight-cube discontinuity starts at the new position.
+    correction={bot.x-pose->feet.x,bot.y-pose->feet.y,eye(bot)-PLAYER_EYE_HEIGHT-pose->feet.z};
+    float d2=correction.x*correction.x+correction.y*correction.y+correction.z*correction.z;
+    if(hide_bot || d2>=64 || clock_ms-pose_received>1000) {
+        bot.x=pose->feet.x;bot.y=pose->feet.y;bot.eye_height=pose->feet.z+PLAYER_EYE_HEIGHT;
+        bot.yaw=pose->yaw;bot.pitch=pose->pitch;
+        correction={};
+    }
+    yaw_correction=remainderf(bot.yaw-pose->yaw,360*radians);
+    pitch_correction=bot.pitch-pose->pitch;
+    remote_pose=*pose; pose_received=clock_ms;
+    bot_pose=pose->move || pose->strafe; hide_bot=false;
+}
+static void predict_remote(float dt) {
+    if(hide_bot || bot.respawn_at) return;
+    unsigned age=clock_ms-pose_received;
+    if(age>1000) return;
+    LanPose &p=remote_pose;
+    float c=cosf(p.yaw),s=sinf(p.yaw);
+    float tx=p.move*c+p.strafe*s,ty=p.move*s-p.strafe*c;
+    bool water=p.feet.z+PLAYER_EYE_HEIGHT<WATER_LEVEL+.5f;
+    float friction=water?20.f:p.on_floor?6.f:p.on_ladder?1.5f:30.f;
+    float retain=1-.005f/(friction*.02f);
+    float fraction=1-powf(retain,dt/.005f);
+    float carry=(friction*.02f-.005f)*fraction;
+    float speed=(p.crouching?6.4f:16.f)*(water?.5f:1.f);
+    float vx=p.velocity.x-tx,vy=p.velocity.y-ty;
+    float dx=(tx*dt+vx*carry)*speed,dy=(ty*dt+vy*carry)*speed;
+    p.velocity.x-=vx*fraction; p.velocity.y-=vy*fraction;
+    if(dx || dy) walk_body(&p.feet.x,&p.feet.y,dx,dy,p.feet.z,
+                          PLAYER_EYE_HEIGHT*(p.crouching?.75f:1.f)+PLAYER_ABOVE_EYE,p.on_floor || p.on_ladder?1.5f:0);
+    float k=fmaxf(0,1-age/75.f);
+    bot.x=p.feet.x+correction.x*k;bot.y=p.feet.y+correction.y*k;
+    bot.eye_height=p.feet.z+PLAYER_EYE_HEIGHT+correction.z*k;
+    bot.yaw=p.yaw+yaw_correction*k;bot.pitch=p.pitch+pitch_correction*k;
 }
 void match_lan_hide(void) { hide_bot=true; }
 void match_lan_remote_death(int gib) {
@@ -947,6 +985,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     }
     float dt = fminf(.10f,motion_seconds);
     float old_dx=bot.x-player.x, old_dy=bot.y-player.y;
+    if(lan_match) predict_remote(dt);
     float manual_yaw=0;
     MatchInput neutral={};
     if (player.respawn_at) {

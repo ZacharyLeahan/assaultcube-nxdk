@@ -102,15 +102,16 @@ void stop(const char *why) {
 void positions(Reader &r) {
     while(r.valid && r.bit<r.size*8) {
         int type=r.integer(),cn,x,y,z,yaw,pitch,flags;
+        MatchPoint velocity={};
         if(type==SV_POS) {
             cn=r.integer();x=r.natural();y=r.natural();z=r.natural();
             unsigned packed=r.bits(32); flags=packed&2047;pitch=(packed>>11)&255;yaw=(packed>>19)&1023;
-            if(flags&512) r.skip(3);
+            if(flags&512) velocity={r.integer()/DVELF,r.integer()/DVELF,r.integer()/DVELF};
         } else if(type>=SV_POSC && type<=SV_POSC4) {
             int width=11+type-SV_POSC;
             cn=r.bits(5); x=r.bits(width);y=r.bits(width);yaw=r.bits(YAWBITS);
             pitch=r.bits(PITCHBITS);flags=r.bits(FLAGBITS);
-            if(flags&512) r.bits(12);
+            if(flags&512) velocity={((int)r.bits(4)-8)/DVELF,((int)r.bits(4)-8)/DVELF,((int)r.bits(4)-8)/DVELF};
             bool full=r.bits(1);
             int width_z=(8-r.bit%8)%8;
             if(width_z<3) width_z+=8;
@@ -124,7 +125,10 @@ void positions(Reader &r) {
         float tilt=(pitch-128)/256.f;
         if(tilt>1.f/3) tilt=4*tilt-1;
         if(tilt< -1.f/3) tilt=4*tilt+1;
-        match_lan_remote(x/DMF,y/DMF,z/DMF,angle,tilt*90/degrees,(flags&31)%9!=4);
+        int movement=flags&31;
+        LanPose pose={{x/DMF,y/DMF,z/DMF},velocity,angle,tilt*90/degrees,
+            movement/3%3-1,movement%3-1,(flags&128)!=0,movement/9==1,movement/9==2};
+        match_lan_remote(&pose);
         snprintf(status,sizeof(status),"LAN  ac_desert    PC #%d",cn);
     }
 }
