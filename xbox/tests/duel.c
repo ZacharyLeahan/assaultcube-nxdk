@@ -671,12 +671,14 @@ static void test_prop_depth(void) {
 void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
 void test_easy_bot_aim(void);
+void test_smg_loadout(void);
 void test_wall_impact_lifetime(void);
 
 int main(void) {
     test_easy_bot_perception();
     test_easy_bot_spacing();
     test_easy_bot_aim();
+    test_smg_loadout();
     test_wall_impact_lifetime();
     test_prop_depth();
     test_heightfield_impact();

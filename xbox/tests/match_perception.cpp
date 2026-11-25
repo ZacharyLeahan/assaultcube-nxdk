@@ -176,3 +176,52 @@ extern "C" void test_wall_impact_lifetime(void) {
     bot_fire_ray(0,atanf(-.45f),GUN_ASSAULT);
     assert(mark_count==1);
 }
+
+extern "C" void test_smg_loadout(void) {
+    MatchInput in={};
+    MatchView v={};
+    match_prepare();
+    in.swap=1;
+    match_update(&in,0,0);
+    match_view(&v);
+    assert(v.phase==READY && v.smg && v.selected_smg);
+    in.swap=0; in.start=1;
+    match_update(&in,0,0);
+    in.start=0; in.fire=1;
+    bot.ready_at=duration;
+    for (int i=0;i<30;++i) {
+        assert(match_attack(&in)==SMG_SHOT);
+        match_view(&v);
+        assert(v.magazine==29-i && v.reserve==60 && v.flash && !v.wide_crosshair);
+        assert(fabsf(player.pitch_velocity-fminf(5,2.5f+((i+1)/5.f)*((i+1)/5.f)))<.0001f);
+        match_update(&in,79,.079f);
+        assert(match_attack(&in)==SILENT);
+        match_update(&in,1,.001f);
+    }
+    in.fire=0;
+    assert(match_attack(&in)==SMG_RELOAD);
+    match_view(&v);
+    assert(v.reload && v.magazine==30 && v.reserve==30);
+    match_update(&in,1649,.016f);
+    in.fire=1;
+    assert(match_attack(&in)==SILENT);
+    match_update(&in,1,.001f);
+    assert(match_attack(&in)==SMG_SHOT);
+    in.fire=0; in.swap=1;
+    match_update(&in,1,.001f); in.swap=0;
+    match_update(&in,401,.016f); match_view(&v);
+    assert(v.pistol && !v.smg);
+    in.swap=1; match_update(&in,1,.001f); in.swap=0;
+    match_update(&in,401,.016f); match_view(&v);
+    assert(v.smg && v.magazine==29);
+    spawn(player,17); match_view(&v);
+    assert(v.smg && v.magazine==30 && v.reserve==60);
+    bot.state.health=1;
+    damage(bot,player,GUN_SUBGUN,1,0,0); match_view(&v);
+    assert(!strcmp(v.frag_messages[0].text,"you sprayed Bot"));
+    phase=INTERMISSION; in.start=1;
+    match_update(&in,1,.001f); match_view(&v);
+    assert(v.smg && v.phase==PLAYING && v.player_frags==0);
+    match_prepare(); match_view(&v);
+    assert(!v.smg && v.magazine==20);
+}
