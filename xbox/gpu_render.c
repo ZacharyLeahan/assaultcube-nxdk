@@ -830,6 +830,8 @@ typedef struct {
     float px,py,eye,yaw,pitch,tx,ty,chest,strafe,turn;
     unsigned live,clear,aimed;
 } TrackingFrame;
+typedef struct { float yaw,pitch; int health,weapon_sound; } AimFrame;
+static AimFrame aim_frames[720];
 static TrackingFrame tracking_frames[720];
 typedef struct { TrackingFrame tracking; unsigned vblank; } DuelFrame;
 static DuelFrame *duel_frames;
@@ -906,6 +908,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
         input_times[sample_count][0]=sample_tick;
         input_times[sample_count][1]=work_ticks[(work_index-1)%32];
         input_times[sample_count][2]=signature;
+        aim_frames[sample_count]=(AimFrame){v->bot_yaw,v->bot_tilt*4,v->health,v->bot_sound};
         tracking_frames[sample_count]=tracking_frame(v,input,aimed);
         FrameSample *sample=&samples[sample_count++];
         *sample=(FrameSample){(unsigned)KeQueryPerformanceCounter(),pb_get_vbl_counter(),
@@ -931,6 +934,8 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
                 fwrite(tracking_frames,sizeof(tracking_frames),1,file);
                 fclose(file);
             }
+            file=fopen("D:\\bot-aim.bin","wb");
+            if (file) { fwrite(aim_frames,sizeof(aim_frames),1,file); fclose(file); }
             tracing=0;
         }
     }

@@ -127,7 +127,7 @@ On unobstructed ground, movement now follows the PC friction curve. Holding the 
 
 The Xbox port shares some of the visible opponent's angular motion during small two-stick corrections. Build `6ddbe28b` gives this assistance a constant gain near the torso and gradually fades it near the edge of the aiming cone. Full horizontal stick immediately selects the ordinary turn rate.
 
-The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
+The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. The companion `bot-aim.bin` records the bot’s yaw and pitch in radians, player health, and the bot’s weapon sound for each frame (little-endian `<2f2i`). Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
 
 | Opening life, visible strafing frames only | Previous run 1 / 2 | Revised run 1 / 2 |
 | --- | --- | --- |
