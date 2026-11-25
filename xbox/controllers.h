@@ -7,7 +7,7 @@ enum { PAD_COUNT = 4 };
 typedef struct {
     SDL_GameController *handle;
     SDL_JoystickID id;
-    int previous_start, previous_swap;
+    int previous_start, previous_swap, previous_reload;
     unsigned reset_ms;
 } Pad;
 

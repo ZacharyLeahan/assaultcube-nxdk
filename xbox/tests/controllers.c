@@ -40,7 +40,7 @@ int main(void) {
     Pad *old = find(pads,removed);
     assert(old && find(pads,other));
     SDL_GameController *retained = find(pads,other)->handle;
-    old->previous_start = old->previous_swap = 1;
+    old->previous_start = old->previous_swap = old->previous_reload = 1;
     old->reset_ms = 900;
     assert(SDL_JoystickDetachVirtual(first) == 0);
     // Simulate an entire swap between two game frames, with the other pad still attached.
@@ -49,7 +49,7 @@ int main(void) {
     poll(pads);
     assert(!find(pads,removed) && find(pads,other)->handle == retained);
     Pad *pad = find(pads,fresh);
-    assert(pad && !pad->previous_start && !pad->previous_swap && !pad->reset_ms);
+    assert(pad && !pad->previous_start && !pad->previous_swap && !pad->previous_reload && !pad->reset_ms);
     SDL_Joystick *joystick = SDL_GameControllerGetJoystick(pad->handle);
     assert(SDL_JoystickSetVirtualButton(joystick, SDL_CONTROLLER_BUTTON_START, 1) == 0);
     poll(pads);

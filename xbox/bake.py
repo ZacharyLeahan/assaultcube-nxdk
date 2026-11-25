@@ -138,7 +138,7 @@ def bake():
     (OUT / "cell_light.bin").write_bytes(lighting.tobytes())
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting, corners)
-    sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
+    sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload","weapon/clip_empty",
             "weapon/ric1","weapon/ric2","weapon/ric3","weapon/waterimpact",
             "player/jump","player/land","player/step","player/footsteps","player/crouch","player/watersteps",
             "player/watercrouch","player/crouch_in","player/crouch_out",*(f"player/pain{i}" for i in range(1,7)),
