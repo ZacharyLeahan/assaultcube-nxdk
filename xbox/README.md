@@ -16,8 +16,11 @@ Barrels and crates can break the bot's sightline and stop its shots. The easy bo
 | X | Reload from reserve ammunition. An empty magazine reloads automatically when reserves are available |
 | Y | Before a match, cycle through the MTP-57 rifle, A-ARD/10 SMG and TMP-M&A carbine. During play, switch between the chosen primary and the MK-77 pistol |
 | D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
-| Start | Begin the match or play again from the result screen |
+| Start | Begin a match, pause during play, or play again from the result screen |
+| D-pad Up | Open the system menu from any screen |
 | LT + RT + Back + Black | Hold for one second to reboot |
+
+The system menu pauses the match and audio. Use D-pad Up/Down and A to select Resume, Return to dashboard, Restart Xbox, or Shut down Xbox. For the last three, release A and press it again to confirm. B cancels or returns to the game.
 
 Controllers can be plugged in or replaced while the game is running. Any of the four ports can control the duel. The title and result screens show the number of connected controllers.
 
