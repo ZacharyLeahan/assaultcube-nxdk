@@ -1,6 +1,10 @@
 # AssaultCube on the original Xbox
 
-Play a local deathmatch against one easy bot on `ac_desert`. First to three frags wins, with a 90-second time limit. Built with [nxdk](https://github.com/XboxDev/nxdk).
+**Early Xbox prototype.** Play a local deathmatch against one easy bot on `ac_desert`. First to three frags wins, with a 90-second time limit. Built with [nxdk](https://github.com/XboxDev/nxdk).
+
+1. [Download default.xbe](https://github.com/ZacharyLeahan/assaultcube-nxdk/releases/download/xbox-prototype-1/default.xbe). The game assets are included in this one file.
+2. On an original Xbox set up for homebrew, create a folder such as `F:\Games\AssaultCube\` and copy `default.xbe` into it by FTP.
+3. Launch `default.xbe` from your dashboard and press **Start** to play.
 
 Press Y before a match to choose the MTP-57 rifle, A-ARD/10 SMG, or semi-automatic TMP-M&A carbine. The guns use AssaultCube’s firing animations, recoil settings, and sounds. Shots leave sparks and bullet holes. You can hear the bot’s gunfire in stereo, jump onto barrels, and swim in the well and climb its ladder. Hold Back for the map.
 
