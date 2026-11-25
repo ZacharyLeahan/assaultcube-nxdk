@@ -441,7 +441,9 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     MatchPoint target={from.x+512*dx,from.y+512*dy,from.z+512*dz};
     SurfaceHit hit;
     bool wall=trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit);
-    float wall_depth=512*hit.fraction,reach=wall_depth;
+    float wall_depth=512*hit.fraction;
+    float reach=prop_depth(from,{dx,dy,dz},wall_depth);
+    bool reaches_wall=wall && reach==wall_depth;
     MatchPoint delta={from.x-player.x,from.y-player.y,from.z-feet_z};
     float contact=torso_contact(delta,player.yaw,player.pitch*.25f,stance,dx,dy,dz,reach);
     if (contact>=0) {
@@ -450,7 +452,7 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     }
     target={from.x+reach*dx,from.y+reach*dy,from.z+reach*dz};
     // PC attackfx still marks a surface within one unit of a struck actor.
-    if (wall && (contact<0 || (wall_depth-contact)*hypotf(1,dz)<=1)) {
+    if (reaches_wall && (contact<0 || (wall_depth-contact)*hypotf(1,dz)<=1)) {
         mark_surface(hit);
         if (hit.can_mark && hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
             impact_sound={{hit.x,hit.y,hit.z},hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
@@ -619,7 +621,8 @@ void update_bot(float dt) {
         float dz=eye(player)-eye(bot);
         bool in_view=dx*cosf(bot.yaw)+dy*sinf(bot.yaw)>=d*.57357644f; // cos(110� / 2)
         if (bot_saw_player || in_view || dx*dx+dy*dy+dz*dz<16)
-            sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player));
+            sees=visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)) &&
+                 prop_depth({bot.x,bot.y,eye(bot)},{dx,dy,dz},1)>=1;
         if (!sees) next_enemy_search=clock_ms+300+random_number()%61;
     }
     if (clock_ms>=next_supply_check || (supply_index>=0 && unavailable_until[supply_index]>clock_ms)) {
