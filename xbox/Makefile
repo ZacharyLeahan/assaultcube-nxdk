@@ -20,6 +20,7 @@ SDL_XBOX_DIR := $(NXDK_DIR)/lib/sdl/SDL2/src/joystick/xbox
 SRCS += $(CURDIR)/generated/aim_driver.c
 NXDK_CFLAGS += -I$(SDL_XBOX_DIR) -I$(NXDK_DIR)/lib/usb/libusbohci/inc -I$(NXDK_DIR)/lib/usb/libusbohci_xbox
 endif
+include $(CURDIR)/lan/enet.mk
 include $(NXDK_DIR)/Makefile
 include $(PBGL_DIR)/config_pbgl.make
 main.exe: $(PBGL_LIB)
@@ -56,3 +57,9 @@ ifeq ($(AIM_TRACE),1)
 $(CURDIR)/generated/aim_driver.c: tests/aim_driver.py $(SDL_XBOX_DIR)/SDL_xboxjoystick.c
 	python $< $(SDL_XBOX_DIR)/SDL_xboxjoystick.c $@
 endif
+
+$(CURDIR)/generated/lan/%.c: $(ENET_DIR)/%.c
+	@mkdir -p "$(@D)"
+	@cp "$<" "$@"
+
+$(ENET_SRC:.c=.obj): NXDK_CFLAGS += -include $(CURDIR)/lan/enet_platform.h
