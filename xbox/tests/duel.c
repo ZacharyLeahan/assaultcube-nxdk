@@ -342,7 +342,7 @@ static void test_bot_hitpush(void) {
     float effect_distance=hypotf(hypotf(after.sparks[0].x-before.px,after.sparks[0].y-before.py),
                                  after.sparks[0].z-(before.eye-.2f));
     float target_distance=hypotf(hypotf(before.tx-before.px,before.ty-before.py),
-                                 map_floor(map_cube((int)before.tx,(int)before.ty))+3.6f-before.eye);
+                                 map_floor(map_cube((int)before.tx,(int)before.ty))+BOT_EYE_HEIGHT-before.eye);
     assert(fabsf(effect_distance-target_distance)<.001f);
     in.fire=0;
     for (int i=0;i<20;++i) match_update(&in,5,.005f);
@@ -352,6 +352,34 @@ static void test_bot_hitpush(void) {
     for (int i=0;i<20;++i) { speed*=23.f/24; travel+=speed*.005f*16; }
     float forward=(after.tx-before.tx)*cosf(before.angle)+(after.ty-before.ty)*sinf(before.angle);
     assert(fabsf(forward-travel)<.002f);
+}
+
+static void test_bot_hit_volumes(void) {
+    MatchView v;
+    MatchInput in={.start=1};
+    match_prepare(); match_update(&in,0,0); match_view(&v);
+    float c=cosf(v.angle),s=sinf(v.angle);
+    // Level rays through the idle head tag hit within the PC's 0.4 radius.
+    v.pitch=0; v.eye=v.bot_head.z+.05f;
+    v.px=v.bot_head.x-3*c-.35f*s; v.py=v.bot_head.y-3*s+.35f*c;
+    assert(match_targeted(&v));
+    v.px-=.15f*s; v.py+=.15f*c;
+    assert(!match_targeted(&v));
+    // The 1.1-radius torso is wider than the head and ends at eye height.
+    v.px=v.tx-3*c-1.05f*s; v.py=v.ty-3*s+1.05f*c;
+    v.eye=map_floor(map_cube((int)v.tx,(int)v.ty))+2;
+    assert(match_targeted(&v));
+    v.px-=.15f*s; v.py+=.15f*c;
+    assert(!match_targeted(&v));
+    // Interpolated head coordinates follow the very same pain frames as the mesh.
+    in=(MatchInput){.fire=1};
+    assert(match_attack(&in)==RIFLE_SHOT);
+    match_view(&v); assert(v.bot_pose==54);
+    MatchPoint start=v.bot_head;
+    in.fire=0;
+    match_update(&in,36,.036f); match_view(&v);
+    assert(v.bot_pose==54 && v.next_bot_pose==55 && fabsf(v.bot_pose_blend-.48f)<.001f);
+    assert(fabsf(v.bot_head.z-start.z)>.001f);
 }
 
 static void test_prop_depth(void) {
@@ -376,6 +404,7 @@ int main(void) {
     test_prop_depth();
     test_wind_playback();
     test_bot_hitpush();
+    test_bot_hit_volumes();
     test_incoming_fire(0);
     test_incoming_fire(1);
     test_strafe_reversal(60);
@@ -499,7 +528,7 @@ int main(void) {
         input.fire = !view.player_frags;
         // Track the torso during the opening burst, including its vertical recoil.
         float dx=view.tx-view.px, dy=view.ty-view.py;
-        float chest=map_floor(map_cube((int)view.tx,(int)view.ty))+2.6f;
+        float chest=map_floor(map_cube((int)view.tx,(int)view.ty))+BOT_EYE_HEIGHT-1;
         input.look=input.fire ? (atan2f(chest-view.eye,hypotf(dx,dy))-view.pitch)/(.033f*105*.017453293f) : 0;
         input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);

@@ -14,6 +14,7 @@ struct ItemLocation { int x, y, height_tenths, kind; };
 #include "generated/starts.h"
 #include "generated/items.h"
 #include "generated/water.h"
+#include "generated/bot_head.h"
 constexpr int start_count = sizeof(starts)/sizeof(starts[0]);
 constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
@@ -107,7 +108,7 @@ unsigned random_number() {
 }
 float ground(float x, float y) { return map_floor(map_cube((int)x,(int)y)); }
 float distance(float x,float y,float tx,float ty) { return hypotf(tx-x,ty-y); }
-float eye(const Fighter &f) { return &f==&player ? f.eye_height : ground(f.x,f.y)+3.6f; }
+float eye(const Fighter &f) { return &f==&player ? f.eye_height : ground(f.x,f.y)+BOT_EYE_HEIGHT; }
 void spawn(Fighter &f, int index) {
     f.x = starts[index][0]+.5f; f.y = starts[index][1]+.5f;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
@@ -164,7 +165,8 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
         if (fallback < 0) fallback = i;
         if (!route_next(x,y,&tx,&ty)) continue;
         float score = -fabsf(d-32);
-        if (!visible(x,y,ground(x,y)+3.6f,opponent.x,opponent.y,eye(opponent))) score += 8;
+        float spawn_eye=ground(x,y)+(&f==&player?3.6f:BOT_EYE_HEIGHT);
+        if (!visible(x,y,spawn_eye,opponent.x,opponent.y,eye(opponent))) score += 8;
         if (score > best_score) { best_score = score; best = i; }
     }
     spawn(f,best >= 0 ? best : fallback);
@@ -333,6 +335,7 @@ void update_bot(float dt) {
         bot_attack_at = clock_ms+1500+random_number()%501;
         bot_saw_player = true;
     }
+    bot.pitch=atan2f(eye(player)-.8f-eye(bot),d);
     float ideal = atan2f(player.y-bot.y,player.x-bot.x);
     float delta = atan2f(sinf(ideal-bot.yaw),cosf(ideal-bot.yaw));
     bot.yaw += fmaxf(-75*radians*dt,fminf(75*radians*dt,delta));
@@ -529,6 +532,37 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         }
     }
 }
+MatchPoint bot_model_point(const MatchView *v,MatchPoint p) {
+    float st=sinf(v->bot_tilt),ct=cosf(v->bot_tilt);
+    float forward=ct*p.x-st*p.z,c=cosf(v->bot_yaw),s=sinf(v->bot_yaw);
+    return {v->tx+c*forward-s*p.y,v->ty+s*forward+c*p.y,
+            ground(v->tx,v->ty)+st*p.x+ct*p.z};
+}
+static void bot_view(MatchView *v) {
+    v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
+    // The world rifle's md2emit lasts 50 ms of the 90 ms attack cue.
+    v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
+    // MD2 sequences and frame periods used by the PC renderclient.
+    int first=0,count=1;
+    float pose=0;
+    if (bot.respawn_at) {
+        first=178; count=6; pose=(clock_ms+2000-bot.respawn_at+intermission_age)/100.f;
+    } else if (bot.pain_until>clock_ms) {
+        first=54; count=4; pose=(clock_ms+300-bot.pain_until)/75.f;
+    } else if (bot.flash_until && clock_ms<bot.flash_until+210) {
+        first=46; count=8; pose=(clock_ms+90-bot.flash_until)/37.5f;
+    } else if (bot_pose) {
+        first=40; count=6; pose=stride_phase;
+    }
+    int frame=(int)fminf(pose,count-1);
+    v->bot_pose=first+frame;
+    v->next_bot_pose=first+(first==40 ? (frame+1)%count : (frame+1<count ? frame+1 : frame));
+    v->bot_pose_blend=v->bot_pose==v->next_bot_pose ? 0 : pose-floorf(pose);
+    v->bot_tilt=bot.pitch*.25f;
+    const MatchPoint &a=head_poses[v->bot_pose],&b=head_poses[v->next_bot_pose];
+    float t=v->bot_pose_blend;
+    v->bot_head=bot_model_point(v,{a.x+t*(b.x-a.x),a.y+t*(b.y-a.y),a.z+t*(b.z-a.z)});
+}
 static int target_contact(const MatchView *v,float range,bool check_geometry);
 MatchSound match_attack(const MatchInput *in) {
     empty_click=false;
@@ -564,7 +598,7 @@ MatchSound match_attack(const MatchInput *in) {
         MatchView ray={};
         ray.px=player.x; ray.py=player.y; ray.eye=z;
         ray.angle=atan2f(dy,dx); ray.pitch=atan2f(dz,hypotf(dx,dy));
-        ray.tx=bot.x; ray.ty=bot.y; ray.bot_alive=!bot.respawn_at;
+        bot_view(&ray);
         float magnitude=sqrtf(dx*dx+dy*dy+dz*dz);
         if (target_contact(&ray,length*hypotf(dx,dy),false)) {
             damage(bot,player,gun,dx,dy,dz);
@@ -594,25 +628,7 @@ void match_view(MatchView *v) {
     v->classic_assist=classic_assist;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
-    v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
-    // The world rifle's md2emit lasts 50 ms of the 90 ms attack cue.
-    v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
-    // MD2 sequences and frame periods used by the PC renderclient.
-    int first=0,count=1;
-    float pose=0;
-    if (bot.respawn_at) {
-        first=178; count=6; pose=(clock_ms+2000-bot.respawn_at+intermission_age)/100.f;
-    } else if (bot.pain_until>clock_ms) {
-        first=54; count=4; pose=(clock_ms+300-bot.pain_until)/75.f;
-    } else if (bot.flash_until && clock_ms<bot.flash_until+210) {
-        first=46; count=8; pose=(clock_ms+90-bot.flash_until)/37.5f;
-    } else if (bot_pose) {
-        first=40; count=6; pose=stride_phase;
-    }
-    int frame=(int)fminf(pose,count-1);
-    v->bot_pose=first+frame;
-    v->next_bot_pose=first+(first==40 ? (frame+1)%count : (frame+1<count ? frame+1 : frame));
-    v->bot_pose_blend=v->bot_pose==v->next_bot_pose ? 0 : pose-floorf(pose);
+    bot_view(v);
     v->player_frags = player.frags; v->bot_frags = bot.frags;
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;
@@ -669,21 +685,45 @@ void match_view(MatchView *v) {
     }
 }
 
-// Intersect the crosshair ray with the upright player cylinder, independently of output resolution.
+// Both volumes use horizontal ray distance as their parameter. Rotating into
+// bot-local space makes the pitched torso an upright finite cylinder.
+static float torso_contact(const MatchView *v,float c,float s,float slope,float range) {
+    float cy=cosf(v->bot_yaw),sy=sinf(v->bot_yaw),ct=cosf(v->bot_tilt),st=sinf(v->bot_tilt);
+    float x=v->px-v->tx,y=v->py-v->ty,z=v->eye-ground(v->tx,v->ty);
+    float forward=x*cy+y*sy,side=y*cy-x*sy,df=c*cy+s*sy,ds=s*cy-c*sy;
+    float ox=forward*ct+z*st,oz=z*ct-forward*st;
+    float dx=df*ct+slope*st,dz=slope*ct-df*st;
+    float speed2=dx*dx+ds*ds,enter=0,exit=range;
+    if (speed2>.000001f) {
+        float closest=-(ox*dx+side*ds)/speed2;
+        float rx=ox+closest*dx,ry=side+closest*ds;
+        float radius2=1.1f*1.1f-rx*rx-ry*ry;
+        if (radius2<0) return -1;
+        float half=sqrtf(radius2/speed2);
+        enter=fmaxf(enter,closest-half); exit=fminf(exit,closest+half);
+    } else if (ox*ox+side*side>1.1f*1.1f) return -1;
+    if (fabsf(dz)>.000001f) {
+        float bottom=-oz/dz,top=(BOT_EYE_HEIGHT-oz)/dz;
+        enter=fmaxf(enter,fminf(bottom,top)); exit=fminf(exit,fmaxf(bottom,top));
+    } else if (oz<0 || oz>BOT_EYE_HEIGHT) return -1;
+    return enter<=exit?enter:-1;
+}
 static int target_contact(const MatchView *v,float range,bool check_geometry) {
     if (!v->bot_alive || v->respawning) return 0;
-    float c=cosf(v->angle), s=sinf(v->angle), dx=v->tx-v->px, dy=v->ty-v->py;
-    float along=dx*c+dy*s, across=dy*c-dx*s;
-    const float radius=1.0f;
-    if (fabsf(across)>radius) return 0;
-    float half=sqrtf(fmaxf(0,radius*radius-across*across));
-    float enter=fmaxf(.01f,along-half), exit=fminf(range,along+half);
-    float base=ground(v->tx,v->ty), slope=tanf(v->pitch);
-    if (fabsf(slope)>.00001f) {
-        float a=(base-v->eye)/slope,b=(base+4.6f-v->eye)/slope;
-        enter=fmaxf(enter,fminf(a,b)); exit=fminf(exit,fmaxf(a,b));
-    } else if (v->eye<base || v->eye>base+4.6f) return 0;
-    if (enter>exit) return 0;
+    float c=cosf(v->angle),s=sinf(v->angle),slope=tanf(v->pitch);
+    if (fabsf((v->ty-v->py)*c-(v->tx-v->px)*s)>4) return 0;
+    float x=v->bot_head.x-v->px,y=v->bot_head.y-v->py,z=v->bot_head.z-v->eye;
+    float norm=1+slope*slope,closest=(x*c+y*s+z*slope)/norm;
+    float rx=x-closest*c,ry=y-closest*s,rz=z-closest*slope;
+    float radius2=.4f*.4f-rx*rx-ry*ry-rz*rz;
+    float enter=radius2>=0?closest-sqrtf(radius2/norm):-1;
+    if (enter<0 || enter>range) enter=torso_contact(v,c,s,slope,range);
+    else if (check_geometry) {
+        // A waist-high prop can separate intersections with the two volumes.
+        float torso=torso_contact(v,c,s,slope,enter);
+        if (torso>=0) enter=torso;
+    }
+    if (enter<0) return 0;
     if (!check_geometry) return 1;
     return visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter) &&
            prop_depth({v->px,v->py,v->eye},{c,s,slope},enter)>=enter;
