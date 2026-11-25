@@ -1,5 +1,6 @@
 """Bake ac_desert and the bundled MD2 meshes into Xbox-ready data."""
 import gzip
+import json
 import re
 import struct
 import sys
@@ -70,7 +71,16 @@ def map_vantage(header):
             return [integer() for _ in range(5)]
 
 
+def bake_names():
+    names = (ROOT.parent / "bot/bot_names.txt").read_text().splitlines()
+    names = ["".join(c for c in name if " " <= c <= "~" and c != '"')[:15] for name in names]
+    pool = [json.dumps(name) for name in names if name][:150]
+    (OUT / "bot_names.h").write_text("static const char *const bot_names[] = {\n" +
+                                     ",\n".join(pool) + "\n};\n")
+
+
 def bake():
+    bake_names()
     skills=(ROOT.parent/"bot/bot_skill.cfg").read_text()
     profiles=[]
     for number in (5,2):  # Quick duel, Windows Singleplayer menu

@@ -58,6 +58,9 @@ struct BotSkill {
     int attack_min,attack_max,search_min,search_max,detect_radius;
 };
 #include "generated/bot_skill.h"
+#include "generated/bot_names.h"
+const char *offline_bot_name="Bot";
+unsigned menu_time;
 constexpr unsigned switch_ms = 400;
 constexpr unsigned player_respawn_ms=2000,bot_respawn_ms=5000;
 constexpr unsigned frag_message_ms=3000;
@@ -72,7 +75,7 @@ struct Fighter {
     float pitch_velocity;
     unsigned shots, shot_until;
     int turn_direction;
-    int frags;
+    int frags,deaths;
     unsigned respawn_at, ready_at, reload_at, reload_hud_until, flash_until, light_until, pain_until;
 };
 Fighter player, bot;
@@ -354,13 +357,16 @@ void begin(MatchPhase initial) {
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
     clock_ms = frame_start_ms = 0; random_state = 7331; aim_state=7331; phase = initial;
-    player.frags = bot.frags = bot_pose = 0;
+    player.frags = bot.frags = player.deaths = bot.deaths = bot_pose = 0;
+    offline_bot_name="Bot";
     stride_phase=0; idle_ms=0;
     combat_move_until=next_enemy_search = next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
     respawn_trigger=false;
     if(stock_round && !lan_match) {
+        aim_state=random_state=menu_time;
+        offline_bot_name=bot_names[random_number()%(sizeof(bot_names)/sizeof(bot_names[0]))];
         spawn_cycle=-1;
         spawn(player,next_ffa_start(4,nullptr),0);
         spawn(bot,next_ffa_start(4,&player),0);
@@ -530,7 +536,8 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
     if (victim.state.health > 0) return;
     if (&victim==&bot && (gun==GUN_KNIFE || spread_gib || headshot)) spawn_gibs(victim);
     victim.state.health = 0;
-    record_frag(&victim==&player,&victim==&attacker,gun,headshot || spread_gib,"Bot");
+    record_frag(&victim==&player,&victim==&attacker,gun,headshot || spread_gib,offline_bot_name);
+    ++victim.deaths;
     victim.respawn_at=clock_ms+(&victim==&bot?bot_respawn_ms:player_respawn_ms);
     victim.flash_until = 0;
     attacker.frags+=&attacker==&victim?-1:(gun==GUN_KNIFE || headshot)?2:1;
@@ -1257,6 +1264,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<frag_message_ms) intermission_age+=elapsed;
         if(lan_match) return;
+        menu_time+=elapsed;
         if(in->refill) stock_round=!stock_round;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->swap) {
@@ -1749,6 +1757,7 @@ void match_view(MatchView *v) {
     v->on_floor=grounded; v->on_ladder=on_ladder; v->crouching=was_crouching;
     v->death_frame=player.respawn_at?fminf(5,(now+player_respawn_ms-player.respawn_at)/100.f):0;
     bot_view(v);
+    v->bot_name=offline_bot_name;v->player_deaths=player.deaths;v->bot_deaths=bot.deaths;
     v->player_frags = player.frags; v->bot_frags = bot.frags;
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;

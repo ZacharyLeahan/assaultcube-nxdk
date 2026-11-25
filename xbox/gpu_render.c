@@ -869,7 +869,16 @@ static void system_overlay(const SystemMenu *menu) {
 
 static void scoreboard(const MatchView *v) {
     LanScore rows[2];
-    int count=lan_scores(rows,v);
+    int network=lan_connected(),count=2;
+    if(network) count=lan_scores(rows,v);
+    else {
+        rows[0]=(LanScore){"Xbox",v->player_frags,v->player_deaths,0};
+        rows[1]=(LanScore){v->bot_name,v->bot_frags,v->bot_deaths,0};
+    }
+    if(count==2 && (rows[1].frags>rows[0].frags ||
+            (rows[1].frags==rows[0].frags && rows[1].deaths<rows[0].deaths))) {
+        LanScore first=rows[0];rows[0]=rows[1];rows[1]=first;
+    }
     float x=(hud_width-600)*.5f;
     glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
     color(.025f,.035f,.045f,.86f);
@@ -878,13 +887,13 @@ static void scoreboard(const MatchView *v) {
     color(1,1,1,1);
     text(x+20,235,25,v->phase==INTERMISSION?"ac_desert  /  Game over":"ac_desert  /  Deathmatch");
     text(x+20,278,19,"Player");text(x+298,278,19,"Frags");
-    text(x+393,278,19,"Deaths");text(x+508,278,19,"Ping");
+    text(x+393,278,19,"Deaths");if(network) text(x+508,278,19,"Ping");
     for(int i=0;i<count;++i) {
         char value[16];float y=309+32*i;
         text(x+20,y,21,rows[i].name);
         snprintf(value,sizeof(value),"%d",rows[i].frags);text(x+298,y,21,value);
         snprintf(value,sizeof(value),"%d",rows[i].deaths);text(x+393,y,21,value);
-        snprintf(value,sizeof(value),"%d",rows[i].ping);text(x+508,y,21,value);
+        if(network) {snprintf(value,sizeof(value),"%d",rows[i].ping);text(x+508,y,21,value);}
     }
 }
 static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int scores,const SystemMenu *menu) {
@@ -970,7 +979,8 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
         begin_quads(); quad(-75.2f,-75.2f,150.4f,150.4f,0,0,1,1); end_quads();
         glPopMatrix();
     }
-    if(v->phase!=PLAYING && !lan_connected()) {
+    int setup=v->phase!=PLAYING && !lan_connected() && !(v->stock_round && v->phase==INTERMISSION);
+    if(setup) {
         color(.03f,.04f,.05f,.78f); begin_quads();
         quad(28,24,528,194,0,0,0,0); end_quads();
     } else if(v->phase==PLAYING && !v->respawning) {
@@ -1007,7 +1017,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
         text((hud_width-width)*.5f,540+i*size+180*t*t*t*t,size,message);
     }
     color(.95f,.94f,.87f,1);
-    if(v->phase!=PLAYING && !lan_connected()) {
+    if(setup) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
         text(42,164,19,lan_status()?lan_status():"D-pad Up   System menu");
@@ -1017,7 +1027,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);
     text(hud_width-128,v->phase==READY?29:676,19,line);
-    if(lan_connected() && (scores || v->phase==INTERMISSION)) scoreboard(v);
+    if((lan_connected() || v->stock_round) && v->phase!=READY && (scores || v->phase==INTERMISSION)) scoreboard(v);
     glDisable(GL_BLEND);
 }
 // An opt-in 12-second capture. Defer disk I/O until the sample is complete.

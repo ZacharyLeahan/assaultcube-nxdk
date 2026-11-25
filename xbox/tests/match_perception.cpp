@@ -525,7 +525,8 @@ extern "C" void test_stock_bot_round(void) {
     MatchView v={};match_view(&v);assert(v.seconds==900);
     player.frags=2;bot.state.health=1;
     damage(bot,player,GUN_PISTOL,1,0,0);
-    assert(phase==PLAYING && player.frags==3);
+    assert(phase==PLAYING && player.frags==3 && bot.deaths==1);
+    match_view(&v);assert(v.bot_name && strstr(v.frag_messages[0].text,v.bot_name));
     player.state.health=1;damage(player,bot,GUN_PISTOL,1,0,0);
     in={};clock_ms=player.respawn_at+1;
     match_update(&in,16,.016f);assert(player.respawn_at);
@@ -533,6 +534,8 @@ extern "C" void test_stock_bot_round(void) {
     in.fire=0;match_update(&in,16,.016f);assert(!player.respawn_at);
     clock_ms=bot_match_duration-1;
     match_update(&in,1,.001f);assert(phase==INTERMISSION);
+    match_view(&v);assert(v.bot_deaths==1 && v.player_deaths==1);
+    begin(PLAYING);match_view(&v);assert(!v.player_deaths && !v.bot_deaths);
     match_prepare();
 }
 

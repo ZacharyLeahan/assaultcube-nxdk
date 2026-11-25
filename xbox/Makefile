@@ -40,7 +40,7 @@ $(CURDIR)/prop_depth.obj: generated/prop_bounds.h
 $(addprefix $(CURDIR)/,prop_depth.obj gpu_render.obj match.obj): geometry.h
 $(addprefix $(CURDIR)/,match.obj grenade.obj): grenade.h
 $(CURDIR)/grenade.obj: generated/water.h navigation.h geometry.h match.h
-$(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h generated/bot_head.h generated/bot_skill.h
+$(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h generated/bot_head.h generated/bot_skill.h generated/bot_names.h
 $(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj shot_light.obj prop_depth.obj lan/lan.obj): match.h
 $(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj lan/lan.obj): lan/lan.h
 $(addprefix $(CURDIR)/,match.obj gpu_render.obj navigation.obj): navigation.h

@@ -396,9 +396,6 @@ int lan_scores(LanScore rows[2],const MatchView *v) {
     rows[0]={"Xbox",v->player_frags,deaths[own],pings[own]};
     if(remote<0 || remote>=MAXCLIENTS) return 1;
     rows[1]={player_names[remote][0]?player_names[remote]:"PC",v->bot_frags,deaths[remote],pings[remote]};
-    if(rows[1].frags>rows[0].frags || (rows[1].frags==rows[0].frags && rows[1].deaths<rows[0].deaths)) {
-        LanScore first=rows[0];rows[0]=rows[1];rows[1]=first;
-    }
     return 2;
 }
 void lan_toggle_primary(unsigned now) {
