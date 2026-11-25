@@ -1,4 +1,5 @@
 #include "../match.h"
+#include "../geometry.h"
 #include "../navigation.h"
 #include "../ambience.h"
 #include <assert.h>
@@ -353,7 +354,22 @@ static void test_bot_hitpush(void) {
     assert(fabsf(forward-travel)<.002f);
 }
 
+static void test_prop_depth(void) {
+    // From the courtyard floor, the -33 degree sightline crosses the visible
+    // top of the fallen barrel before reaching the floor behind it.
+    MatchPoint eye={160.5f,156.5f,3.6f};
+    float pitch=-33.f*.017453293f;
+    MatchPoint aim={cosf(pitch),0,sinf(pitch)};
+    float depth=prop_depth(eye,aim,10);
+    assert(fabsf(eye.x+depth*aim.x-163.19169f)<.001f);
+    assert(fabsf(eye.z+depth*aim.z-1.85200f)<.001f);
+    assert(prop_depth(eye,aim,2)==2);
+    // This ray passes through the barrel's bounding box beside its curved rim.
+    assert(prop_depth((MatchPoint){162.33f,154.49f,4},(MatchPoint){0,0,-1},4)==4);
+}
+
 int main(void) {
+    test_prop_depth();
     test_wind_playback();
     test_bot_hitpush();
     test_incoming_fire(0);

@@ -1,4 +1,5 @@
 #include "gpu_render.h"
+#include "geometry.h"
 #include "navigation.h"
 #define GL_GLEXT_PROTOTYPES
 #include <pbgl.h>
@@ -17,9 +18,8 @@ typedef struct { unsigned texture, first, count, primitive; } Batch;
 typedef struct { int x, y, w, h; } Glyph;
 #include "generated/gpu.h"
 #include "generated/water.h"
-extern const unsigned char gpu_vertices[], gpu_textures[];
+extern const unsigned char gpu_textures[];
 extern const unsigned char cell_light[256][256][3];
-typedef struct { float x,y,z,u,v; unsigned char rgba[4]; } Vertex;
 static const Vertex *geometry;
 typedef struct { float u,v; } LightUV;
 static LightUV *world_light_uv;

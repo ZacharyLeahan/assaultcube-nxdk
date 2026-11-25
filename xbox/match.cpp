@@ -1,4 +1,5 @@
 #include "match.h"
+#include "geometry.h"
 #include "navigation.h"
 #include <math.h>
 #include <string.h>
@@ -552,7 +553,7 @@ MatchSound match_attack(const MatchInput *in) {
         float dz=sinf(player.pitch),eye_z=eye(player),z=eye_z-.2f;
         SurfaceHit hit;
         trace_surface(player.x,player.y,eye_z,player.x+512*dx,player.y+512*dy,eye_z+512*dz,&hit);
-        float depth=512*hit.fraction;
+        float depth=prop_depth({player.x,player.y,eye_z},{dx,dy,dz},512*hit.fraction);
         dx*=depth; dy*=depth; dz=dz*depth+.2f;
         float length=fmaxf(.00001f,sqrtf(dx*dx+dy*dy+dz*dz));
         dx/=length; dy/=length; dz/=length;
@@ -682,7 +683,10 @@ static int target_contact(const MatchView *v,float range,bool check_geometry) {
         float a=(base-v->eye)/slope,b=(base+4.6f-v->eye)/slope;
         enter=fmaxf(enter,fminf(a,b)); exit=fminf(exit,fmaxf(a,b));
     } else if (v->eye<base || v->eye>base+4.6f) return 0;
-    return enter<=exit && (!check_geometry || visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter));
+    if (enter>exit) return 0;
+    if (!check_geometry) return 1;
+    return visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter) &&
+           prop_depth({v->px,v->py,v->eye},{c,s,slope},enter)>=enter;
 }
 int match_targeted(const MatchView *v) {
     return target_contact(v,512,true);

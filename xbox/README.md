@@ -22,6 +22,8 @@ The HUD shows frags, time remaining, health, armour, and ammunition in the magaz
 
 The map supplies six ambient sound sources. The courtyard has stereo wind and a distant hawk, water becomes audible near the well, and three air conditioners can be located by ear.
 
+Local rifle and pistol impacts use the crosshair depth of the map and its props. A round that hits a barrel throws sparks at the barrel. Bullet holes appear on nearby level surfaces.
+
 The Xbox selects 1280x720 at 60 Hz when enabled in the console video settings and supported by the cable. It falls back to 640x480. Walls and floors sample the map's baked light grid. The bot, pickups, and first-person models take their lighting from the cell they occupy. The HUD updates its frame counter every two seconds.
 
 ## Build and run
