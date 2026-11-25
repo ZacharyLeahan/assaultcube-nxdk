@@ -26,7 +26,7 @@ struct Fighter {
     unsigned shots, shot_until;
     int turn_direction;
     int frags;
-    unsigned respawn_at, ready_at, reload_at, flash_until;
+    unsigned respawn_at, ready_at, reload_at, flash_until, pain_until;
 };
 Fighter player, bot;
 float feet_z, stance, jump_speed, air_seconds, sway_vertical;
@@ -39,6 +39,7 @@ int burst, bot_pose;
 float stride_phase;
 bool was_firing, bot_saw_player;
 unsigned switch_end;
+unsigned intermission_age;
 int next_gun;
 MatchPhase phase;
 bool classic_assist;
@@ -93,7 +94,7 @@ void spawn(Fighter &f, int index) {
     f.turn_direction=0;
     f.state.respawn();
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
-    f.respawn_at = f.ready_at = f.reload_at = f.flash_until = 0;
+    f.respawn_at = f.ready_at = f.reload_at = f.flash_until = f.pain_until = 0;
 }
 void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.yaw = atan2f(opponent.y-f.y,opponent.x-f.x);
@@ -101,6 +102,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
 }
 void begin(MatchPhase initial) {
     next_mark=mark_count=0;
+    intermission_age=0;
     next_spark=spark_count=0; effect_seed=1;
     clock_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
@@ -136,6 +138,7 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
 }
 void damage(Fighter &victim, Fighter &attacker, int gun) {
     int dealt=victim.state.dodamage(guns[gun].damage,gun);
+    victim.pain_until=clock_ms+300;
     if (&victim == &player) {
         unsigned remaining=hurt_until>clock_ms?hurt_until-clock_ms:0;
         hurt_until=clock_ms+fminf(3999,remaining+7*dealt);
@@ -242,6 +245,7 @@ void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     bot_sound=movement_sound=pickup_sound=pain_sound=SILENT;
     if (phase != PLAYING) {
+        if (phase==INTERMISSION && intermission_age<2000) intermission_age+=elapsed;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->start) begin(PLAYING);
         return;
@@ -394,8 +398,22 @@ void match_view(MatchView *v) {
     v->angle = player.yaw; v->pitch = player.pitch;
     v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
     v->bot_flash = bot.flash_until > clock_ms;
-    v->bot_pose = bot_pose ? bot_pose : (v->bot_flash ? 7 : 0);
-    v->stride_blend = bot_pose ? stride_phase-floorf(stride_phase) : 0;
+    // MD2 sequences and frame periods used by the PC renderclient.
+    int first=0,count=1;
+    float pose=0;
+    if (bot.respawn_at) {
+        first=178; count=6; pose=(clock_ms+2000-bot.respawn_at+intermission_age)/100.f;
+    } else if (bot.pain_until>clock_ms) {
+        first=54; count=4; pose=(clock_ms+300-bot.pain_until)/75.f;
+    } else if (bot.flash_until && clock_ms<bot.flash_until+210) {
+        first=46; count=8; pose=(clock_ms+90-bot.flash_until)/37.5f;
+    } else if (bot_pose) {
+        first=40; count=6; pose=stride_phase;
+    }
+    int frame=(int)fminf(pose,count-1);
+    v->bot_pose=first+frame;
+    v->next_bot_pose=first+(first==40 ? (frame+1)%count : (frame+1<count ? frame+1 : frame));
+    v->bot_pose_blend=v->bot_pose==v->next_bot_pose ? 0 : pose-floorf(pose);
     v->player_frags = player.frags; v->bot_frags = bot.frags;
     v->health = player.state.health; v->armour = player.state.armour;
     int gun = player.state.gunselect;

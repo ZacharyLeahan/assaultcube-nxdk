@@ -220,13 +220,13 @@ static void level(const MatchView *v) {
     for (int i=0;i<WORLD_BATCHES;++i) batch(i);
     glDisable(GL_CULL_FACE);
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
-    if (v->bot_alive) {
+    {
         glPushMatrix();
         glTranslatef(v->tx,v->ty,map_floor(map_cube((int)v->tx,(int)v->ty)));
         glRotatef(v->bot_yaw*57.29578f,0,0,1);
-        int next=v->bot_pose%6+1;
-        animated_batch(BODY_BATCH+v->bot_pose,BODY_BATCH+next,v->stride_blend);
-        animated_batch(BOT_GUN_BATCH+v->bot_pose,BOT_GUN_BATCH+next,v->stride_blend);
+        unsigned current=bot_frame_batch[v->bot_pose],next=bot_frame_batch[v->next_bot_pose];
+        animated_batch(BODY_BATCH+current,BODY_BATCH+next,v->bot_pose_blend);
+        animated_batch(BOT_GUN_BATCH+current,BOT_GUN_BATCH+next,v->bot_pose_blend);
         glPopMatrix();
     }
     bind_vertices(geometry);

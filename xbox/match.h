@@ -27,10 +27,10 @@ typedef struct {
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_yaw;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
-    float stride_blend, weapon_kick;
+    float bot_pose_blend, weapon_kick;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     unsigned gun_pose, next_gun_pose;
-    int bot_pose, bot_flash, respawning, reload, flash, wide_crosshair;
+    int bot_pose, next_bot_pose, bot_flash, respawning, reload, flash, wide_crosshair;
     float damage_alpha;
     int bot_shot_pending;
     const unsigned *damage_directions;

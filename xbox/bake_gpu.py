@@ -127,13 +127,17 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
         curve=[round(255*(n/255)**.70) for n in range(256)]
         return texture(skin.point(curve*3),size)
 
+    bot_frames=(0,*range(40,58),*range(178,184))
+    symbols.append("static const unsigned char bot_frame_batch[198] = {"+
+                   ",".join(f"[{pose}]={i}" for i,pose in enumerate(bot_frames))+"};\n")
+
     def md2(path, skin, size):
         d=(path/"tris.md2").read_bytes()
         _,_,sw,sh,stride,_,nv,nt,nf,_,_,_,st,tr,frame,_,_=struct.unpack_from("<17i",d)
         uv=np.frombuffer(d,"<i2",nt*2,st).reshape(-1,2)/[sw,sh]
         faces=np.frombuffer(d,"<u2",nf*6,tr).reshape(-1,6)
         tex=model_skin(skin,size)
-        for pose in (0,40,41,42,43,44,45,47):
+        for pose in bot_frames:
             off=frame+pose*stride
             scale=np.array(struct.unpack_from("<3f",d,off))
             pos=np.frombuffer(d,np.uint8,nv*4,off+40).reshape(-1,4)[:,:3]*scale+struct.unpack_from("<3f",d,off+12)
