@@ -57,6 +57,8 @@ static unsigned cursor, first;
 static unsigned char tint[4] = {255,255,255,255};
 static GLuint textures[sizeof(images)/sizeof(images[0])];
 static float aspect, hud_width;
+enum { RADAR_SEGMENTS = 32 };
+static struct { float x, y; } radar_rim[RADAR_SEGMENTS+1];
 
 // Reserve the slowest recent frame's CPU/GPU work plus scheduling headroom.
 // Spend remaining slack before reading the pad so newer reports reach this refresh.
@@ -93,6 +95,11 @@ static void zfree_gpu(voidpf opaque, voidpf data) { (void)opaque; free(data); }
 
 int gpu_init(int width, int height) {
     tick_hz=(unsigned)KeQueryPerformanceFrequency();
+    for (unsigned i=0;i<=RADAR_SEGMENTS;++i) {
+        float a=i*(6.2831853f/RADAR_SEGMENTS);
+        radar_rim[i].x=cosf(a);
+        radar_rim[i].y=sinf(a);
+    }
     if (pbgl_init(1)) return 0;
     shot_light_init();
     stream = pbgl_alloc(STREAM_CAPACITY*sizeof(Vertex));
@@ -803,17 +810,14 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
         float c=cosf(v->camera_yaw), s=sinf(v->camera_yaw);
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);
         color(1,1,1,1);
-        begin_quads();
-        for (int i=0;i<32;++i) {
-            vertex(cx,cy,0,u,t);
-            for (int j=i;j<=i+1;++j) {
-                float a=j*(6.2831853f/32), x=cosf(a), y=sinf(a);
-                vertex(cx+radius*x,cy+radius*y,0,u-span*(s*x+c*y)/MAP_SPAN,
-                       t+span*(c*x-s*y)/MAP_SPAN);
-            }
-            vertex(cx,cy,0,u,t);
+        unsigned fan=cursor;
+        vertex(cx,cy,0,u,t);
+        for (unsigned i=0;i<=RADAR_SEGMENTS;++i) {
+            float x=radar_rim[i].x, y=radar_rim[i].y;
+            vertex(cx+radius*x,cy+radius*y,0,u-span*(s*x+c*y)/MAP_SPAN,
+                   t+span*(c*x-s*y)/MAP_SPAN);
         }
-        end_quads();
+        if (cursor-fan>=3) glDrawArrays(GL_TRIANGLE_FAN,fan,cursor-fan);
         radar_player(v,cx,cy,v->angle-v->camera_yaw,12);
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_RING]);
         begin_quads(); quad(cx-78.4f,cy-78.4f,156.8f,156.8f,0,0,1,1); end_quads();

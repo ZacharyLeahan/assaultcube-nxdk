@@ -4,7 +4,7 @@ Play a local deathmatch against one easy bot on `ac_desert`. First to three frag
 
 Press Y before a match to choose the MTP-57 rifle, A-ARD/10 SMG, or semi-automatic TMP-M&A carbine. The guns use AssaultCube’s firing animations, recoil settings, and sounds. Shots leave sparks and bullet holes. You can hear the bot’s gunfire in stereo, jump onto barrels, and swim in the well and climb its ladder. Hold Back for the map.
 
-On an original Xbox at 720p, a 720-frame capture of the opening frag reached every refresh. Other combat captures occasionally missed a refresh.
+At 720p on an original Xbox, the latest build missed four refreshes across a 90-second match with strafing, shooting and map use. Three shorter SMG replays reached every refresh. One test launch produced silent HDMI audio. Sound returned on relaunch.
 
 ![An opening SMG frag on ac_desert, captured from an original Xbox at 720p](xbox/ac-desert-xbox.jpg)
 
