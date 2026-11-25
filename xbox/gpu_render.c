@@ -972,7 +972,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
     }
     if(v->phase!=PLAYING && !lan_connected()) {
         color(.03f,.04f,.05f,.78f); begin_quads();
-        quad(28,24,528,173,0,0,0,0); end_quads();
+        quad(28,24,528,194,0,0,0,0); end_quads();
     } else if(v->phase==PLAYING && !v->respawning) {
         color(1,1,1,1);
         equipment(8,2,3,v->health,-1);
@@ -986,7 +986,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
     char line[100];
     if(v->phase==READY) {
         text(42,30,27,"ac_desert   /   Bot Deathmatch");
-        text(42,59,23,"START to play    /    First to 3");
+        text(42,59,23,v->stock_round?"START to play    /    15 minutes":"START to play    /    First to 3");
     } else {
         if (lan_connected()) snprintf(line,sizeof(line),"%s",lan_status());
         else snprintf(line,sizeof(line),"YOU %d    BOT %d",v->player_frags,v->bot_frags);
@@ -995,7 +995,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
         text(hud_width-122,2,20,line);
         if(v->phase==INTERMISSION && !lan_connected())
             text(42,59,23,v->player_frags>v->bot_frags?"You win   /   START for rematch":v->player_frags<v->bot_frags?"Bot wins   /   START for rematch":"Draw   /   START for rematch");
-        else if(v->respawning) text(42,58,22,"Fragged   /   Respawning");
+        else if(v->respawning) text(42,58,22,v->stock_round?"Fragged   /   Tap RT to respawn":"Fragged   /   Respawning");
         else if(v->reload) text(hud_width*.33f,620,18,"Reloading");
     }
     for (unsigned i=0;i<3 && v->frag_messages[i].text;++i) {
@@ -1012,6 +1012,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
         text(42,85,19,line);
         text(42,164,19,lan_status()?lan_status():"D-pad Up   System menu");
         text(42,136,19,weapon_art[v->selected_primary].choice);
+        text(42,186,19,v->stock_round?"X   Round: Stock Bot Deathmatch":"X   Round: Quick duel");
         text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);
@@ -1081,7 +1082,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glStencilFunc(GL_ALWAYS,64,255);
     glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);
     glDepthRange(0,.04);
-    int view_weapon=!v->scoped && !(lan_connected() && v->phase==INTERMISSION);
+    int view_weapon=!v->scoped && !((lan_connected() || v->stock_round) && v->phase==INTERMISSION);
     if (view_weapon) weapon(v);
     glDepthRange(.04,1);
     level(v);

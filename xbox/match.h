@@ -69,7 +69,7 @@ typedef struct {
     const unsigned *damage_directions;
     unsigned seconds;
     MatchPhase phase;
-    int classic_assist;
+    int classic_assist,stock_round;
     MatchWeapon weapon,selected_primary;
     int bot_supply,bot_rifle_mag,bot_rifle_ammo,bot_pistol_mag,bot_pistol_ammo;
     MatchSound bot_sound, movement_sound, pickup_sound, pain_sound, bot_voice;

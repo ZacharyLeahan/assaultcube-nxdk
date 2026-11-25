@@ -516,6 +516,26 @@ extern "C" void test_shotgun_pellets(void) {
     match_lan_stop();
 }
 
+extern "C" void test_stock_bot_round(void) {
+    match_prepare();
+    MatchInput in={};in.refill=1;
+    match_update(&in,16,.016f);
+    in={};in.start=1;match_update(&in,16,.016f);
+    assert(stock_round && phase==PLAYING && player.x==starts[3][0]);
+    MatchView v={};match_view(&v);assert(v.seconds==900);
+    player.frags=2;bot.state.health=1;
+    damage(bot,player,GUN_PISTOL,1,0,0);
+    assert(phase==PLAYING && player.frags==3);
+    player.state.health=1;damage(player,bot,GUN_PISTOL,1,0,0);
+    in={};clock_ms=player.respawn_at+1;
+    match_update(&in,16,.016f);assert(player.respawn_at);
+    in.fire=1;match_update(&in,16,.016f);assert(player.respawn_at);
+    in.fire=0;match_update(&in,16,.016f);assert(!player.respawn_at);
+    clock_ms=bot_match_duration-1;
+    match_update(&in,1,.001f);assert(phase==INTERMISSION);
+    match_prepare();
+}
+
 extern "C" void test_lan_ffa_starts(void) {
     int ammo[NUMGUNS]={},mag[NUMGUNS]={};
     match_prepare();match_lan_map(91);
@@ -528,7 +548,7 @@ extern "C" void test_lan_ffa_starts(void) {
     assert(player.x==starts[6][0] && player.y==starts[6][1]);
     match_lan_hide();
     spawn_cycle=start_count-2;
-    assert(next_lan_start(4)==2);
+    assert(next_ffa_start(4,nullptr)==2);
     match_lan_score(1,4);
     match_lan_time(0);
     MatchInput restart={};restart.start=1;

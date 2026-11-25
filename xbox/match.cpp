@@ -46,6 +46,8 @@ struct ItemLocation { int x, y, height_tenths, kind, entity; };
 constexpr int start_count = sizeof(starts)/sizeof(starts[0]);
 constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
+constexpr unsigned bot_match_duration=15*60*1000;
+bool stock_round,respawn_trigger;
 constexpr unsigned switch_ms = 400;
 constexpr unsigned player_respawn_ms=2000,bot_respawn_ms=5000;
 constexpr unsigned frag_message_ms=3000;
@@ -324,6 +326,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.yaw = atan2f(opponent.y-f.y,opponent.x-f.x);
     f.pitch = atan2f(eye(opponent)-1-eye(f),fmaxf(1,distance(f.x,f.y,opponent.x,opponent.y)));
 }
+int next_ffa_start(int visits,const Fighter *opponent);
 void begin(MatchPhase initial) {
     active_grenade_count=explosion_count=0; grenade_state=GRENADE_IDLE;event_count=0;
     first_mark=mark_count=0;
@@ -338,21 +341,31 @@ void begin(MatchPhase initial) {
     combat_move_until=next_enemy_search = next_route = hurt_until = 0;
     bot_attack_at = 1500; bot_saw_player = semi_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
+    respawn_trigger=false;
+    if(stock_round && !lan_match) {
+        spawn_cycle=-1;
+        spawn(player,next_ffa_start(4,nullptr),0);
+        spawn(bot,next_ffa_start(4,&player),0);
+        return;
+    }
     // Open in the same courtyard at two official free-for-all player starts.
     spawn(player,17); spawn(bot,18);
     aim_at_opponent(player,bot); aim_at_opponent(bot,player);
 }
 // Stock free-for-all selection visits successive map entities. Keep the last
 // safe start visited, or the farthest visited start when all are occupied.
-int next_lan_start(int visits) {
+int next_ffa_start(int visits,const Fighter *opponent) {
     int best=-1;
     float best_distance=-1;
     for (int i=0;i<visits;++i) {
         spawn_cycle=(spawn_cycle+1)%start_count;
         const short *start=starts[spawn_cycle];
-        float dx=start[0]-bot.x, dy=start[1]-bot.y, dz=start[3]-eye(bot);
-        float d=dx*dx+dy*dy+dz*dz;
-        if(hide_bot || d>=15*15) d=-1;
+        float d=-1;
+        if(opponent && !opponent->respawn_at) {
+            float dx=start[0]-opponent->x,dy=start[1]-opponent->y,dz=start[3]-eye(*opponent);
+            d=dx*dx+dy*dy+dz*dz;
+            if(d>=15*15) d=-1;
+        }
         if(best<0 || d<0 || (best_distance>=0 && d>best_distance)) {
             best=spawn_cycle;
             best_distance=d;
@@ -361,6 +374,12 @@ int next_lan_start(int visits) {
     return best;
 }
 void respawn_near(Fighter &f, const Fighter &opponent) {
+    if(stock_round) {
+        spawn(f,next_ffa_start(1+random_number()%10,&opponent),0);
+        supply_index=-1;next_supply_check=next_enemy_search=next_route=0;
+        bot_attack_at=clock_ms+1200;bot_saw_player=false;
+        return;
+    }
     // Sample FFA spawns, preferring covered positions with a route back to combat.
     route_to((int)opponent.x,(int)opponent.y);
     int best = -1, fallback = -1;
@@ -496,7 +515,7 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
     victim.respawn_at=clock_ms+(&victim==&bot?bot_respawn_ms:player_respawn_ms);
     victim.flash_until = 0;
     attacker.frags+=&attacker==&victim?-1:(gun==GUN_KNIFE || headshot)?2:1;
-    if (attacker.frags >= FRAG_LIMIT) phase = INTERMISSION;
+    if (!stock_round && attacker.frags >= FRAG_LIMIT) phase = INTERMISSION;
 }
 void resolve_blast(const ActiveGrenade &g) {
     GrenadeEvent event={NADE_BLAST,g.id};
@@ -920,10 +939,10 @@ void update_bot(float dt) {
 }
 }
 
-void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
+void match_prepare(void) { stock_round=false;player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
 void match_lan_map(unsigned seed) {
     spawn_cycle=-1; initial_spawn_cycles=2; spawn_seed=seed;
-    begin(PLAYING); lan_match=true; lan_end_ms=0;
+    lan_match=true;begin(PLAYING);lan_end_ms=0;
     hide_bot=true; lan_pain_sound=lan_actor_voice=SILENT;
     match_lan_reset_items();
 }
@@ -936,7 +955,7 @@ void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const
         spawn_seed=1664525u*spawn_seed+1013904223u;
         visits=1+(spawn_seed>>8)%10;
     }
-    spawn(player,next_lan_start(visits),0);
+    spawn(player,next_ffa_start(visits,hide_bot?nullptr:&bot),0);
     player.state.gunselect=gun;
     memcpy(player.state.ammo,ammo,sizeof(player.state.ammo));
     memcpy(player.state.mag,mag,sizeof(player.state.mag));
@@ -1107,6 +1126,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<frag_message_ms) intermission_age+=elapsed;
         if(lan_match) return;
+        if(in->refill) stock_round=!stock_round;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->swap) {
             switch (player.state.nextprimary) {
@@ -1144,8 +1164,10 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         --mark_count;
     }
     update_blood(elapsed);
-    if (!lan_match && clock_ms >= duration) { phase = INTERMISSION; return; }
-    if (!lan_match && player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
+    if (!lan_match && clock_ms >= (stock_round?bot_match_duration:duration)) { phase = INTERMISSION; return; }
+    if (!lan_match && player.respawn_at && player.respawn_at <= clock_ms &&
+        (!stock_round || (respawn_trigger && !in->fire))) respawn_near(player,bot);
+    respawn_trigger=in->fire;
     if (bot.respawn_at && bot.respawn_at <= clock_ms) {
         if(lan_match) hide_bot=true;
         else respawn_near(bot,player);
@@ -1582,7 +1604,7 @@ void match_view(MatchView *v) {
     v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
     v->camera_yaw=player.respawn_at?death_yaw:player.yaw;
     v->camera_pitch=player.respawn_at?death_pitch:player.pitch;
-    if(lan_match && phase==INTERMISSION) {
+    if((lan_match || stock_round) && phase==INTERMISSION) {
         v->camera={vantage[0]/DMF,vantage[1]/DMF,vantage[2]/DMF};
         v->camera_yaw=(vantage[3]-90)*radians;
         v->camera_pitch=vantage[4]*radians;
@@ -1664,6 +1686,7 @@ void match_view(MatchView *v) {
                            (v->bot_shot_pending && v->health<=guns[bot.state.gunselect].damage);
     v->damage_directions=damage_directions;
     v->phase = phase; v->bot_sound = bot_sound;
+    v->stock_round=stock_round && !lan_match;
     v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;
     v->stance_sound=stance_sound;
     v->footsteps=phase==PLAYING && !player.respawn_at && clock_ms>=player.pain_until ? step_sound:SILENT;
@@ -1675,7 +1698,7 @@ void match_view(MatchView *v) {
     for(unsigned i=0;i<active_grenade_count;++i) v->grenades[i]={active_grenades[i].flight.position,active_grenades[i].flight.rotation};
     v->explosions=explosions;v->explosion_count=explosion_count;
     v->gibs=gib_views; v->gib_count=gib_count;
-    unsigned end_ms=lan_match?lan_end_ms:duration;
+    unsigned end_ms=lan_match?lan_end_ms:stock_round?bot_match_duration:duration;
     v->seconds = clock_ms >= end_ms ? 0 : (end_ms-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
     for (int i = 0; i < item_count; ++i) if (lan_match ? lan_item_visible[i] : clock_ms >= unavailable_until[i]) {
