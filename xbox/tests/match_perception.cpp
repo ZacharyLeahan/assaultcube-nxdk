@@ -656,6 +656,13 @@ extern "C" void test_lan_prediction(void) {
     match_update(&in,25,.025f);assert(bot.x>old && bot.x<123);
     match_update(&in,50,.05f);assert(bot.x==123);
     pose.feet.x=140;match_lan_remote(&pose);assert(bot.x==140);
+    pose.feet.x=122;pose.on_floor=0;pose.velocity.z=2;
+    match_lan_remote(&pose);
+    float floor=pose.feet.z;
+    for(int i=0;i<10;++i) match_update(&in,5,.005f);
+    assert(remote_pose.feet.z>floor+.9f && remote_pose.feet.z<floor+1.1f);
+    for(int i=0;i<140;++i) match_update(&in,5,.005f);
+    assert(remote_pose.feet.z==floor && remote_pose.on_floor && !remote_air_ms);
     match_lan_stop();
 }
 
@@ -672,7 +679,7 @@ extern "C" void test_lan_stance(void) {
     assert(v.current_pose.first>=135 && v.current_pose.first<154 && v.bot_head.z<standing_head-.5f);
     pose.move=1;match_lan_remote(&pose);match_update(&in,16,.016f);match_view(&v);
     assert(v.current_pose.first>=154 && v.current_pose.first<160);
-    pose.crouching=0;pose.on_floor=0;pose.move=0;match_lan_remote(&pose);
+    pose.crouching=0;pose.on_floor=0;pose.move=0;pose.feet.z+=3;match_lan_remote(&pose);
     for(int i=0;i<5;++i) match_update(&in,16,.016f);
     match_view(&v);assert(v.current_pose.first==68);
     match_lan_stop();

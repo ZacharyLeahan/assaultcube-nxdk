@@ -106,6 +106,7 @@ LanPose remote_pose;
 MatchPoint correction;
 float yaw_correction,pitch_correction;
 unsigned pose_received,remote_air_ms;
+bool remote_air_crouch;
 float remote_stance=PLAYER_EYE_HEIGHT;
 int bot_pose;
 float stride_phase,stride_rate;
@@ -1109,7 +1110,7 @@ void match_lan_remote_spawn(int gun) {
     match_lan_remote_weapon(gun);
     bot.respawn_at=bot.pain_until=bot.flash_until=bot.light_until=0;
     current_clip={}; previous_clip={}; bot_pose=0; hide_bot=true;
-    remote_air_ms=0; remote_stance=PLAYER_EYE_HEIGHT;
+    remote_air_ms=0; remote_air_crouch=false; remote_stance=PLAYER_EYE_HEIGHT;
 }
 void match_lan_remote_reload(int gun) {
     if(lan_match && !hide_bot) lan_shot_sound=feedback[view_weapon(gun)].reload;
@@ -1119,7 +1120,8 @@ void match_lan_remote(const LanPose *pose) {
     // A spawn or an eight-cube discontinuity starts at the new position.
     correction={bot.x-pose->feet.x,bot.y-pose->feet.y,eye(bot)-remote_stance-pose->feet.z};
     float d2=correction.x*correction.x+correction.y*correction.y+correction.z*correction.z;
-    if(hide_bot || d2>=64 || clock_ms-pose_received>1000) {
+    bool discontinuity=hide_bot || d2>=64 || clock_ms-pose_received>1000;
+    if(discontinuity) {
         remote_stance=PLAYER_EYE_HEIGHT*(pose->crouching?.75f:1.f);
         remote_air_ms=0;
         bot.x=pose->feet.x;bot.y=pose->feet.y;bot.eye_height=pose->feet.z+remote_stance;
@@ -1128,6 +1130,9 @@ void match_lan_remote(const LanPose *pose) {
     }
     yaw_correction=remainderf(bot.yaw-pose->yaw,360*radians);
     pitch_correction=bot.pitch-pose->pitch;
+    if(discontinuity || pose->on_floor || pose->on_ladder) remote_air_crouch=false;
+    else if(pose->crouching && !remote_pose.crouching) remote_air_crouch=true;
+    if(pose->on_floor || pose->on_ladder) remote_air_ms=0;
     remote_pose=*pose; pose_received=clock_ms;
     bot_pose=pose->move || pose->strafe; hide_bot=false;
 }
@@ -1137,13 +1142,15 @@ static void predict_remote(float dt) {
     if(age>1000) return;
     LanPose &p=remote_pose;
     float c=cosf(p.yaw),s=sinf(p.yaw);
-    float tx=p.move*c+p.strafe*s,ty=p.move*s-p.strafe*c;
-    bool water=p.feet.z+PLAYER_EYE_HEIGHT<WATER_LEVEL+.5f;
+    bool water=p.feet.z+remote_stance<WATER_LEVEL+.5f;
+    float forward=p.on_ladder && !p.on_floor && p.move<0?0.f:(float)p.move;
+    if(water) forward*=cosf(p.pitch);
+    float tx=forward*c+p.strafe*s,ty=forward*s-p.strafe*c;
     float friction=water?20.f:p.on_floor?6.f:p.on_ladder?1.5f:30.f;
     float retain=1-.005f/(friction*.02f);
     float fraction=1-powf(retain,dt/.005f);
     float carry=(friction*.02f-.005f)*fraction;
-    float speed=(p.crouching?6.4f:16.f)*(water?.5f:1.f);
+    float speed=(p.crouching && !remote_air_crouch?6.4f:16.f)*(water?.5f:1.f);
     float vx=p.velocity.x-tx,vy=p.velocity.y-ty;
     float dx=(tx*dt+vx*carry)*speed,dy=(ty*dt+vy*carry)*speed;
     p.velocity.x-=vx*fraction; p.velocity.y-=vy*fraction;
@@ -1154,8 +1161,34 @@ static void predict_remote(float dt) {
     float wanted=PLAYER_EYE_HEIGHT*(p.crouching?.75f:1.f);
     float step=.6f*16*dt*(water?.5f:1.f);
     remote_stance+=fminf(step,fmaxf(-step,wanted-remote_stance));
+    if(dx || dy || !p.on_floor || p.on_ladder || water) {
+        float floor,ceiling;
+        body_space(p.feet.x,p.feet.y,p.feet.z,&floor,&ceiling);
+        if(p.on_floor && p.feet.z>floor+.1f) p.on_floor=0;
+        for(unsigned i=0,steps=physics_steps();i<steps && i<20;++i) {
+            if(p.on_ladder) {
+                p.feet.z+=p.velocity.z*speed*.005f;
+                remote_air_ms=0;
+            } else if(water) {
+                p.velocity.z+=(p.move*sinf(p.pitch)-p.velocity.z)*.0125f;
+                p.feet.z+=(p.velocity.z*speed-2.5f)*.005f;
+                remote_air_ms=0;
+            } else if(!p.on_floor) {
+                remote_air_ms+=5;
+                p.velocity.z*=119.f/120;
+                p.feet.z+=(p.velocity.z*speed-9.5f-remote_air_ms/30.f)*.005f;
+            }
+            if(p.feet.z+remote_stance+PLAYER_ABOVE_EYE>ceiling) {
+                p.feet.z=ceiling-remote_stance-PLAYER_ABOVE_EYE;
+                p.velocity.z=fminf(0,p.velocity.z);
+            }
+            if(p.feet.z<=floor) {
+                p.feet.z=floor;p.on_floor=1;remote_air_ms=0;remote_air_crouch=false;
+                if(!p.on_ladder) p.velocity.z=0;
+            }
+        }
+    }
     bot.eye_height=p.feet.z+remote_stance+correction.z*k;
-    remote_air_ms=p.on_floor || p.on_ladder?0:remote_air_ms+clock_ms-frame_start_ms;
     bot.yaw=p.yaw+yaw_correction*k;bot.pitch=p.pitch+pitch_correction*k;
 }
 void match_lan_hide(void) { hide_bot=true; }
