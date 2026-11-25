@@ -371,8 +371,16 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         if(pitch< -1.f/3) pitch=pitch*.25f-.25f;
         int pi=nearest((pitch+.5f)*256)&255;
         int move=(input->move>.1f)-(input->move<-.1f),strafe=(input->strafe>.1f)-(input->strafe<-.1f);
-        unsigned packed=(yaw<<19)|(pi<<11)|(4+move*3+strafe+(input->crouch?18:0))|(v->scoped?32:0)|(life%2<<6)|128|(z<0?1024:0);
+        // The stock strafe flag is positive to the left. Xbox input is positive to the right.
+        int movement=4+move*3-strafe+(v->on_ladder?9:v->crouching?18:0);
+        int vx=nearest(v->player_velocity.x*DVELF),vy=nearest(v->player_velocity.y*DVELF);
+        int vz=nearest(v->player_velocity.z*DVELF);
+        bool has_velocity=vx || vy || vz;
+        unsigned packed=(unsigned(yaw)<<19)|(pi<<11)|movement|(v->scoped?32:0)|
+            ((life&1)<<6)|(v->on_floor?128:0)|(match_lan_take_jump()?256:0)|
+            (has_velocity?512:0)|(z<0?1024:0);
         for(int i=0;i<4;i++)m.byte(packed>>(8*i));
+        if(has_velocity) {m.word(vx);m.word(vy);m.word(vz);}
         m.transmit(0);
     }
     int item=match_lan_touch_item();

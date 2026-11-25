@@ -549,3 +549,19 @@ extern "C" void test_lan_damage_feedback(void) {
     assert(!v.frag_messages[0].text);
     match_lan_stop();
 }
+
+extern "C" void test_lan_jump_report(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    MatchInput in={};in.jump=1;in.strafe=1;
+    for(int i=0;i<3;++i) match_update(&in,16,.016f);
+    MatchView v={};match_view(&v);
+    assert(!v.on_floor && v.player_velocity.z>0 && hypotf(v.player_velocity.x,v.player_velocity.y)>0);
+    assert(match_lan_take_jump() && !match_lan_take_jump());
+    for(int i=0;i<120;++i) match_update(&in,16,.016f);
+    match_view(&v);
+    assert(v.on_floor && !match_lan_take_jump());
+    in={};in.crouch=1;match_update(&in,16,.016f);match_view(&v);
+    assert(v.crouching && !v.on_ladder);
+    match_lan_stop();
+}

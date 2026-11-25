@@ -47,6 +47,8 @@ typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt,bot_sink;
     MatchPoint bot_head,camera;
     float camera_yaw,camera_pitch,player_floor,death_frame;
+    MatchPoint player_velocity;
+    int on_floor,on_ladder,crouching;
     struct { const char *text; unsigned age; } frag_messages[3];
     int health, armour, magazine, reserve, player_frags, bot_frags, bot_alive, radar_active;
     MatchWeapon bot_weapon;

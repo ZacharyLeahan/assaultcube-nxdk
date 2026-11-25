@@ -65,7 +65,8 @@ unsigned sway_ms;
 float flash_angle;
 MatchPoint death_camera;
 float death_yaw,death_pitch;
-bool grounded, held_jump, in_water;
+bool grounded, held_jump, in_water, on_ladder, lan_jump;
+float net_vertical_velocity;
 unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
@@ -236,7 +237,7 @@ void spawn(Fighter &f, int index, float offset=.5f) {
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
         feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
-        grounded=true; held_jump=false;
+        grounded=true; held_jump=lan_jump=on_ladder=false; net_vertical_velocity=0;
         in_water=false; last_splash=0;
         sway_ms=0; sway_vertical=0;
         was_crouching=false; step_sound=stance_sound=SILENT;
@@ -851,6 +852,10 @@ void match_lan_shot(int gun,float x,float y,float z) {
     bot_line={from,{x,y,z},clock_ms+75};
     spark_splash(x,y,z);
 }
+int match_lan_take_jump(void) {
+    bool jumped=lan_jump; lan_jump=false;
+    return jumped;
+}
 void match_lan_hitpush(int gun,int damage,float x,float y,float z) {
     if(lan_match && !player.respawn_at && damage>0 && gun>=0 && gun<NUMGUNS)
         impulse(player,x,y,z,damage/100.f*guns[gun].pushfactor);
@@ -980,6 +985,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         actor_clearance(blocker,player.x,player.y,feet_z,stance+PLAYER_ABOVE_EYE,&floor,&ceiling);
         float ladder_top=0;
         bool climbing=!in->crouch && ladder_space(player.x,player.y,feet_z,&ladder_top);
+        on_ladder=climbing;
         float target=fminf(in->crouch?.75f*PLAYER_EYE_HEIGHT:PLAYER_EYE_HEIGHT,ceiling-feet_z-PLAYER_ABOVE_EYE);
         float stance_step=.6f*16*dt*(player.eye_height<WATER_LEVEL?.5f:1.f);
         stance+=fmaxf(-stance_step,fminf(stance_step,target-stance));
@@ -988,6 +994,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if ((grounded || swimming) && !climbing && !held_jump && in->jump && !in->crouch && stance>=PLAYER_EYE_HEIGHT) {
             grounded=false; jump_speed=swimming?16:32; air_ms=0;
             jump_start_ticks=swimming?0:2;
+            lan_jump=true;
             if (swimming) { player.velocity_x/=8; player.velocity_y/=8; }
             else movement_sound=PLAYER_JUMP;
         }
@@ -1067,6 +1074,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         // hudgun.h follows the physics velocity before crouch and water scale travel.
         float gain=1-powf(.7f,100*dt);
         float vertical=climbing?in->move:jump_speed/(swimming?8.f:16.f);
+        net_vertical_velocity=vertical;
         player.sway_x+=gain*(player.velocity_x-player.sway_x);
         player.sway_y+=gain*(player.velocity_y-player.sway_y);
         sway_vertical+=gain*(vertical-sway_vertical);
@@ -1339,6 +1347,8 @@ void match_view(MatchView *v) {
     v->bot_pistol_mag=bot.state.mag[GUN_PISTOL]; v->bot_pistol_ammo=bot.state.ammo[GUN_PISTOL];
     v->radar_active=clock_ms<radar_action_until;
     v->player_floor=feet_z;
+    v->player_velocity={player.velocity_x,player.velocity_y,net_vertical_velocity};
+    v->on_floor=grounded; v->on_ladder=on_ladder; v->crouching=was_crouching;
     v->death_frame=player.respawn_at?fminf(5,(now+player_respawn_ms-player.respawn_at)/100.f):0;
     bot_view(v);
     v->player_frags = player.frags; v->bot_frags = bot.frags;

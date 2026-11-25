@@ -24,6 +24,7 @@ void match_lan_shot(int gun,float x,float y,float z);
 void match_lan_damage(int local_victim,int from_remote,int damage,int health,int armour);
 void match_lan_frag(int local_victim,int suicide,int gun,int gib,const char *opponent);
 void match_lan_health(int health,int armour);
+int match_lan_take_jump(void);
 void match_lan_hitpush(int gun,int damage,float x,float y,float z);
 void match_lan_time(unsigned remaining_ms);
 void match_lan_score(int local,int frags);
