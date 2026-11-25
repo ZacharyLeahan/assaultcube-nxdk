@@ -180,10 +180,68 @@ static void test_weapon_switch(void) {
     MatchView fired;
     match_view(&fired);
     in.fire=0;
-    for (int i=0;i<20;++i) match_update(&in,5,.005f);
+    for (int i=0;i<20;++i) {
+        match_update(&in,5,.005f);
+        assert(match_attack(&in)==SILENT);
+    }
     match_view(&v);
     float backwards=(fired.px-v.px)*cosf(fired.angle)+(fired.py-v.py)*sinf(fired.angle);
     assert(fabsf(backwards-.1f*16*.115f*(1-powf(23.f/24,20)))<.001f);
+    // Press again during the last 60 ms of the pistol cooldown and hold.
+    in.fire=1;
+    assert(match_attack(&in)==SILENT);
+    match_update(&in,60,.060f);
+    assert(match_attack(&in)==PISTOL_SHOT);
+    match_update(&in,160,.160f);
+    assert(match_attack(&in)==SILENT);
+}
+
+static void test_rifle_trigger(int keep_firing) {
+    MatchInput in={.start=1};
+    MatchView v;
+    match_prepare(); match_update(&in,0,0);
+    in=(MatchInput){.fire=1};
+    for (int i=0;i<20;++i) {
+        assert(match_attack(&in)==RIFLE_SHOT);
+        // Brief trigger releases inside the cooldown preserve burst spread.
+        in.fire=0;
+        match_update(&in,30,.03f); assert(match_attack(&in)==SILENT);
+        match_view(&v); assert(v.wide_crosshair==(i>=3));
+        in.fire=1;
+        match_update(&in,90,.09f);
+    }
+    in.fire=keep_firing;
+    assert(match_attack(&in)==RIFLE_RELOAD);
+    match_view(&v);
+    assert(v.magazine==20 && v.empty_click==keep_firing && v.reload && !v.wide_crosshair);
+    in.fire=1;
+    unsigned wait=2000+(keep_firing?250:0);
+    for (unsigned ms=0;ms<wait-1;++ms) {
+        match_update(&in,1,.001f);
+        assert(match_attack(&in)==SILENT);
+    }
+    match_update(&in,1,.001f);
+    assert(match_attack(&in)==RIFLE_SHOT);
+}
+
+static void test_reload_tap(void) {
+    MatchView v;
+    MatchInput in={.start=1};
+    match_prepare(); match_update(&in,0,0);
+    in=(MatchInput){.fire=1};
+    assert(match_attack(&in)==RIFLE_SHOT);
+    in=(MatchInput){.refill=1};
+    match_update(&in,30,.030f);
+    assert(match_attack(&in)==RIFLE_RELOAD);
+    match_view(&v);
+    assert(v.magazine==20 && v.reserve==39 && v.reload && !v.flash);
+    in=(MatchInput){.fire=1};
+    for (unsigned ms=1;ms<2090;++ms) {
+        match_update(&in,1,.001f);
+        assert(match_attack(&in)==SILENT);
+    }
+    match_update(&in,1,.001f);
+    assert(match_attack(&in)==RIFLE_SHOT);
 }
 static void test_well_ladder(void) {
     MatchView v;
@@ -304,6 +362,9 @@ int main(void) {
     test_rifle_cadence(50);
     test_well_ladder();
     test_weapon_switch();
+    test_rifle_trigger(0);
+    test_rifle_trigger(1);
+    test_reload_tap();
     MatchInput floor_shot={.start=1};
     MatchView effects;
     match_prepare();
@@ -400,10 +461,9 @@ int main(void) {
         input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);
         match_view(&view);
-        if (!input.fire) burst_shots=0;
         if (match_attack(&input)==RIFLE_SHOT) ++burst_shots;
         match_view(&view);
-        assert(view.wide_crosshair == (burst_shots>3));
+        if (input.fire) assert(view.wide_crosshair == (burst_shots>3));
         for (unsigned i=0;i<view.blood_count;++i) {
             const BloodParticle *b=view.blood+i;
             if (b->on_floor) {

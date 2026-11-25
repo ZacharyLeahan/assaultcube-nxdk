@@ -26,6 +26,7 @@ $(CURDIR)/navigation.obj: generated/ladders.h generated/clips.h generated/corner
 $(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h
 $(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj): match.h
 $(addprefix $(CURDIR)/,match.obj gpu_render.obj navigation.obj): navigation.h
+$(addprefix $(CURDIR)/,controllers.obj platform_nxdk.obj): controllers.h
 
 # Relink when switching between the instrumented and stock SDL driver.
 INPUT_MODE := generated/input-mode-$(if $(filter 1,$(AIM_TRACE)),trace,play)

@@ -40,7 +40,7 @@ unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
 float stride_phase;
-bool was_firing, bot_saw_player;
+bool pistol_trigger_used,empty_click,bot_saw_player;
 unsigned switch_end;
 unsigned intermission_age;
 int next_gun;
@@ -144,7 +144,7 @@ void begin(MatchPhase initial) {
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0;
     next_route = hurt_until = 0;
-    bot_attack_at = 1500; bot_saw_player = was_firing = false;
+    bot_attack_at = 1500; bot_saw_player = pistol_trigger_used = empty_click = false;
     memset(unavailable_until,0,sizeof(unavailable_until));
     // Open in the same courtyard at two official free-for-all player starts.
     spawn(player,17); spawn(bot,18);
@@ -217,12 +217,23 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
 MatchSound trigger(Fighter &f, bool fire, bool refill) {
     int gun = f.state.gunselect;
     int &mag = f.state.mag[gun], &reserve = f.state.ammo[gun];
-    if (f.ready_at > clock_ms || f.respawn_at) return SILENT;
-    if ((refill || (fire && mag == 0)) && reserve > 0 && mag < magsize(gun)) {
+    if (f.respawn_at) return SILENT;
+    bool manual=refill && mag<magsize(gun) && reserve>0 && f.reload_at<=clock_ms;
+    if (!manual && f.ready_at>clock_ms) return SILENT;
+    bool dry=&f==&player && fire && !mag && !manual;
+    if (dry) {
+        empty_click=true;
+        f.shots=0;
+        f.ready_at=clock_ms+250;
+    }
+    if (manual || (!mag && reserve>0 && (fire || &f==&player))) {
         int count = magsize(gun)-mag;
         if (count > reserve) count = reserve;
         mag += count; reserve -= count;
-        f.ready_at = f.reload_at = clock_ms+reloadtime(gun);
+        // Manual reload starts immediately, retaining any outstanding shot wait.
+        unsigned start=f.ready_at>clock_ms?f.ready_at:clock_ms;
+        f.ready_at=start+reloadtime(gun);
+        f.reload_at=clock_ms+reloadtime(gun);
         return gun == GUN_PISTOL ? PISTOL_RELOAD : RIFLE_RELOAD;
     }
     if (!fire || !mag) return SILENT;
@@ -519,15 +530,18 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     }
 }
 MatchSound match_attack(const MatchInput *in) {
-    bool fire = in->fire && (guns[player.state.gunselect].isauto || !was_firing);
-    was_firing = in->fire;
+    empty_click=false;
+    if (!in->fire) pistol_trigger_used=false;
+    bool fire = in->fire && (guns[player.state.gunselect].isauto || !pistol_trigger_used);
     if (switch_end && !player.respawn_at && phase==PLAYING)
         return switch_end==clock_ms+switch_ms ? WEAPON_CHANGE : SILENT;
-    if (!in->fire) player.shots=0;
+    // PC gun::attack only observes a trigger release after gunwait expires.
+    if (!fire && clock_ms>=player.ready_at) player.shots=0;
     MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill) : SILENT;
     if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
+        if (!g.isauto) pistol_trigger_used=true;
         ++player.shots;
         player.shot_until=player.ready_at;
         float ramp=(float)player.shots/g.recoilincrease;
@@ -552,6 +566,7 @@ MatchSound match_attack(const MatchInput *in) {
     return shot;
 }
 void match_view(MatchView *v) {
+    v->empty_click=empty_click;
     v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
     v->bot_line=bot_line;
     if (bot_line.expires<=clock_ms+intermission_age) v->bot_line.expires=0;
@@ -602,7 +617,7 @@ void match_view(MatchView *v) {
     v->gun_rotation=-90*lower; v->gun_back=0;
     v->gun_pose=v->next_gun_pose=0;
     v->flash=0;
-    if (player.shot_until>clock_ms) {
+    if (!v->reload && player.shot_until>clock_ms) {
         unsigned age=attackdelay(gun)-(player.shot_until-clock_ms);
         float t=age/(float)attackdelay(gun);
         float frame=8*t;

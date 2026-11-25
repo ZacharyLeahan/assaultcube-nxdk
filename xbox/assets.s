@@ -17,6 +17,7 @@ asset usp
 asset pistol_reload
 asset auto
 asset auto_reload
+asset clip_empty
 asset ric1
 asset ric2
 asset ric3

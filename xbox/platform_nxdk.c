@@ -20,6 +20,7 @@ DECLARE_CLIP(footsteps); DECLARE_CLIP(crouch); DECLARE_CLIP(watersteps); DECLARE
 DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
 DECLARE_CLIP(step);
+DECLARE_CLIP(clip_empty);
 DECLARE_CLIP(ric1); DECLARE_CLIP(ric2); DECLARE_CLIP(ric3); DECLARE_CLIP(waterimpact);
 DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
 DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
@@ -45,9 +46,9 @@ static const Clip clips[] = {
 };
 static SDL_AudioDeviceID audio_device;
 
-enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS };
+enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS, EMPTY_CLICK };
 typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; } Voice;
-static const int volume[]={96,96,48,70,64,96,85,96,96,40,40};
+static const int volume[]={96,96,48,70,64,96,85,96,96,40,40,96};
 static Voice voices[sizeof(volume)/sizeof(volume[0])];
 
 static void set_footsteps(unsigned channel,MatchSound sound,unsigned now,int active) {
@@ -106,6 +107,9 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
     SDL_LockAudioDevice(audio_device);
     ambience_update(v->px,v->py,v->eye,v->angle);
+    if (v->empty_click)
+        voices[EMPTY_CLICK]=(Voice){(const int16_t *)clip_empty,
+            ((uintptr_t)clip_empty_end-(uintptr_t)clip_empty)/2,volume[EMPTY_CLICK],volume[EMPTY_CLICK]};
     for (unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i) {
         if (effects[i]==SILENT) continue;
         const Clip *clip=&clips[effects[i]];
@@ -200,7 +204,10 @@ int main(void) {
             crouch |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_B);
             showmap |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_BACK);
             int rt = axis(p,SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > .25f;
-            fire |= rt; refill |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_X);
+            fire |= rt;
+            int x = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_X);
+            refill |= x && !pad->previous_reload;
+            pad->previous_reload = x;
             int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
             classic |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_LEFT);

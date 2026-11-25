@@ -40,7 +40,7 @@ typedef struct {
     unsigned bot_flash_end_ms;
     int bot_pose, next_bot_pose, respawning, reload, flash, wide_crosshair;
     float damage_alpha;
-    int bot_shot_pending;
+    int bot_shot_pending,empty_click;
     const unsigned *damage_directions;
     unsigned seconds;
     MatchPhase phase;
