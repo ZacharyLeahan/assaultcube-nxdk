@@ -82,7 +82,8 @@ unsigned spawn_seed;
 LanPose remote_pose;
 MatchPoint correction;
 float yaw_correction,pitch_correction;
-unsigned pose_received;
+unsigned pose_received,remote_air_ms;
+float remote_stance=PLAYER_EYE_HEIGHT;
 int bot_pose;
 float stride_phase,stride_rate;
 unsigned combat_move_until;
@@ -821,6 +822,7 @@ void match_lan_remote_spawn(int gun) {
     match_lan_remote_weapon(gun);
     bot.respawn_at=bot.pain_until=bot.flash_until=bot.light_until=0;
     current_clip={}; previous_clip={}; bot_pose=0; hide_bot=true;
+    remote_air_ms=0; remote_stance=PLAYER_EYE_HEIGHT;
 }
 void match_lan_remote_reload(int gun) {
     if(lan_match && !hide_bot) lan_shot_sound=feedback[view_weapon(gun)].reload;
@@ -828,10 +830,12 @@ void match_lan_remote_reload(int gun) {
 void match_lan_remote(const LanPose *pose) {
     // clientgame.cpp uses a 75 ms linear correction for position and angles.
     // A spawn or an eight-cube discontinuity starts at the new position.
-    correction={bot.x-pose->feet.x,bot.y-pose->feet.y,eye(bot)-PLAYER_EYE_HEIGHT-pose->feet.z};
+    correction={bot.x-pose->feet.x,bot.y-pose->feet.y,eye(bot)-remote_stance-pose->feet.z};
     float d2=correction.x*correction.x+correction.y*correction.y+correction.z*correction.z;
     if(hide_bot || d2>=64 || clock_ms-pose_received>1000) {
-        bot.x=pose->feet.x;bot.y=pose->feet.y;bot.eye_height=pose->feet.z+PLAYER_EYE_HEIGHT;
+        remote_stance=PLAYER_EYE_HEIGHT*(pose->crouching?.75f:1.f);
+        remote_air_ms=0;
+        bot.x=pose->feet.x;bot.y=pose->feet.y;bot.eye_height=pose->feet.z+remote_stance;
         bot.yaw=pose->yaw;bot.pitch=pose->pitch;
         correction={};
     }
@@ -860,7 +864,11 @@ static void predict_remote(float dt) {
                           PLAYER_EYE_HEIGHT*(p.crouching?.75f:1.f)+PLAYER_ABOVE_EYE,p.on_floor || p.on_ladder?1.5f:0);
     float k=fmaxf(0,1-age/75.f);
     bot.x=p.feet.x+correction.x*k;bot.y=p.feet.y+correction.y*k;
-    bot.eye_height=p.feet.z+PLAYER_EYE_HEIGHT+correction.z*k;
+    float wanted=PLAYER_EYE_HEIGHT*(p.crouching?.75f:1.f);
+    float step=.6f*16*dt*(water?.5f:1.f);
+    remote_stance+=fminf(step,fmaxf(-step,wanted-remote_stance));
+    bot.eye_height=p.feet.z+remote_stance+correction.z*k;
+    remote_air_ms=p.on_floor || p.on_ladder?0:remote_air_ms+clock_ms-frame_start_ms;
     bot.yaw=p.yaw+yaw_correction*k;bot.pitch=p.pitch+pitch_correction*k;
 }
 void match_lan_hide(void) { hide_bot=true; }
@@ -1019,7 +1027,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
 
         float floor,ceiling;
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
-        ActorBounds opponent={bot.x,bot.y,eye(bot)-PLAYER_EYE_HEIGHT,eye(bot)+PLAYER_ABOVE_EYE};
+        ActorBounds opponent={bot.x,bot.y,eye(bot)-(lan_match?remote_stance:PLAYER_EYE_HEIGHT),eye(bot)+PLAYER_ABOVE_EYE};
         const ActorBounds *blocker=(bot.respawn_at || hide_bot)?nullptr:&opponent;
         actor_clearance(blocker,player.x,player.y,feet_z,stance+PLAYER_ABOVE_EYE,&floor,&ceiling);
         float ladder_top=0;
@@ -1133,7 +1141,11 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             player.shots=player.shot_until=0;
         }
     }
-    if(lan_match) { if(bot_pose) stride_phase+=elapsed*.012f; return; }
+    if(lan_match) {
+        stride_rate=(remote_pose.move<0?-16.f:16.f)/1860;
+        if(bot_pose) stride_phase=fmodf(stride_phase+elapsed*stride_rate,6);
+        return;
+    }
     collect(player); update_bot(dt); collect(bot);
     // During fine two-stick tracking, share a fraction of the target's angular
     // motion. An existing aiming error never pulls the crosshair to center.
@@ -1166,7 +1178,7 @@ MatchPoint bot_model_point(const MatchView *v,MatchPoint p) {
 }
 static BotPose sample_clip(const BotClip &clip,unsigned now) {
     float frame=clip.phase+(now-clip.sample_time)*clip.frames_per_ms;
-    bool loop=clip.first==0 || clip.first==40;
+    bool loop=clip.first==0 || clip.first==40 || clip.first==135 || clip.first==154;
     frame=loop?fmodf(frame,clip.count):fminf(frame,clip.count-1);
     if (loop && frame<0) frame+=clip.count;
     int i=(int)frame;
@@ -1177,13 +1189,15 @@ static MatchPoint head_position(BotPose pose) {
     return mix_point(head_poses[pose.first],head_poses[pose.second],pose.blend);
 }
 static void bot_view(MatchView *v) {
-    v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-PLAYER_EYE_HEIGHT; v->bot_alive = !bot.respawn_at;
+    v->bot_height=lan_match?remote_stance:PLAYER_EYE_HEIGHT;
+    v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-v->bot_height; v->bot_alive = !bot.respawn_at;
     v->bot_weapon=view_weapon(bot.state.gunselect);
     if (!lan_match && v->bot_weapon==VIEW_PISTOL && clock_ms<bot.shot_until) v->bot_weapon=VIEW_RIFLE;
     v->bot_flash_end_ms = v->bot_weapon!=VIEW_KNIFE && bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
     unsigned now=clock_ms+intermission_age;
-    BotClip clip={0,40,0,now,idle_ms/100.f,.01f};
+    bool crouch=lan_match && remote_pose.crouching;
+    BotClip clip={crouch?135:0,crouch?19:40,0,now,idle_ms/100.f,.01f};
     v->bot_sink=0;
     if (bot.respawn_at) {
         unsigned age=now+bot_respawn_ms-bot.respawn_at;
@@ -1192,11 +1206,13 @@ static void bot_view(MatchView *v) {
         float seconds=age>2000?(age-2000)*.001f:0;
         v->bot_sink=.1f*seconds*seconds*seconds;
     } else if (bot.pain_until>clock_ms)
-        clip={54,4,bot.pain_until,now,(now+300-bot.pain_until)/75.f,1/75.f};
+        clip={crouch?169:54,4,bot.pain_until,now,(now+300-bot.pain_until)/75.f,1/75.f};
     else if (bot.flash_until && clock_ms<bot.flash_until+210)
-        clip={46,8,bot.flash_until,now,(now+90-bot.flash_until)/37.5f,1/37.5f};
+        clip={crouch?160:46,crouch?9:8,bot.flash_until,now,(now+90-bot.flash_until)/37.5f,1/37.5f};
+    else if(lan_match && remote_air_ms>50)
+        clip={crouch?159:68,1,0,now,0,0};
     else if (bot_pose)
-        clip={40,6,0,now,stride_phase,stride_rate};
+        clip={crouch?154:40,6,0,now,stride_phase,stride_rate};
 
     // vertmodel.h keeps the older outgoing clip when another change occurs
     // within the first half of the 150 ms transition.
@@ -1477,7 +1493,7 @@ static int target_contact(const MatchView *v,float range,bool check_geometry) {
     float rx=x-closest*c,ry=y-closest*s,rz=z-closest*slope;
     float radius2=.4f*.4f-rx*rx-ry*ry-rz*rz;
     MatchPoint delta={v->px-v->tx,v->py-v->ty,v->eye-v->bot_floor};
-    auto torso=[&](float limit) { return torso_contact(delta,v->bot_yaw,v->bot_tilt,PLAYER_EYE_HEIGHT,c,s,slope,limit); };
+    auto torso=[&](float limit) { return torso_contact(delta,v->bot_yaw,v->bot_tilt,v->bot_height,c,s,slope,limit); };
     float enter=radius2>=0?closest-sqrtf(radius2/norm):-1;
     bool head=enter>=0 && enter<=range;
     if (!head) enter=torso(range);

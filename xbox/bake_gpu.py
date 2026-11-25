@@ -189,7 +189,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         with Image.open(path) as skin:
             return texture(skin,size)
 
-    bot_frames=(*range(58),*range(178,190))
+    bot_frames=(*range(58),68,*range(135,173),*range(178,190))
     bot_positions=bytearray()
     symbols.append("static const unsigned char bot_frame_batch[198] = {"+
                    ",".join(f"[{pose}]={i}" for i,pose in enumerate(bot_frames))+"};\n")

@@ -958,7 +958,7 @@ static unsigned duel_count;
 enum { DUEL_CAPACITY=5500 }; // 90 seconds at 60 Hz plus clock tolerance.
 
 static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,int aimed) {
-    float chest=v->bot_floor+PLAYER_EYE_HEIGHT-1;
+    float chest=v->bot_floor+v->bot_height-1;
     int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
     return (TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,v->tx,v->ty,chest,
         input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};

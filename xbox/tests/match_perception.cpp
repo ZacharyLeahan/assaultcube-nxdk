@@ -589,3 +589,22 @@ extern "C" void test_lan_prediction(void) {
     pose.feet.x=140;match_lan_remote(&pose);assert(bot.x==140);
     match_lan_stop();
 }
+
+extern "C" void test_lan_stance(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    LanPose pose={{122,121,ground(122,121)},{},0,0,0,0,1,0,0};
+    MatchInput in={};MatchView v={};
+    match_lan_remote(&pose);match_view(&v);
+    float standing_head=v.bot_head.z;
+    pose.crouching=1;match_lan_remote(&pose);
+    for(int i=0;i<12;++i) {match_update(&in,16,.016f);match_view(&v);}
+    assert(v.bot_height==.75f*PLAYER_EYE_HEIGHT && fabsf(v.bot_floor-pose.feet.z)<.001f);
+    assert(v.current_pose.first>=135 && v.current_pose.first<154 && v.bot_head.z<standing_head-.5f);
+    pose.move=1;match_lan_remote(&pose);match_update(&in,16,.016f);match_view(&v);
+    assert(v.current_pose.first>=154 && v.current_pose.first<160);
+    pose.crouching=0;pose.on_floor=0;pose.move=0;match_lan_remote(&pose);
+    for(int i=0;i<5;++i) match_update(&in,16,.016f);
+    match_view(&v);assert(v.current_pose.first==68);
+    match_lan_stop();
+}

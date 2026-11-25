@@ -44,7 +44,7 @@ static inline MatchPoint mix_point(MatchPoint a,MatchPoint b,float t) {
     return result;
 }
 typedef struct {
-    float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt,bot_sink;
+    float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_height, bot_yaw,bot_tilt,bot_sink;
     MatchPoint bot_head,camera;
     float camera_yaw,camera_pitch,player_floor,death_frame;
     MatchPoint player_velocity;
