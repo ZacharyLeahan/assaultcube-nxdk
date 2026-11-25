@@ -16,6 +16,12 @@ At 720p on an original Xbox, the first prototype missed four refreshes across a 
 
 In the development build, an original Xbox and a stock Windows client can join the same PC-hosted deathmatch on `ac_desert`. Both players saw the other strafe and fire during the hardware test. [Private LAN setup](xbox/lan/README.md)
 
-![The Xbox view shows the PC player's strafe and tracer. The Windows view shows the Xbox player's strafe and muzzle flash.](xbox/lan/ac-desert-lan-hardware.jpg)
+| Stock Windows client | Original Xbox |
+| --- | --- |
+| ![Windows player strafing and firing, then watching the Xbox player move](xbox/lan/ac-desert-windows.gif) | ![The same exchange from the original Xbox over HDMI](xbox/lan/ac-desert-xbox.gif) |
+
+[Download the synchronized MP4 with Xbox audio](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay.mp4) · [View the side-by-side screenshot](xbox/lan/ac-desert-lan-hardware.jpg)
+
+Both views play at real-time speed. The Xbox outputs 720p60. The capture device recorded about 15 frames per second.
 
 [Build instructions and controls](xbox/README.md) · [Upstream AssaultCube](https://github.com/assaultcube/AC) · [License](https://assault.cubers.net/docs/license.html)
