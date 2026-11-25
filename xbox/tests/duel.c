@@ -340,6 +340,23 @@ static void test_knife(void) {
     assert(match_attack(&in)==RIFLE_SHOT); match_view(&v);
     assert(!v.knife && !v.pistol && v.magazine==19);
 }
+static void test_fighter_contact(void) {
+    MatchView v;
+    match_prepare(); match_view(&v);
+    float x=v.px,y=v.py,feet=v.eye-PLAYER_EYE_HEIGHT;
+    float height=PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE;
+    ActorBounds bot={x+3,y,feet,feet+height};
+    walk_past_actor(&x,&y,3,0,feet,height,0,&bot);
+    assert(x>v.px && bot.x-x>=2*PLAYER_RADIUS);
+    float stopped=x;
+    walk_past_actor(&x,&y,.5f,.5f,feet,height,0,&bot);
+    assert(bot.x-x>=2*PLAYER_RADIUS && y>v.py+.45f);
+    walk_past_actor(&x,&y,-.5f,0,feet,height,0,&bot);
+    assert(x<stopped-.35f);
+    float floor=feet,ceiling=feet+30;
+    actor_clearance(&bot,bot.x,bot.y,bot.top,height,&floor,&ceiling);
+    assert(floor==bot.top);
+}
 static void test_rifle_trigger(int keep_firing) {
     MatchInput in={.start=1};
     MatchView v;
@@ -607,6 +624,7 @@ int main(void) {
     test_well_ladder();
     test_weapon_switch();
     test_knife();
+    test_fighter_contact();
     test_rifle_trigger(0);
     test_rifle_trigger(1);
     test_reload_tap();

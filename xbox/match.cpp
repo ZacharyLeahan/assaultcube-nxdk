@@ -307,6 +307,11 @@ void bot_shot_effects(float yaw,bool hit_player) {
     if (hypotf(distance(near.x,near.y,player.x,player.y),near.z-eye(player))<=15)
         air_sound={near,effect_random(2)?BULLET_AIR1:BULLET_AIR2};
 }
+void move_bot(float dx,float dy) {
+    ActorBounds opponent={player.x,player.y,feet_z,feet_z+stance+PLAYER_ABOVE_EYE};
+    walk_past_actor(&bot.x,&bot.y,dx,dy,body_floor(bot.x,bot.y),PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE,1.5f,
+                    bot.respawn_at || player.respawn_at ? nullptr : &opponent);
+}
 void update_bot(float dt) {
     bot_pose = 0;
     // Bot navigation supplies its own walk speed. Carry shot impulses through
@@ -314,7 +319,7 @@ void update_bot(float dt) {
     if (fabsf(bot.velocity_x)+fabsf(bot.velocity_y)>.0001f) {
         float retain=powf(23.f/24,dt/.005f);
         float travel=16*.115f*(1-retain);
-        walk(&bot.x,&bot.y,bot.velocity_x*travel,bot.velocity_y*travel);
+        move_bot(bot.velocity_x*travel,bot.velocity_y*travel);
         bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
         bot.velocity_x*=retain; bot.velocity_y*=retain;
     }
@@ -336,7 +341,7 @@ void update_bot(float dt) {
     float length = hypotf(mx,my), old_x = bot.x, old_y = bot.y;
     if (length > .001f) {
         float step = fminf(length,(sees ? 4 : 11)*dt);
-        walk(&bot.x,&bot.y,mx/length*step,my/length*step);
+        move_bot(mx/length*step,my/length*step);
         bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
         float traveled=distance(old_x,old_y,bot.x,bot.y);
         if (traveled>.001f) {
@@ -425,6 +430,9 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
 
         float floor,ceiling;
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
+        ActorBounds opponent={bot.x,bot.y,eye(bot)-PLAYER_EYE_HEIGHT,eye(bot)+PLAYER_ABOVE_EYE};
+        const ActorBounds *blocker=bot.respawn_at?nullptr:&opponent;
+        actor_clearance(blocker,player.x,player.y,feet_z,stance+PLAYER_ABOVE_EYE,&floor,&ceiling);
         float ladder_top=0;
         bool climbing=!in->crouch && ladder_space(player.x,player.y,feet_z,&ladder_top);
         float target=fminf(in->crouch?.75f*PLAYER_EYE_HEIGHT:PLAYER_EYE_HEIGHT,ceiling-feet_z-PLAYER_ABOVE_EYE);
@@ -458,8 +466,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float travel_y=(target_y*dt+dy*carry)*speed;
         player.velocity_x-=dx*fraction;
         player.velocity_y-=dy*fraction;
-        walk_body(&player.x,&player.y,travel_x,travel_y,
-                  feet_z,stance+PLAYER_ABOVE_EYE,grounded||climbing?1.5f:0.f);
+        walk_past_actor(&player.x,&player.y,travel_x,travel_y,
+                  feet_z,stance+PLAYER_ABOVE_EYE,grounded||climbing?1.5f:0.f,blocker);
         if (was_crouching!=bool(in->crouch)) {
             was_crouching=in->crouch;
             stance_sound=was_crouching?CROUCH_IN:CROUCH_OUT;
@@ -470,6 +478,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
                 step_sound=in->crouch?(wading?WATER_CROUCH_STEPS:CROUCH_STEPS):(wading?WATER_STEPS:FOOTSTEPS);
         }
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
+        actor_clearance(blocker,player.x,player.y,feet_z,stance+PLAYER_ABOVE_EYE,&floor,&ceiling);
         if (feet_z>floor+.01f) grounded=false;
         if (climbing) {
             feet_z=fminf(fminf(ladder_top,ceiling-stance-PLAYER_ABOVE_EYE),feet_z+(swimming?8:16)*in->move*dt);

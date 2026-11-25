@@ -101,12 +101,25 @@ static int body_fits(float x,float y,float feet,float height,float step) {
     body_space(x,y,feet,&floor,&ceiling);
     return floor<=feet+step && fmaxf(floor,feet)+height<=ceiling;
 }
-void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float step) {
+static int near_actor(const ActorBounds *a,float x,float y) {
+    return a && fabsf(a->x-x)<2*PLAYER_RADIUS && fabsf(a->y-y)<2*PLAYER_RADIUS;
+}
+void actor_clearance(const ActorBounds *a,float x,float y,float feet,float height,float *floor,float *ceiling) {
+    if (!near_actor(a,x,y)) return;
+    if (feet>=a->top-.01f) *floor=fmaxf(*floor,a->top);
+    else if (feet+height<=a->feet+.01f) *ceiling=fminf(*ceiling,a->feet);
+}
+static int actor_blocks(const ActorBounds *a,float x,float y,float dx,float dy,float feet,float height) {
+    // PC plcollide uses square XY bounds when either fighter is a bot.
+    return near_actor(a,x,y) && feet+height>a->feet && feet<a->top-.01f &&
+           (a->x-x)*dx+(a->y-y)*dy>=0;
+}
+void walk_past_actor(float *x,float *y,float dx,float dy,float feet,float height,float step,const ActorBounds *a) {
     int steps=1+(int)(fmaxf(fabsf(dx),fabsf(dy))*3);
     for (int i=0;i<steps;++i) {
         float sx=dx/steps,sy=dy/steps,nx=*x+sx,ny=*y+sy,floor,ceiling;
         const MapCorner *corner=body_bounds(nx,ny,feet,&floor,&ceiling);
-        if (floor<=feet+step && fmaxf(floor,feet)+height<=ceiling) {
+        if (!actor_blocks(a,nx,ny,sx,sy,feet,height) && floor<=feet+step && fmaxf(floor,feet)+height<=ceiling) {
             *x=nx; *y=ny; continue;
         }
         if (corner) {
@@ -115,13 +128,16 @@ void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float
             float normal=(sx*corner->nx+sy*corner->ny)*.5f;
             float slide_x=nx-normal*corner->nx-sx/42;
             float slide_y=ny-normal*corner->ny-sy/42;
-            if (body_fits(slide_x,slide_y,feet,height,step)) {
+            if (!actor_blocks(a,slide_x,slide_y,slide_x-*x,slide_y-*y,feet,height) && body_fits(slide_x,slide_y,feet,height,step)) {
                 *x=slide_x; *y=slide_y; continue;
             }
         }
-        if (body_fits(nx,*y,feet,height,step)) *x=nx;
-        if (body_fits(*x,ny,feet,height,step)) *y=ny;
+        if (!actor_blocks(a,nx,*y,sx,0,feet,height) && body_fits(nx,*y,feet,height,step)) *x=nx;
+        if (!actor_blocks(a,*x,ny,0,sy,feet,height) && body_fits(*x,ny,feet,height,step)) *y=ny;
     }
+}
+void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float step) {
+    walk_past_actor(x,y,dx,dy,feet,height,step,NULL);
 }
 float body_floor(float x,float y) {
     float floor,ceiling;
