@@ -41,9 +41,10 @@ static inline MatchPoint mix_point(MatchPoint a,MatchPoint b,float t) {
     return result;
 }
 typedef struct {
-    float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt;
+    float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt,bot_sink;
     MatchPoint bot_head,camera;
     float camera_yaw,camera_pitch,player_floor,death_frame;
+    struct { const char *text; unsigned age; } frag_messages[3];
     int health, armour, magazine, reserve, pistol, knife, player_frags, bot_frags, bot_alive;
     const GibView *gibs; unsigned gib_count; int hide_bot, gib_sound;
     BotPose current_pose,previous_pose;

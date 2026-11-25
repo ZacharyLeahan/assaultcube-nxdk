@@ -19,6 +19,10 @@ constexpr int start_count = sizeof(starts)/sizeof(starts[0]);
 constexpr int item_count = sizeof(locations)/sizeof(locations[0]);
 constexpr unsigned duration = 90000;
 constexpr unsigned switch_ms = 400;
+constexpr unsigned player_respawn_ms=2000,bot_respawn_ms=5000;
+constexpr unsigned frag_message_ms=3000;
+struct FragMessage { const char *text; unsigned time; };
+FragMessage frag_messages[3];
 constexpr float radians = .017453293f;
 struct Fighter {
     playerstate state;
@@ -209,6 +213,7 @@ void begin(MatchPhase initial) {
     next_mark=mark_count=0;
     bot_line={}; gib_count=gib_remainder=0; gib_sound=false;
     intermission_age=0;
+    memset(frag_messages,0,sizeof(frag_messages));
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
     clock_ms = frame_start_ms = 0; random_state = 7331; phase = initial;
@@ -328,7 +333,14 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
     if (victim.state.health > 0) return;
     if (&victim==&bot && gun==GUN_KNIFE) spawn_gibs(victim);
     victim.state.health = 0;
-    victim.respawn_at = clock_ms+2000;
+    bool local_frag=&attacker==&player;
+    const char *message;
+    if (local_frag) message=gun==GUN_KNIFE?"you slashed Bot":gun==GUN_PISTOL?"you busted Bot":"you shredded Bot";
+    else message=gun==GUN_PISTOL?"you were busted by Bot":"you were shredded by Bot";
+    frag_messages[2]=frag_messages[1];
+    frag_messages[1]=frag_messages[0];
+    frag_messages[0]={message,clock_ms};
+    victim.respawn_at=clock_ms+(local_frag?bot_respawn_ms:player_respawn_ms);
     victim.flash_until = 0;
     attacker.frags+=gun==GUN_KNIFE?2:1;
     if (attacker.frags >= FRAG_LIMIT) phase = INTERMISSION;
@@ -511,7 +523,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     step_sound=stance_sound=SILENT;
     air_sound.sound=impact_sound.sound=SILENT;
     if (phase != PLAYING) {
-        if (phase==INTERMISSION && intermission_age<2000) intermission_age+=elapsed;
+        if (phase==INTERMISSION && intermission_age<frag_message_ms) intermission_age+=elapsed;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
         if (in->start) begin(PLAYING);
         return;
@@ -716,9 +728,14 @@ static void bot_view(MatchView *v) {
     // MD2 sequences and frame periods used by the PC renderclient.
     unsigned now=clock_ms+intermission_age;
     BotClip clip={0,40,0,now,idle_ms/100.f,.01f};
-    if (bot.respawn_at)
-        clip={178,6,bot.respawn_at,now,(now+2000-bot.respawn_at)/100.f,.01f};
-    else if (bot.pain_until>clock_ms)
+    v->bot_sink=0;
+    if (bot.respawn_at) {
+        unsigned age=now+bot_respawn_ms-bot.respawn_at;
+        clip={178,6,bot.respawn_at,now,age/100.f,.01f};
+        // renderclient lowers the resting model after two seconds.
+        float seconds=age>2000?(age-2000)*.001f:0;
+        v->bot_sink=.1f*seconds*seconds*seconds;
+    } else if (bot.pain_until>clock_ms)
         clip={54,4,bot.pain_until,now,(now+300-bot.pain_until)/75.f,1/75.f};
     else if (bot.flash_until && clock_ms<bot.flash_until+210)
         clip={46,8,bot.flash_until,now,(now+90-bot.flash_until)/37.5f,1/37.5f};
@@ -736,7 +753,7 @@ static void bot_view(MatchView *v) {
     v->current_pose=sample_clip(clip,now);
     v->pose_transition=previous_clip.count?fminf(1,(now-clip_switch)/150.f):1;
     v->previous_pose=v->pose_transition<1?sample_clip(previous_clip,now):v->current_pose;
-    v->bot_tilt=bot.pitch*.25f;
+    v->bot_tilt=(bot.respawn_at?.1f*radians:bot.pitch)*.25f;
     MatchPoint head=head_position(v->current_pose);
     if (v->pose_transition<1) head=mix_point(head_position(v->previous_pose),head,v->pose_transition);
     v->bot_head=bot_model_point(v,head);
@@ -825,6 +842,10 @@ MatchSound match_attack(const MatchInput *in) {
 }
 void match_view(MatchView *v) {
     unsigned now=clock_ms+intermission_age;
+    for (unsigned i=0;i<3;++i) {
+        unsigned age=now-frag_messages[i].time;
+        v->frag_messages[i]={age<frag_message_ms?frag_messages[i].text:nullptr,age};
+    }
     v->player_light=player.light_until>now?(unsigned)fminf(50,player.light_until-now):0;
     v->bot_light=bot.light_until>now?(unsigned)fminf(50,bot.light_until-now):0;
     v->empty_click=empty_click;
@@ -841,7 +862,7 @@ void match_view(MatchView *v) {
     v->camera_yaw=player.respawn_at?death_yaw:player.yaw;
     v->camera_pitch=player.respawn_at?death_pitch:player.pitch;
     v->player_floor=feet_z;
-    v->death_frame=player.respawn_at?fminf(5,(now+2000-player.respawn_at)/100.f):0;
+    v->death_frame=player.respawn_at?fminf(5,(now+player_respawn_ms-player.respawn_at)/100.f):0;
     bot_view(v);
     v->player_frags = player.frags; v->bot_frags = bot.frags;
     v->health = player.state.health; v->armour = player.state.armour;

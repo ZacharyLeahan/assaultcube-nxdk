@@ -317,6 +317,7 @@ static void test_death_camera(void) {
         if (v.respawning) break;
     }
     assert(v.respawning && v.camera_pitch<0 && v.death_frame==0);
+    assert(!strcmp(v.frag_messages[0].text,"you were shredded by Bot"));
     float back=(v.px-v.camera.x)*cosf(v.camera_yaw)+(v.py-v.camera.y)*sinf(v.camera_yaw);
     assert(back>4 && back<8 && visible(v.px,v.py,v.eye,v.camera.x,v.camera.y,v.camera.z));
     MatchPoint camera=v.camera;
@@ -359,6 +360,8 @@ static void test_knife(void) {
     }
     assert(v.player_frags==2 && !v.bot_alive);
     assert(v.gib_count==6 && v.gib_sound && v.hide_bot);
+    assert(!strcmp(v.frag_messages[0].text,"you slashed Bot"));
+    unsigned frag_time=v.elapsed_ms;
     MatchPoint origin=v.gibs[0].pos;
     in=(MatchInput){.knife_select=1}; match_update(&in,16,.016f);
     match_view(&v);
@@ -376,7 +379,10 @@ static void test_knife(void) {
             assert(!v.bot_alive && v.hide_bot);
             saw_respawn_warning=1;
         }
-        if (i==110) assert(v.bot_alive && !v.hide_bot && v.gib_count==6);
+        unsigned age=v.elapsed_ms-frag_time;
+        if (age<5000) assert(!v.bot_alive && v.hide_bot);
+        if (age>=5000 && age<5016) assert(v.bot_alive && !v.hide_bot && v.gib_count==6);
+        if (age<5000) assert((v.frag_messages[0].text!=NULL)==(age<3000));
     }
     assert(saw_respawn_warning && v.gib_count==0);
 }
@@ -781,6 +787,7 @@ int main(void) {
     unsigned burst_shots=0;
     int saw_pain=0,saw_fall=0,saw_corpse=0;
     int heard_bot_pain=0,heard_bot_death=0;
+    unsigned rifle_frag_time=0;
     int saw_splash=0,saw_stain=0;
     for (unsigned tick = 0; tick < 3000; ++tick) {
         match_view(&view);
@@ -809,6 +816,12 @@ int main(void) {
         if (view.bot_voice>=BOT_PAIN1 && view.bot_voice<=BOT_PAIN5) heard_bot_pain=1;
         if (view.bot_voice==PLAYER_DEATH || view.bot_voice==ALT_DEATH) heard_bot_death=1;
         if (!view.bot_alive) {
+            if (!rifle_frag_time) {
+                rifle_frag_time=view.elapsed_ms;
+                assert(!strcmp(view.frag_messages[0].text,"you shredded Bot"));
+            }
+            float seconds=fmaxf(0,((int)(view.elapsed_ms-rifle_frag_time)-2000)*.001f);
+            assert(fabsf(view.bot_sink-.1f*seconds*seconds*seconds)<.0001f);
             assert(!match_targeted(&view));
             if (view.current_pose.first>178 && view.current_pose.first<183) saw_fall=1;
             if (view.current_pose.first==183 && view.current_pose.second==183) saw_corpse=1;
@@ -830,7 +843,7 @@ int main(void) {
     match_view(&view);
     assert(view.phase == PLAYING && view.health == 100 && view.magazine == 20 && view.reserve == 40);
     assert(view.player_frags == 0 && view.bot_frags == 0);
-    assert(view.blood_count==0);
+    assert(view.blood_count==0 && !view.frag_messages[0].text);
     input.start = 0;
     match_update(&input,90000,90000*.001f);
     match_view(&view);
