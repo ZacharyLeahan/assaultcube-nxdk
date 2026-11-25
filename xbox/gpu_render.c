@@ -33,12 +33,13 @@ static float aspect, hud_width;
 // Spend remaining slack before reading the pad so newer reports reach this refresh.
 static unsigned tick_hz, last_flip, sample_tick, work_ticks[32], work_index, work_count;
 static int holdoff;
-void gpu_begin_input(unsigned refresh_hz, int respawning) {
+void gpu_begin_input(unsigned refresh_hz, int respawning, int bot_shot_pending) {
     unsigned now=(unsigned)KeQueryPerformanceCounter();
     if (work_count==32 && !holdoff && !respawning) {
         unsigned peak=0;
         for (unsigned i=0;i<32;++i) if (work_ticks[i]>peak) peak=work_ticks[i];
-        unsigned period=tick_hz/refresh_hz, guard=tick_hz/400; // 2.5 ms
+        // A newly landed hit adds a full-screen blend before the cost is in the history.
+        unsigned period=tick_hz/refresh_hz, guard=bot_shot_pending?tick_hz/160:tick_hz/400;
         unsigned offset=period>peak+guard ? period-peak-guard : 0;
         unsigned cap=tick_hz*7/1000;
         if (offset>cap) offset=cap;

@@ -396,6 +396,8 @@ void match_view(MatchView *v) {
     }
     v->hitflash = hit_until > clock_ms;
     v->damage_alpha=hurt_until>clock_ms?.45f*fminf(1,(hurt_until-clock_ms)/125.f):0;
+    v->bot_shot_pending=phase==PLAYING && bot_saw_player && !bot.respawn_at &&
+                        bot_attack_at<=clock_ms+40 && bot.ready_at<=clock_ms+40;
     v->damage_directions=damage_directions;
     v->phase = phase; v->bot_sound = bot_sound;
     v->movement_sound=movement_sound; v->pickup_sound=pickup_sound; v->pain_sound=pain_sound;
