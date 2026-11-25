@@ -293,14 +293,17 @@ static void quad(float x,float y,float w,float h,float u,float v,float du,float 
     vertex(x+w,y+h,0,u+du,v+dv);
     vertex(x,y+h,0,u,v+dv);
 }
+static float glyph_advance(char ch,float size) {
+    return ch<'!' || ch>'~'?size*.38f:glyphs[ch-'!'].w*size/64.f+size*.045f;
+}
 static void text(float x,float y,float size,const char *str) {
     begin_quads();
     for (;*str;++str) {
-        if (*str<'!' || *str>'~') {x+=size*.38f; continue;}
+        if (*str<'!' || *str>'~') {x+=glyph_advance(*str,size); continue;}
         const Glyph *g=&glyphs[*str-'!'];
         float w=g->w*size/64.f;
         quad(x,y,w,g->h*size/64.f,g->x/512.f,g->y/512.f,g->w/512.f,g->h/512.f);
-        x+=w+size*.045f;
+        x+=glyph_advance(*str,size);
     }
     end_quads();
 }
@@ -339,7 +342,7 @@ static void draw_water(unsigned ms) {
     end_quads();
 }
 static void bot_transform(const MatchView *v) {
-    glTranslatef(v->tx,v->ty,v->bot_floor);
+    glTranslatef(v->tx,v->ty,v->bot_floor-v->bot_sink);
     glRotatef(v->bot_yaw*57.29578f,0,0,1);
     glRotatef(-v->bot_tilt*57.29578f,0,1,0);
 }
@@ -797,6 +800,15 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
         else if(v->respawning) text(42,58,22,"Fragged   /   Respawning");
         else if(v->reload) text(hud_width*.33f,620,18,"Reloading");
     }
+    for (unsigned i=0;i<3 && v->frag_messages[i].text;++i) {
+        const char *message=v->frag_messages[i].text;
+        float size=64*720.f/(1800*.9f),width=0;
+        for (const char *ch=message;*ch;++ch) width+=glyph_advance(*ch,size);
+        float t=v->frag_messages[i].age/3000.f;
+        color(1,192/255.f,64/255.f,1);
+        text((hud_width-width)*.5f,540+i*size+180*t*t*t*t,size,message);
+    }
+    color(.95f,.94f,.87f,1);
     if(v->phase!=PLAYING) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
