@@ -74,10 +74,10 @@ Copy `xbox/bin/default.xbe` into its own Games folder on a homebrew-capable orig
 On Windows, use a developer build of xbased with `XBASED_DEVCTL=ON` and the nxdk GPU clock and DMA render-target fixes. From the repository root, run this with Python 3.11+ and Pillow.
 
 ```powershell
-python xbox/tests/xbased_duel.py C:/path/to/xbased.exe xbox/assaultcube.iso --profile 8
+python xbox/tests/xbased_duel.py C:/path/to/xbased.exe xbox/assaultcube.iso --map xbox/generated/assaultcube.map --profile 8
 ```
 
-The test starts the one-bot duel at 720p, strafes, fires, pauses, and advances one display swap. Each run gets a separate virtual disk and output directory under `xbox/.local/xbased`. Open `duel.png` to inspect the scene, `draws.json` for GPU state per draw, `threads.json` for guest registers, and `xbased.log` for the optional CPU profile. With the xbased debugger patch, `last-stats.json` also reports draw commands skipped before Vulkan. The nxdk link produces `xbox/generated/assaultcube.map` for resolving guest addresses from that build. Use the physical Xbox frame trace below to measure console frame pacing.
+The test starts the one-bot duel at 720p, strafes, fires, pauses, and advances one display swap. With the matching linker map it checks that the guest entered the playing phase and recorded a shot. Each run gets a separate virtual disk and output directory under `xbox/.local/xbased`. Open `duel.png` to inspect the scene, `draws.json` for GPU state per draw, `threads.json` for guest registers, and `xbased.log` for the optional CPU profile. With the xbased debugger patch, `last-stats.json` also reports draw commands skipped before Vulkan. The nxdk link produces `xbox/generated/assaultcube.map` for resolving guest addresses from that build. Use the physical Xbox frame trace below to measure console frame pacing.
 
 ## Shared gameplay and platform code
 

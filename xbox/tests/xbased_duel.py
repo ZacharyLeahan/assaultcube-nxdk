@@ -3,11 +3,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
 import socket
 import subprocess
+import struct
 import tempfile
 import time
 
@@ -25,7 +27,19 @@ def wait_until(read, accept, timeout, description):
         time.sleep(0.1)
 
 
-def run(exe, iso, output, timeout, profile_seconds):
+def match_symbols(link_map):
+    addresses = {}
+    for line in link_map.read_text(errors="replace").splitlines():
+        symbol = re.match(r"\s*\w+:\w+\s+\?(phase|shot_end)@\S+\s+([\da-fA-F]+)\s+match\.obj$", line)
+        if symbol:
+            addresses[symbol[1]] = int(symbol[2], 16)
+    if addresses.keys() != {"phase", "shot_end"}:
+        raise ValueError(f"Missing match symbols in {link_map}")
+    return addresses
+
+
+def run(exe, iso, output, timeout, profile_seconds, link_map):
+    addresses = match_symbols(link_map) if link_map else {}
     # xbased stores logs and configuration beside the executable on Windows.
     # Keep each test's executable and virtual disk isolated from the user's.
     output.mkdir(parents=True, exist_ok=True)
@@ -81,13 +95,28 @@ def run(exe, iso, output, timeout, profile_seconds):
                         return data
 
                     wait_until(stats, lambda s: s["draws_total"] > 100, timeout, "game draws")
+                    def guest_bytes(symbol, size):
+                        reply = command(f"mem read {addresses[symbol]:x} {size}")
+                        return bytes.fromhex(reply["hex"])
+
+                    if addresses and int.from_bytes(guest_bytes("phase", 4), "little") != 0:
+                        raise RuntimeError("Expected the duel ready screen. Check the ISO and linker map.")
                     command("act START")
+                    if addresses:
+                        wait_until(lambda: int.from_bytes(guest_bytes("phase", 4), "little"),
+                                   lambda phase: phase == 1, timeout, "the playing phase")
+                        before = guest_bytes("shot_end", 12)
                     time.sleep(1)
                     if profile_seconds:
                         command(f"act prof {profile_seconds}")
                     command("act RT*0.3")
                     command("act LRIGHT=0.7*0.5")
                     time.sleep(max(1, profile_seconds + 0.5))
+                    if addresses:
+                        after = guest_bytes("shot_end", 12)
+                        if after == before:
+                            raise RuntimeError("The guest recorded no player shot after RT")
+                        save("gameplay.json", {"phase": "playing", "shot_endpoint": struct.unpack("<fff", after)})
                     # capture accepts a whitespace-delimited filename relative to cwd.
                     command("capture draws.json")
                     command("shot " + str(work / "duel.bmp"))
@@ -129,9 +158,10 @@ if __name__ == "__main__":
     parser.add_argument("iso", type=Path)
     parser.add_argument("--output", type=Path, default=Path("xbox/.local/xbased"))
     parser.add_argument("--timeout", type=float, default=45)
+    parser.add_argument("--map", type=Path, help="verify match start and firing using this build's nxdk map")
     parser.add_argument("--profile", type=int, default=0, metavar="SECONDS",
                         help="sample the guest CPU during the duel and write samples to xbased.log")
     args = parser.parse_args()
     if args.profile < 0 or args.timeout <= 0:
         parser.error("profile must be nonnegative and timeout must be positive")
-    run(args.exe.resolve(), args.iso.resolve(), args.output.resolve(), args.timeout, args.profile)
+    run(args.exe.resolve(), args.iso.resolve(), args.output.resolve(), args.timeout, args.profile, args.map)
