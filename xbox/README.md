@@ -13,7 +13,7 @@ Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and 
 | Right trigger | Hold for automatic rifle fire. Tap for each pistol shot or knife swing |
 | X | Reload from reserve ammunition. An empty magazine reloads automatically when reserves are available |
 | Y | Switch between the MTP-57 rifle and MK-77 pistol |
-| D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points |
+| D-pad down | Draw the knife or return to the previous firearm. A knife frag scores two points and scatters the original six fragments |
 | Start | Begin the match or play again from the result screen |
 | LT + RT + Back + Black | Hold for one second to reboot |
 

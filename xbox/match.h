@@ -24,6 +24,7 @@ typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD,
     FOOTSTEPS,CROUCH_STEPS,WATER_STEPS,WATER_CROUCH_STEPS,CROUCH_IN,CROUCH_OUT,
     BULLET_AIR1,BULLET_AIR2,BULLET_IMPACT,BULLET_WATER,SOFT_LAND,KNIFE_SWING } MatchSound;
 typedef struct { float x,y,z; } MatchPoint;
+typedef struct { MatchPoint pos; float yaw,pitch,sink; unsigned model; } GibView;
 typedef struct { MatchPoint pos; MatchSound sound; } PositionalSound;
 typedef struct { MatchPoint start,end; unsigned expires; } ShotLine;
 typedef struct { int x, y, icon; float base; } ItemView;
@@ -43,6 +44,7 @@ typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt;
     MatchPoint bot_head;
     int health, armour, magazine, reserve, pistol, knife, player_frags, bot_frags, bot_alive;
+    const GibView *gibs; unsigned gib_count; int hide_bot, gib_sound;
     BotPose current_pose,previous_pose;
     float pose_transition,gun_pose_blend,flash_angle;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
@@ -50,7 +52,7 @@ typedef struct {
     unsigned bot_flash_end_ms,player_light,bot_light;
     int respawning, reload, hide_crosshair, flash, wide_crosshair;
     float damage_alpha;
-    int bot_shot_pending,empty_click;
+    int bot_shot_pending,bot_respawn_pending,empty_click;
     const unsigned *damage_directions;
     unsigned seconds;
     MatchPhase phase;

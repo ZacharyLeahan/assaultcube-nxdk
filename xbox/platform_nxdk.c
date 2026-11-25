@@ -23,7 +23,7 @@ DECLARE_CLIP(step);
 DECLARE_CLIP(clip_empty);
 DECLARE_CLIP(ric1); DECLARE_CLIP(ric2); DECLARE_CLIP(ric3); DECLARE_CLIP(waterimpact);
 DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
-DECLARE_CLIP(knife); DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
+DECLARE_CLIP(gib); DECLARE_CLIP(knife); DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
 DECLARE_CLIP(splash1); DECLARE_CLIP(splash2);
 DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup_helmet); DECLARE_CLIP(pickup_armour);
 #define CLIP(n) {n,n##_end}
@@ -47,9 +47,9 @@ static const Clip clips[] = {
 };
 static SDL_AudioDeviceID audio_device;
 
-enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS, EMPTY_CLICK };
+enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS, EMPTY_CLICK, GIB };
 typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; } Voice;
-static const int volume[]={96,96,48,70,64,96,85,96,96,40,40,96};
+static const int volume[]={96,96,48,70,64,96,85,96,96,40,40,96,96};
 static Voice voices[sizeof(volume)/sizeof(volume[0])];
 
 static void set_footsteps(unsigned channel,MatchSound sound,unsigned now,int active) {
@@ -108,6 +108,12 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
     SDL_LockAudioDevice(audio_device);
     ambience_update(v->px,v->py,v->eye,v->angle);
+    if (v->gib_sound) {
+        float left,right;
+        spatial_gain(v,(MatchPoint){v->tx,v->ty,v->bot_floor+PLAYER_EYE_HEIGHT},&left,&right);
+        voices[GIB]=(Voice){(const int16_t *)gib,((uintptr_t)gib_end-(uintptr_t)gib)/2,
+                            (int)(volume[GIB]*left),(int)(volume[GIB]*right)};
+    }
     if (v->empty_click)
         voices[EMPTY_CLICK]=(Voice){(const int16_t *)clip_empty,
             ((uintptr_t)clip_empty_end-(uintptr_t)clip_empty)/2,volume[EMPTY_CLICK],volume[EMPTY_CLICK]};
@@ -180,7 +186,7 @@ int main(void) {
     gpu_trace_init();
     match_prepare();
     for (;;) {
-        gpu_begin_input(refresh_hz,view.respawning,view.bot_shot_pending);
+        gpu_begin_input(refresh_hz,view.respawning || view.bot_respawn_pending,view.bot_shot_pending);
         SDL_PumpEvents();
         SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
         refresh_pads(pads);

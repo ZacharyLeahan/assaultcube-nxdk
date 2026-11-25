@@ -39,6 +39,7 @@ asset pain3
 asset pain4
 asset pain5
 asset pain6
+asset gib
 asset die1
 asset die2
 asset splash1
