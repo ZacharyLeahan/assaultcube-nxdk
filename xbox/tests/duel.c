@@ -638,7 +638,10 @@ static void test_prop_depth(void) {
     assert(fabsf(prop_depth((MatchPoint){105.5f,127.5f,3},down,6)-3.485f)<.002f);
 }
 
+void test_easy_bot_perception(void);
+
 int main(void) {
+    test_easy_bot_perception();
     test_prop_depth();
     test_heightfield_impact();
     test_shot_light();
