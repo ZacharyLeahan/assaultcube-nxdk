@@ -20,8 +20,8 @@ In the development build, an original Xbox and a stock Windows client can join t
 | --- | --- |
 | ![Windows player strafing and firing, then watching the Xbox player move](xbox/lan/ac-desert-windows.gif) | ![The same exchange from the original Xbox over HDMI](xbox/lan/ac-desert-xbox.gif) |
 
-[Download the synchronized MP4 with Xbox audio](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay.mp4) · [View the side-by-side screenshot](xbox/lan/ac-desert-lan-hardware.jpg)
+[Download the synchronized split-screen MP4](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-crossplay.mp4) · [Watch the original Xbox microSD recording](https://raw.githubusercontent.com/ZacharyLeahan/assaultcube-nxdk/master/xbox/lan/ac-desert-xbox-microsd.mp4) · [View the screenshot](xbox/lan/ac-desert-lan-hardware.jpg)
 
-Both views play at real-time speed. The Xbox outputs 720p60. The capture device recorded about 15 frames per second.
+Each view in the split-screen MP4 is 1280 × 720 and plays at real-time speed. The KVM recorded the Xbox’s 720p60 HDMI output directly to microSD at about 12 captured frames per second. The Xbox-only MP4 preserves the card’s original video and stereo audio.
 
 [Build instructions and controls](xbox/README.md) · [Upstream AssaultCube](https://github.com/assaultcube/AC) · [License](https://assault.cubers.net/docs/license.html)
