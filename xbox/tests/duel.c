@@ -565,7 +565,7 @@ static void test_incoming_fire(int strafe) {
         else {
             assert(event.sound==BULLET_IMPACT);
             assert(v.mark_count && v.spark_count);
-            const BulletMark *m=v.marks+v.mark_count-1;
+            const BulletMark *m=&v.marks[(v.first_mark+v.mark_count-1)%MARK_CAPACITY];
             assert(m->x==event.pos.x && m->y==event.pos.y && m->z==event.pos.z);
         }
         heard=1;
@@ -671,11 +671,13 @@ static void test_prop_depth(void) {
 void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
 void test_easy_bot_aim(void);
+void test_wall_impact_lifetime(void);
 
 int main(void) {
     test_easy_bot_perception();
     test_easy_bot_spacing();
     test_easy_bot_aim();
+    test_wall_impact_lifetime();
     test_prop_depth();
     test_heightfield_impact();
     test_shot_light();

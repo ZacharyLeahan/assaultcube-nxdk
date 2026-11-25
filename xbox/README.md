@@ -27,7 +27,7 @@ The radar and overhead map show the well water and map models, including barrels
 
 The map supplies six ambient sound sources. The courtyard has stereo wind and a distant hawk, water becomes audible near the well, and three air conditioners can be located by ear.
 
-Local rifle and pistol impacts use the crosshair depth of the map and its props. A round that hits a barrel throws sparks at the barrel. Bullet holes appear on nearby level surfaces.
+Local rifle and pistol impacts use the crosshair depth of the map and its props. A round that hits a barrel throws sparks at the barrel. Bullet holes on level surfaces last ten seconds and fade over the final second, including during sustained fire from both fighters.
 
 The bot uses the original player model scale and animated head position for hit detection. The rifle and pistol deal their normal damage to both the head and torso.
 
@@ -129,7 +129,7 @@ On unobstructed ground, movement now follows the PC friction curve. Holding the 
 
 The Xbox port shares some of the visible opponent's angular motion during small two-stick corrections. Build `6ddbe28b` gives this assistance a constant gain near the torso and gradually fades it near the edge of the aiming cone. Full horizontal stick immediately selects the ordinary turn rate.
 
-The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. For a sidearm encounter, write `pistol` into the marker to start the capture when the bot equips its pistol. The companion `bot-aim.bin` records the bot’s yaw and pitch in radians, player health, and the bot’s weapon sound for each frame (little-endian `<2f2i`). Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
+The physical Xbox replay starts a fresh duel, holds Start for 200 ms, then alternates the horizontal left stick between +22000 and -22000 every 500 ms. The right stick follows 70 ms after each reversal at the opposite sign and magnitude 9000. Start with neutral right stick and leave fire released. Enable `frame-trace.on` and record the first 720 frames. For a sidearm encounter, write `pistol` into the marker to start the capture when the bot equips its pistol. The `impacts.bin` file stores one little-endian 16-bit live bullet-hole count per frame. The companion `bot-aim.bin` records the bot’s yaw and pitch in radians, player health, and the bot’s weapon sound for each frame (little-endian `<2f2i`). Run `python xbox/tests/strafe_tracking.py tracking.bin` and `python xbox/tests/frame_trace.py frame-trace.bin`.
 
 | Opening life, visible strafing frames only | Previous run 1 / 2 | Revised run 1 / 2 |
 | --- | --- | --- |

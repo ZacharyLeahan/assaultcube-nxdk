@@ -36,7 +36,7 @@ enum { SHADOW_CAPACITY=3*(2*(sizeof(body_indices)+WORLD_GUN_INDEX_BYTES))/sizeof
 static Position *shadow_positions, shadow_tip;
 static unsigned shadow_count;
 static unsigned pose_cursor;
-enum { STREAM_CAPACITY = 2048 };
+enum { STREAM_CAPACITY = 2048 + 4*MARK_CAPACITY };
 static Vertex *stream;
 static unsigned cursor, first;
 static unsigned char tint[4] = {255,255,255,255};
@@ -569,7 +569,12 @@ static void level(const MatchView *v) {
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();
     for (unsigned i=0;i<v->mark_count;++i) {
-        const BulletMark *m=v->marks+i;
+        const BulletMark *m=&v->marks[(v->first_mark+i)%MARK_CAPACITY];
+        float dx=m->x-v->camera.x,dy=m->y-v->camera.y,dz=m->z-v->camera.z;
+        float forward=c*dx+s*dy,depth=cp*forward+sp*dz;
+        // Allow the full 0.6-unit square at the edge of the camera frustum.
+        if (depth<-.5f || fabsf(c*dy-s*dx)>depth+1 ||
+            fabsf(cp*dz-sp*forward)>depth/aspect+1) continue;
         if (m->expires<=v->elapsed_ms) continue;
         float fade=fminf(1,(m->expires-v->elapsed_ms)/1000.f);
         color(fade,fade,fade,fade);
@@ -839,6 +844,7 @@ typedef struct {
 } FrameSample;
 static FrameSample samples[720];
 static unsigned input_times[720][3];
+static unsigned short impact_counts[720];
 typedef struct {
     float px,py,eye,yaw,pitch,tx,ty,chest,strafe,turn;
     unsigned live,clear,aimed;
@@ -929,6 +935,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
         input_times[sample_count][1]=work_ticks[(work_index-1)%32];
         input_times[sample_count][2]=signature;
         aim_frames[sample_count]=(AimFrame){v->bot_yaw,v->bot_tilt*4,v->health,v->bot_sound};
+        impact_counts[sample_count]=v->mark_count;
         tracking_frames[sample_count]=tracking_frame(v,input,aimed);
         FrameSample *sample=&samples[sample_count++];
         *sample=(FrameSample){(unsigned)KeQueryPerformanceCounter(),pb_get_vbl_counter(),
@@ -956,6 +963,8 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
             }
             file=fopen("D:\\bot-aim.bin","wb");
             if (file) { fwrite(aim_frames,sizeof(aim_frames),1,file); fclose(file); }
+            file=fopen("D:\\impacts.bin","wb");
+            if (file) { fwrite(impact_counts,sizeof(impact_counts),1,file); fclose(file); }
             tracing=0;
         }
     }

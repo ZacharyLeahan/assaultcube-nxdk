@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-enum { MAP = 256, FRAG_LIMIT = 3 };
+enum { MAP = 256, FRAG_LIMIT = 3, MARK_CAPACITY = 192 };
 #define PLAYER_EYE_HEIGHT 4.5f
 #define PLAYER_ABOVE_EYE .7f
 #define PLAYER_RADIUS 1.1f
@@ -66,7 +66,7 @@ typedef struct {
     const ItemView *items;
     int item_count;
     const BulletMark *marks;
-    unsigned mark_count, elapsed_ms;
+    unsigned first_mark, mark_count, elapsed_ms;
     const SplashParticle *sparks;
     unsigned spark_count;
     const BloodParticle *blood;
