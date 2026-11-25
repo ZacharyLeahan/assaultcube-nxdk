@@ -319,6 +319,17 @@ static void level(const MatchView *v) {
     glPopMatrix();
     glDisable(GL_STENCIL_TEST);
     glEnable(GL_DEPTH_TEST);
+    if (v->bot_line.expires>v->elapsed_ms) {
+        const ShotLine *line=&v->bot_line;
+        glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        color(1,1,.7f,.5f);
+        begin_quads();
+        vertex(line->start.x,line->start.y,line->start.z,0,0);
+        vertex(line->end.x,line->end.y,line->end.z,0,0);
+        if (cursor-first==2) glDrawArrays(GL_LINES,first,2);
+        color(1,1,1,1);
+    }
     if (v->elapsed_ms<v->bot_flash_end_ms && v->bot_alive) {
         const float *a=bot_muzzle[bot_frame_batch[v->bot_pose]];
         const float *b=bot_muzzle[bot_frame_batch[v->next_bot_pose]];

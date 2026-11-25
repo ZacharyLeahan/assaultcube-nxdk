@@ -48,6 +48,8 @@ bool classic_assist;
 MatchSound bot_sound;
 MatchSound movement_sound, pickup_sound, pain_sound, bot_voice;
 MatchSound step_sound,stance_sound;
+PositionalSound air_sound,impact_sound;
+ShotLine bot_line;
 bool was_crouching;
 ItemView item_views[item_count];
 BulletMark marks[64];
@@ -75,6 +77,12 @@ void spark_splash(const SurfaceHit &hit) {
         next_spark=(next_spark+1)%64;
         if (spark_count<64) ++spark_count;
     }
+}
+void mark_surface(const SurfaceHit &hit) {
+    spark_splash(hit);
+    marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
+    next_mark=(next_mark+1)%64;
+    if (mark_count<64) ++mark_count;
 }
 void update_blood(unsigned elapsed) {
     for (unsigned i=0;i<blood_count;++i) {
@@ -127,6 +135,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
 }
 void begin(MatchPhase initial) {
     next_mark=mark_count=0;
+    bot_line={};
     intermission_age=0;
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
@@ -229,6 +238,33 @@ void collect(Fighter &f) {
         unavailable_until[i] = clock_ms+delay;
     }
 }
+void bot_shot_effects(float yaw,bool hit_player) {
+    MatchPoint from={bot.x,bot.y,eye(bot)}, target={player.x,player.y,eye(player)-.8f};
+    float d=fmaxf(.01f,distance(from.x,from.y,target.x,target.y));
+    float dx=cosf(yaw),dy=sinf(yaw),dz=(target.z-from.z)/d;
+    if (!hit_player) {
+        target={from.x+512*dx,from.y+512*dy,from.z+512*dz};
+        SurfaceHit hit;
+        if (trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit)) {
+            target={hit.x,hit.y,hit.z};
+            mark_surface(hit);
+            if (hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
+                impact_sound={target,hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
+        }
+    }
+    dx=target.x-from.x; dy=target.y-from.y; dz=target.z-from.z;
+    float length=sqrtf(dx*dx+dy*dy+dz*dz);
+    if (length<1) return;
+    auto point=[&](float t) -> MatchPoint { return {from.x+t*dx,from.y+t*dy,from.z+t*dz}; };
+    float fd=hypotf(d,from.z-eye(player));
+    float td=hypotf(distance(target.x,target.y,player.x,player.y),target.z-eye(player));
+    float start=td<=10?8:5;
+    bot_line={point(.1f+start/length),point((start+2)*.1f),clock_ms+75};
+    if (fd<=8 || td<=8) return;
+    MatchPoint near=point(fd/(fd+td));
+    if (hypotf(distance(near.x,near.y,player.x,player.y),near.z-eye(player))<=15)
+        air_sound={near,effect_random(2)?BULLET_AIR1:BULLET_AIR2};
+}
 void update_bot(float dt) {
     bot_pose = 0;
     if (bot.respawn_at || player.respawn_at || clock_ms < 1000) return;
@@ -275,8 +311,10 @@ void update_bot(float dt) {
     bool on_target = fabsf(delta+error)*d < .95f &&
         visible(bot.x,bot.y,eye(bot),player.x,player.y,eye(player)-.8f);
     MatchSound shot = trigger(bot,true,false,on_target,player);
-    if ((shot == RIFLE_SHOT || shot == PISTOL_SHOT) && --burst == 0)
-        bot_attack_at = clock_ms+1500+random_number()%501;
+    if (shot == RIFLE_SHOT || shot == PISTOL_SHOT) {
+        bot_shot_effects(ideal-delta-error,on_target);
+        if (--burst == 0) bot_attack_at = clock_ms+1500+random_number()%501;
+    }
     bot_sound = shot;
 }
 }
@@ -285,6 +323,7 @@ void match_prepare(void) { navigation_prepare(); begin(READY); }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     bot_sound=movement_sound=pickup_sound=pain_sound=bot_voice=SILENT;
     step_sound=stance_sound=SILENT;
+    air_sound.sound=impact_sound.sound=SILENT;
     if (phase != PLAYING) {
         if (phase==INTERMISSION && intermission_age<2000) intermission_age+=elapsed;
         if (in->assist_choice) classic_assist=in->assist_choice<0;
@@ -472,16 +511,16 @@ MatchSound match_attack(const MatchInput *in) {
         if (match_targeted(&ray)) { damage(bot,player,gun); return shot; }
         SurfaceHit hit;
         if (trace_surface(player.x,player.y,z,player.x+512*dx,player.y+512*dy,z+512*dz,&hit)) {
-            spark_splash(hit);
-            marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
-            next_mark=(next_mark+1)%64;
-            if (mark_count<64) ++mark_count;
+            mark_surface(hit);
         }
     }
     return shot;
 }
 void match_view(MatchView *v) {
     v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
+    v->bot_line=bot_line;
+    if (bot_line.expires<=clock_ms+intermission_age) v->bot_line.expires=0;
+    v->air=air_sound; v->impact=impact_sound;
     v->sparks=sparks; v->spark_count=spark_count;
     v->blood=blood; v->blood_count=blood_count;
     v->classic_assist=classic_assist;

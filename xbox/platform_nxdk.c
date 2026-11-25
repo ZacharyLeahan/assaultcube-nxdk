@@ -18,6 +18,7 @@ DECLARE_CLIP(jump); DECLARE_CLIP(land); DECLARE_CLIP(pain1); DECLARE_CLIP(die1);
 DECLARE_CLIP(footsteps); DECLARE_CLIP(crouch); DECLARE_CLIP(watersteps); DECLARE_CLIP(watercrouch);
 DECLARE_CLIP(crouch_in); DECLARE_CLIP(crouch_out);
 DECLARE_CLIP(change_gun);
+DECLARE_CLIP(ric1); DECLARE_CLIP(ric2); DECLARE_CLIP(ric3); DECLARE_CLIP(waterimpact);
 DECLARE_CLIP(pain2); DECLARE_CLIP(pain3); DECLARE_CLIP(pain4); DECLARE_CLIP(pain5);
 DECLARE_CLIP(pain6); DECLARE_CLIP(die2);
 DECLARE_CLIP(splash1); DECLARE_CLIP(splash2);
@@ -26,6 +27,8 @@ DECLARE_CLIP(pickup_ammo_clip); DECLARE_CLIP(pickup_health); DECLARE_CLIP(pickup
 static const Clip clips[] = {
     [RIFLE_SHOT]={shot_audio,shot_end}, [RIFLE_RELOAD]=CLIP(auto_reload),
     [WEAPON_CHANGE]=CLIP(change_gun),
+    [BULLET_AIR1]=CLIP(ric1), [BULLET_AIR2]=CLIP(ric2),
+    [BULLET_IMPACT]=CLIP(ric3), [BULLET_WATER]=CLIP(waterimpact),
     [WATER_ENTER]=CLIP(splash2), [WATER_EXIT]=CLIP(splash1),
     [PISTOL_SHOT]=CLIP(usp), [PISTOL_RELOAD]=CLIP(pistol_reload),
     [PLAYER_JUMP]=CLIP(jump), [PLAYER_LAND]=CLIP(land),
@@ -39,9 +42,9 @@ static const Clip clips[] = {
 };
 static SDL_AudioDeviceID audio_device;
 
-enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, LOCAL_STEPS, BOT_STEPS };
+enum { LOCAL_GUN, BOT_GUN, MOVEMENT, PICKUP, PAIN, BOT_VOICE, STANCE, AIR, IMPACT, LOCAL_STEPS, BOT_STEPS };
 typedef struct { const int16_t *data; unsigned remaining; int left,right; MatchSound loop; unsigned started; } Voice;
-static const int volume[]={96,96,48,70,64,96,85,40,40};
+static const int volume[]={96,96,48,70,64,96,85,96,96,40,40};
 static Voice voices[sizeof(volume)/sizeof(volume[0])];
 
 static void set_footsteps(unsigned channel,MatchSound sound,unsigned now,int active) {
@@ -86,9 +89,17 @@ static void mix_audio(void *unused, Uint8 *out, int len) {
         frames-=count;
     }
 }
+static void spatial_gain(const MatchView *v,MatchPoint pos,float *left,float *right) {
+    float dx=pos.x-v->px,dy=pos.y-v->py,dz=pos.z-v->eye;
+    float distance=sqrtf(dx*dx+dy*dy+dz*dz);
+    float pan=(dy*cosf(v->angle)-dx*sinf(v->angle))/fmaxf(.001f,distance);
+    pan=fmaxf(-1,fminf(1,pan));
+    float gain=4/fmaxf(4,distance);
+    *left=gain*sqrtf(.5f*(1-pan)); *right=gain*sqrtf(.5f*(1+pan));
+}
 static void update_audio(const MatchView *v,MatchSound gun) {
     if (!audio_device) return;
-    const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound};
+    const MatchSound effects[]={gun,v->bot_sound,v->movement_sound,v->pickup_sound,v->pain_sound,v->bot_voice,v->stance_sound,v->air.sound,v->impact.sound};
     SDL_LockAudioDevice(audio_device);
     for (unsigned i=0;i<sizeof(effects)/sizeof(effects[0]);++i) {
         if (effects[i]==SILENT) continue;
@@ -96,17 +107,19 @@ static void update_audio(const MatchView *v,MatchSound gun) {
         voices[i]=(Voice){(const int16_t *)clip->start,
             ((uintptr_t)clip->end-(uintptr_t)clip->start)/sizeof(int16_t),volume[i],volume[i]};
     }
+    static MatchPoint origin[2];
+    if (v->air.sound) origin[0]=v->air.pos;
+    if (v->impact.sound) origin[1]=v->impact.pos;
+    for (unsigned i=AIR;i<=IMPACT;++i) if (voices[i].remaining) {
+        float left,right;
+        spatial_gain(v,origin[i-AIR],&left,&right);
+        voices[i].left=(int)(volume[i]*left+.5f); voices[i].right=(int)(volume[i]*right+.5f);
+    }
     set_footsteps(LOCAL_STEPS,v->footsteps,v->elapsed_ms,v->phase==PLAYING && !v->respawning);
     set_footsteps(BOT_STEPS,v->bot_footsteps,v->elapsed_ms,v->phase==PLAYING && v->bot_alive);
     if (voices[BOT_GUN].remaining || voices[BOT_VOICE].remaining || voices[BOT_STEPS].loop) {
-        float dx=v->tx-v->px,dy=v->ty-v->py;
-        float dz=map_floor(map_cube((int)v->tx,(int)v->ty))+3.6f-v->eye;
-        float distance=sqrtf(dx*dx+dy*dy+dz*dz);
-        float pan=(dy*cosf(v->angle)-dx*sinf(v->angle))/fmaxf(.001f,distance);
-        pan=fmaxf(-1,fminf(1,pan));
-        // Match the PC's inverse-distance rolloff with a four-cube reference distance.
-        float gain=4/fmaxf(4,distance);
-        float left=gain*sqrtf(.5f*(1-pan)),right=gain*sqrtf(.5f*(1+pan));
+        float left,right;
+        spatial_gain(v,(MatchPoint){v->tx,v->ty,map_floor(map_cube((int)v->tx,(int)v->ty))+3.6f},&left,&right);
         const int channels[]={BOT_GUN,BOT_VOICE,BOT_STEPS};
         for(unsigned i=0;i<3;++i) {
             int ch=channels[i];
