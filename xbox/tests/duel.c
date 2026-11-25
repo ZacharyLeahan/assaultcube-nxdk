@@ -345,11 +345,18 @@ static void test_reload_tap(void) {
     match_update(&in,30,.030f);
     assert(match_attack(&in)==RIFLE_RELOAD);
     match_view(&v);
-    assert(v.magazine==20 && v.reserve==39 && v.reload && !v.flash);
+    assert(v.magazine==20 && v.reserve==39 && v.reload && v.hide_crosshair && !v.flash);
     in=(MatchInput){.fire=1};
     for (unsigned ms=1;ms<2090;++ms) {
+        in.swap=ms==2001;
         match_update(&in,1,.001f);
         assert(match_attack(&in)==SILENT);
+        if (ms==1000 || ms==1090 || ms==2000) {
+            match_view(&v);
+            assert(v.reload && !v.pistol && v.hide_crosshair==(ms<2000));
+            if (ms<2000) assert(fabsf(v.gun_rotation+90)<.001f);
+            else assert(v.gun_rotation < -12 && v.gun_rotation > -13);
+        }
     }
     match_update(&in,1,.001f);
     assert(match_attack(&in)==RIFLE_SHOT);

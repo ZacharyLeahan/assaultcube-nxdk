@@ -18,7 +18,7 @@ Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and 
 
 Controllers can be plugged in or replaced while the game is running. Any of the four ports can control the duel. The title and result screens show the number of connected controllers.
 
-The HUD shows frags, time remaining, health, armour, and ammunition in the magazine and reserve. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot can collect them too.
+The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot can collect them too.
 
 The map supplies six ambient sound sources. The courtyard has stereo wind and a distant hawk, water becomes audible near the well, and three air conditioners can be located by ear.
 

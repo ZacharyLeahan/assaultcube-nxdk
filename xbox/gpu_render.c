@@ -607,20 +607,24 @@ static void muzzle_flash(const MatchView *v) {
         end_quads(); glDepthMask(GL_TRUE); glDisable(GL_BLEND);
     }
 }
-static void equipment(float x,int col,int row,int value,int reserve) {
-    glBindTexture(GL_TEXTURE_2D,textures[EQUIPMENT_TEX]);
-    begin_quads(); quad(x,648,48,48,col*.25f,row*.25f,.25f,.25f); end_quads();
-    glBindTexture(GL_TEXTURE_2D,textures[DIGITS_TEX]);
-    char count[20];
-    if (reserve>=0) snprintf(count,sizeof(count),"%d/%d",value,reserve);
-    else snprintf(count,sizeof(count),"%d",value);
-    x+=52;
+static float hud_digits(float x,float y,int value,float scale) {
+    char count[16];
+    snprintf(count,sizeof(count),"%d",value);
     begin_quads();
     for (const char *ch=count;*ch;++ch) {
-        float u=*ch=='/'?476:4+48*(*ch-'0'), w=*ch=='/'?24:40;
-        quad(x,650,w*.71f,45,u/512.f,0,w/512.f,1); x+=w*.71f;
+        float u=4+48*(*ch-'0');
+        quad(x,y,40*scale,64*scale,u/512.f,0,40/512.f,1);
+        x+=41*scale;
     }
     end_quads();
+    return x;
+}
+static void equipment(float x,int col,int row,int value,int reserve) {
+    glBindTexture(GL_TEXTURE_2D,textures[EQUIPMENT_TEX]);
+    begin_quads(); quad(x,660,48,48,col*.25f,row*.25f,.25f,.25f); end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[DIGITS_TEX]);
+    x=hud_digits(x+56,823*.8f,value,.8f);
+    if (reserve>=0) hud_digits(x,826*.8f,reserve,.4f);
 }
 static void overview(const MatchView *v) {
     const float size=540, x=(hud_width-size)*.5f, y=(720-size)*.5f;
@@ -656,7 +660,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
         glDisable(GL_BLEND);
     }
     glEnable(GL_BLEND);
-    if (!v->respawning) {
+    if (!v->respawning && !v->hide_crosshair) {
         float half=v->wide_crosshair?8.4f:6.f;
         glBlendFunc(GL_ONE,GL_ONE);
         glBindTexture(GL_TEXTURE_2D,textures[CROSSHAIR_TEX]);
@@ -713,9 +717,9 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
         quad(28,24,528,116,0,0,0,0); end_quads();
     } else if(!v->respawning) {
         color(1,1,1,1);
-        equipment(30,2,3,v->health,-1);
-        if (v->armour) equipment(200,(v->armour-1)/25,2,v->armour,-1);
-        equipment(hud_width*.33f,v->pistol?1:2,v->pistol?0:1,v->magazine,v->reserve);
+        equipment(8,2,3,v->health,-1);
+        if (v->armour) equipment(196,(v->armour-1)/25,2,v->armour,-1);
+        equipment(384,v->pistol?1:2,v->pistol?0:1,v->magazine,v->reserve);
     }
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);

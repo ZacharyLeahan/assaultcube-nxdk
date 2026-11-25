@@ -48,7 +48,7 @@ typedef struct {
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     unsigned gun_pose, next_gun_pose;
     unsigned bot_flash_end_ms,player_light,bot_light;
-    int respawning, reload, flash, wide_crosshair;
+    int respawning, reload, hide_crosshair, flash, wide_crosshair;
     float damage_alpha;
     int bot_shot_pending,empty_click;
     const unsigned *damage_directions;
