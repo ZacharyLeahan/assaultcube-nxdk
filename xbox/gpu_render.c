@@ -760,10 +760,39 @@ static void overview(const MatchView *v) {
     glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     text(px+12,py+12,12,"You");
 }
-static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
+static void system_overlay(const SystemMenu *menu) {
+    static const char *const choices[]={"Resume","Return to dashboard","Restart Xbox","Shut down Xbox"};
+    float x=(hud_width-480)/2;
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    color(.03f,.04f,.05f,.94f);
+    begin_quads(); quad(x,195,480,310,0,0,1,1); end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
+    color(1,1,1,1);
+    text(x+28,217,30,"System menu");
+    if (menu->confirming) {
+        text(x+28,286,25,choices[menu->choice]);
+        text(x+28,329,21,"End this game session?");
+        text(x+28,452,19,"A  Confirm     B  Cancel");
+    } else {
+        for (int i=MENU_RESUME;i<=MENU_SHUTDOWN;++i) {
+            color(1,i==menu->choice?.75f:1,i==menu->choice?.25f:1,1);
+            if (i==menu->choice) text(x+24,270+38*i,22,">");
+            text(x+53,270+38*i,22,choices[i]);
+        }
+        color(1,1,1,1);
+        text(x+28,452,19,"D-pad  Move     A  Select     B  Back");
+    }
+    glDisable(GL_BLEND);
+}
+
+static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,const SystemMenu *menu) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    if (menu->choice!=MENU_CLOSED) { system_overlay(menu); return; }
     if (v->camera.z<WATER_SURFACE) {
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
         glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
@@ -828,7 +857,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     }
     if(v->phase!=PLAYING) {
         color(.03f,.04f,.05f,.78f); begin_quads();
-        quad(28,24,528,144,0,0,0,0); end_quads();
+        quad(28,24,528,173,0,0,0,0); end_quads();
     } else if(!v->respawning) {
         color(1,1,1,1);
         equipment(8,2,3,v->health,-1);
@@ -864,6 +893,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     if(v->phase!=PLAYING) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
         text(42,85,19,line);
+        text(42,164,19,"D-pad Up   System menu");
         text(42,136,19,weapon_art[v->selected_primary].choice);
         text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");
@@ -916,7 +946,7 @@ void gpu_trace_init(void) {
     marker=fopen("D:\\duel-trace.on","rb");
     if (marker) { fclose(marker); duel_frames=malloc(DUEL_CAPACITY*sizeof(*duel_frames)); }
 }
-unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected) {
+unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsigned fps10,int connected,const SystemMenu *menu) {
     cursor=0;
     pose_cursor=0;
     update_shot_lighting(v);
@@ -938,7 +968,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glDepthRange(0,.04);
     muzzle_flash(v);
     glDepthRange(0,1);
-    hud(v,fps10,connected,input->showmap);
+    hud(v,fps10,connected,input->showmap,menu);
     // Show the completed surface at vblank. The default pbkit queue can expose
     // an in-progress frame on this console when rendering the full 720p scene.
     glFinish();
@@ -963,7 +993,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     else if (holdoff) --holdoff;
     previous_vblank=vblank;
     last_flip=(unsigned)KeQueryPerformanceCounter();
-    if (duel_frames && v->phase==PLAYING && duel_count<DUEL_CAPACITY) {
+    if (duel_frames && menu->choice==MENU_CLOSED && v->phase==PLAYING && duel_count<DUEL_CAPACITY) {
         duel_frames[duel_count++]=(DuelFrame){tracking_frame(v,input,aimed),vblank};
     } else if (duel_count && v->phase==INTERMISSION) {
         FILE *file=fopen(v->classic_assist?"D:\\classic.bin":"D:\\tuned.bin","wb");

@@ -2,6 +2,7 @@
 #include <hal/debug.h>
 #include <hal/video.h>
 #include <hal/xbox.h>
+#include <xboxkrnl/xboxkrnl.h>
 #include <pbkit/pbkit.h>
 #include <math.h>
 #include <stdint.h>
@@ -209,6 +210,11 @@ int main(void) {
     MatchView view = {0};
     gpu_trace_init();
     match_prepare();
+    match_view(&view);
+    SystemMenu system={MENU_CLOSED,0};
+    enum { UP=1, DOWN=2, ACCEPT=4, CANCEL=8 };
+    unsigned previous_buttons=0;
+    int releasing=0;
     for (;;) {
         gpu_begin_input(refresh_hz,view.respawning || view.respawn_work_pending,view.bot_shot_pending);
         SDL_PumpEvents();
@@ -223,6 +229,7 @@ int main(void) {
         }
         float move = 0, strafe = 0, turn = 0, look = 0;
         int classic=0, tuned=0;
+        unsigned buttons=0;
         int jump=0, crouch=0, showmap=0;
         int knife_select=0, swap = 0, fire = 0, refill = 0, start = 0, connected = 0;
         for (int i = 0; i < PAD_COUNT; ++i) if (pads[i].handle) {
@@ -241,6 +248,8 @@ int main(void) {
             pad->previous_reload = x;
             int y = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_Y);
             int down=SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+            if (down) buttons|=DOWN;
+            if (SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_DPAD_UP)) buttons|=UP;
             knife_select |= down && !pad->previous_knife;
             pad->previous_knife=down;
             int menu = SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_START);
@@ -256,18 +265,55 @@ int main(void) {
             pad->reset_ms = reset ? pad->reset_ms+elapsed : 0;
             if (pad->reset_ms >= 1000) XReboot();
         }
+        if (jump) buttons|=ACCEPT;
+        if (crouch) buttons|=CANCEL;
+        unsigned pressed=buttons & ~previous_buttons;
+        previous_buttons=buttons;
+        int paused=system.choice!=MENU_CLOSED;
+        if (!paused && ((pressed&UP) || (start && view.phase==PLAYING))) {
+            system=(SystemMenu){MENU_RESUME,0};
+            if (audio_device) SDL_PauseAudioDevice(audio_device,1);
+        } else if (paused) {
+            if ((pressed&CANCEL) || start) {
+                if (system.confirming) system.confirming=0;
+                else system.choice=MENU_CLOSED;
+            } else if (pressed&ACCEPT) {
+                if (system.choice==MENU_RESUME) system.choice=MENU_CLOSED;
+                else if (!system.confirming) system.confirming=1;
+                else {
+                    switch (system.choice) {
+                    case MENU_DASHBOARD: XLaunchXBE(NULL); XReboot(); break;
+                    case MENU_RESTART: XReboot(); break;
+                    case MENU_SHUTDOWN: HalInitiateShutdown(); break;
+                    default: break;
+                    }
+                }
+            } else if (!system.confirming) {
+                if ((pressed&UP) && system.choice>MENU_RESUME) --system.choice;
+                if ((pressed&DOWN) && system.choice<MENU_SHUTDOWN) ++system.choice;
+            }
+            if (system.choice==MENU_CLOSED) {
+                releasing=1;
+                if (audio_device) SDL_PauseAudioDevice(audio_device,0);
+            }
+        }
+        if (releasing && !buttons && !fire) releasing=0;
         MatchInput input = {
             .move = move, .strafe = strafe, .turn = turn, .look = look,
             .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .start = start,
             .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
         };
-        match_update(&input, elapsed, refreshes*refresh_period);
-        match_view(&view);
-        int aimed = match_targeted(&view);
-        MatchSound effect = match_attack(&input);
-        match_view(&view);
-        update_audio(&view,effect);
-        unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected);
+        int aimed=0;
+        if (system.choice==MENU_CLOSED && !paused) {
+            if (releasing) input=(MatchInput){0};
+            match_update(&input, elapsed, refreshes*refresh_period);
+            match_view(&view);
+            aimed=match_targeted(&view);
+            MatchSound effect=match_attack(&input);
+            match_view(&view);
+            update_audio(&view,effect);
+        }
+        unsigned vblank=gpu_present(&view, &input, aimed, fps10, connected,&system);
         refreshes=vblank-previous_vblank;
         previous_vblank=vblank;
         ++frames;
