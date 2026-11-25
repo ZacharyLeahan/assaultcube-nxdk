@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 #include "../../source/src/playerstate.h"
+#include "../../source/src/disconnect_reason.h"
 
 extern "C" struct netif *g_pnetif;
 
@@ -423,7 +424,11 @@ void lan_poll(unsigned now) {
     }
     ENetEvent ev;
     for(int i=0;i<32 && peer && enet_host_service(host,&ev,0)>0;i++) {
-        if(ev.type==ENET_EVENT_TYPE_DISCONNECT){stop("disconnected");return;}
+        if(ev.type==ENET_EVENT_TYPE_DISCONNECT) {
+            char reason[64];
+            stop(format_disconnect_reason((int)ev.data,reason,sizeof(reason)));
+            return;
+        }
         if(ev.type==ENET_EVENT_TYPE_RECEIVE) {
             Reader r{ev.packet->data,ev.packet->dataLength,0};
             if(ev.channelID==0 && ready) positions(r);
