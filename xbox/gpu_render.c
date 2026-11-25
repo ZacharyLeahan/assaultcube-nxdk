@@ -258,23 +258,23 @@ static void model_color(float x,float y) {
     glColor4ub(rgb[0],rgb[1],rgb[2],255);
 }
 static void update_shot_lighting(const MatchView *v) {
-    ShotLight lights[2]={{(int)v->px,(int)v->py,v->player_light},{(int)v->tx,(int)v->ty,v->bot_light}};
-    LightPatch dirty[4];
-    unsigned changes=shot_light_update(lights,dirty);
+    LightPatch dirty[MAX_DIRTY_LIGHTS];
+    unsigned changes=shot_light_update(v,dirty);
     if (!changes) return;
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D,textures[WORLD_LIGHT_TEX]);
     for (unsigned i=0;i<changes;++i) {
         int x=dirty[i].x,y=dirty[i].y;
-        uint8_t rgba[LIGHT_WIDTH][LIGHT_WIDTH][4];
-        for (int row=0;row<LIGHT_WIDTH;++row) memcpy(rgba[row],lit_cell(x,y+row),sizeof(rgba[row]));
-        glTexSubImage2D(GL_TEXTURE_2D,0,x,y,LIGHT_WIDTH,LIGHT_WIDTH,GL_RGBA,GL_UNSIGNED_BYTE,rgba);
+        int width=dirty[i].width;
+        static uint8_t rgba[LIGHT_WIDTH_MAX*LIGHT_WIDTH_MAX*4];
+        for (int row=0;row<width;++row) memcpy(rgba+row*width*4,lit_cell(x,y+row),width*4);
+        glTexSubImage2D(GL_TEXTURE_2D,0,x,y,width,width,GL_RGBA,GL_UNSIGNED_BYTE,rgba);
     }
     glActiveTexture(GL_TEXTURE0);
     for (unsigned i=0;i<sizeof(prop_lights)/sizeof(prop_lights[0]);++i) {
         const PropLightSpan *p=prop_lights+i;
         for (unsigned j=0;j<changes;++j) {
-            if ((unsigned)(p->x-dirty[j].x)>=LIGHT_WIDTH || (unsigned)(p->y-dirty[j].y)>=LIGHT_WIDTH) continue;
+            if ((unsigned)(p->x-dirty[j].x)>=(unsigned)dirty[j].width || (unsigned)(p->y-dirty[j].y)>=(unsigned)dirty[j].width) continue;
             const uint8_t *rgb=lit_cell(p->x,p->y);
             for (unsigned k=0;k<p->count;++k) memcpy(geometry[p->first+k].rgba,rgb,4);
             break;

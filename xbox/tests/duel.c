@@ -55,20 +55,32 @@ static void test_heightfield_impact(void) {
 
 static void test_shot_light(void) {
     extern const uint8_t cell_light[MAP][MAP][3];
-    ShotLight lights[2]={{129,132,50},{0}};
-    LightPatch dirty[4];
+    MatchView v={.px=129,.py=132,.player_light=50};
+    LightPatch dirty[MAX_DIRTY_LIGHTS];
     shot_light_init();
-    assert(shot_light_update(lights,dirty)==1);
+    assert(shot_light_update(&v,dirty)==1);
     unsigned peak=lit_cell(129,132)[0];
     assert(peak>cell_light[132][129][0]);
-    assert(shot_light_update(lights,dirty)==0);
-    lights[0].strength=10;
-    assert(shot_light_update(lights,dirty)>0 && lit_cell(129,132)[0]<peak);
-    lights[0].x-=2; lights[1]=(ShotLight){130,132,50};
-    assert(shot_light_update(lights,dirty)>0);
-    lights[0].strength=lights[1].strength=0;
-    assert(shot_light_update(lights,dirty)==2);
+    assert(shot_light_update(&v,dirty)==0);
+    v.player_light=10;
+    assert(shot_light_update(&v,dirty)>0 && lit_cell(129,132)[0]<peak);
+    v.px-=2; v.tx=130;v.ty=132;v.bot_light=50;
+    assert(shot_light_update(&v,dirty)>0);
+    v.player_light=v.bot_light=0;
+    assert(shot_light_update(&v,dirty)==2);
     for (int y=125;y<140;++y) for (int x=119;x<137;++x)
+        assert(memcmp(lit_cell(x,y),cell_light[y][x],3)==0);
+    ExplosionView blast={{129,132,0},600};
+    v.explosions=&blast;v.explosion_count=1;
+    assert(shot_light_update(&v,dirty)==1 && dirty[0].width==33);
+    unsigned white=lit_cell(128,132)[2];
+    v.elapsed_ms=599;
+    assert(shot_light_update(&v,dirty)==1 && lit_cell(128,132)[2]<white);
+    v.player_light=50;
+    assert(shot_light_update(&v,dirty)>0);
+    v.elapsed_ms=600;v.player_light=0;
+    assert(shot_light_update(&v,dirty)>0);
+    for(int y=113;y<150;++y) for(int x=110;x<147;++x)
         assert(memcmp(lit_cell(x,y),cell_light[y][x],3)==0);
 }
 
