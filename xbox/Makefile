@@ -1,5 +1,6 @@
 XBE_TITLE = AssaultCube
 GEN_XISO = assaultcube.iso
+NXDK_LDFLAGS += -map:generated/assaultcube.map
 NXDK_SDL = y
 NXDK_CXX = y
 NXDK_CXXFLAGS += -O2 -Wall -fno-rtti

@@ -69,6 +69,16 @@ make -C xbox -j4
 
 Copy `xbox/bin/default.xbe` into its own Games folder on a homebrew-capable original Xbox. With XBMC's FTP server, you can launch it directly by sending `SITE RunXBE F:\Games\AssaultCube\default.xbe` using the installed path. The executable includes the baked assets. The build also produces `xbox/assaultcube.iso`. Original asset credits and licenses remain in the map and packages directories.
 
+### Debug a duel in xbased
+
+On Windows, use a developer build of xbased with `XBASED_DEVCTL=ON` and the nxdk GPU clock and DMA render-target fixes. From the repository root, run this with Python 3.11+ and Pillow.
+
+```powershell
+python xbox/tests/xbased_duel.py C:/path/to/xbased.exe xbox/assaultcube.iso --profile 8
+```
+
+The test starts the one-bot duel at 720p, strafes, fires, pauses, and advances one display swap. Each run gets a separate virtual disk and output directory under `xbox/.local/xbased`. Open `duel.png` to inspect the scene, `draws.json` for GPU state per draw, `threads.json` for guest registers, and `xbased.log` for the optional CPU profile. With the xbased debugger patch, `last-stats.json` also reports draw commands skipped before Vulkan. The nxdk link produces `xbox/generated/assaultcube.map` for resolving guest addresses from that build. Use the physical Xbox frame trace below to measure console frame pacing.
+
 ## Shared gameplay and platform code
 
 The PC client, dedicated server, and Xbox match consume the same `playerstate` class and weapon and item definitions in `source/src/playerstate.h` and `source/src/weaponstats.inc`. The Xbox runs the original free-for-all spawn loadout, gun statistics, pickup limits, and armour damage calculation for both fighters.
