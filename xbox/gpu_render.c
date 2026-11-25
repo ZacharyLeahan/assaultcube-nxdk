@@ -30,7 +30,9 @@ typedef MatchPoint Position;
 extern const Position bot_poses[];
 static Position *pose_positions;
 // Each silhouette edge emits at most one triangle to the shadow tip.
-enum { SHADOW_CAPACITY=3*(2*(sizeof(body_indices)+sizeof(bot_gun_indices)))/sizeof(unsigned short) };
+#define MAX_COUNT(a,b) ((a)>(b)?(a):(b))
+enum { WORLD_GUN_INDEX_BYTES=MAX_COUNT(sizeof(bot_gun_indices),sizeof(world_pistol_indices)) };
+enum { SHADOW_CAPACITY=3*(2*(sizeof(body_indices)+WORLD_GUN_INDEX_BYTES))/sizeof(unsigned short) };
 static Position *shadow_positions, shadow_tip;
 static unsigned shadow_count;
 static unsigned pose_cursor;
@@ -100,13 +102,13 @@ int gpu_init(int width, int height) {
     unsigned pistol=batches[PISTOL_BATCH].count+batches[PISTOL_BATCH+1].count;
     unsigned knife=batches[KNIFE_BATCH].count+batches[KNIFE_BATCH+1].count;
     if (knife>rifle) rifle=knife;
-    unsigned corpse_gun=batches[BOT_GUN_BATCH].count;
-    if (batches[PISTOL_DEATH_BATCH].count>corpse_gun) corpse_gun=batches[PISTOL_DEATH_BATCH].count;
+    unsigned world_gun=MAX_COUNT(batches[BOT_GUN_BATCH].count,batches[WORLD_PISTOL_BATCH].count);
+    unsigned corpse_gun=world_gun;
     if (batches[KNIFE_DEATH_BATCH].count>corpse_gun) corpse_gun=batches[KNIFE_DEATH_BATCH].count;
     unsigned extra=batches[BODY_BATCH].count+corpse_gun;
     if (rifle>extra) extra=rifle;
     if (pistol>extra) extra=pistol;
-    unsigned count=batches[BODY_BATCH].count+batches[BOT_GUN_BATCH].count+extra;
+    unsigned count=batches[BODY_BATCH].count+world_gun+extra;
     pose_positions=pbgl_alloc(count*sizeof(Position));
     if (!pose_positions) return 0;
     shadow_positions=pbgl_alloc(SHADOW_CAPACITY*sizeof(Position));
@@ -231,7 +233,8 @@ static void animated_batch(unsigned current,unsigned next,float blend) {
     glDrawArrays(GL_TRIANGLES,0,b->count);
 }
 
-static MatchPoint muzzle_pose(BotPose pose) {
+static MatchPoint muzzle_pose(BotPose pose,int pistol) {
+    const float (*bot_muzzle)[3]=pistol?world_pistol_muzzle:bot_gun_muzzle;
     const float *a=bot_muzzle[bot_frame_batch[pose.first]],*b=bot_muzzle[bot_frame_batch[pose.second]];
     return mix_point((MatchPoint){a[0],a[1],a[2]},(MatchPoint){b[0],b[1],b[2]},pose.blend);
 }
@@ -239,7 +242,7 @@ static MatchPoint muzzle_pose(BotPose pose) {
 static void shadow_edges(const Position *p,const unsigned short *idx,const unsigned short *neighbor,
                          unsigned faces) {
     unsigned char lit[sizeof(body_indices)/sizeof(unsigned short)/3+
-                      sizeof(bot_gun_indices)/sizeof(unsigned short)/3];
+                      WORLD_GUN_INDEX_BYTES/sizeof(unsigned short)/3];
     for (unsigned f=0;f<faces;++f) {
         Position a=p[idx[3*f]],b=p[idx[3*f+1]],c=p[idx[3*f+2]];
         float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z;
@@ -262,7 +265,7 @@ static void actor_batch(unsigned batch_id,unsigned base,unsigned count,const uns
                       BotPose cur,BotPose prev,float transition,unsigned texture) {
     // UV seams duplicate positions in the draw buffer. Mix each MD2 vertex
     // once before expanding to triangle order.
-    static Position mixed[BODY_VERTICES>BOT_GUN_VERTICES?BODY_VERTICES:BOT_GUN_VERTICES];
+    static Position mixed[MAX_COUNT(BODY_VERTICES,MAX_COUNT(BOT_GUN_VERTICES,WORLD_PISTOL_VERTICES))];
     const Position *poses=bot_poses+base;
     const Position *a=poses+bot_frame_batch[cur.first]*count,*b=poses+bot_frame_batch[cur.second]*count;
     for (unsigned i=0;i<count;++i) mixed[i]=mix_point(a[i],b[i],cur.blend);
@@ -280,6 +283,14 @@ static void actor_batch(unsigned batch_id,unsigned base,unsigned count,const uns
     glVertexPointer(3,GL_FLOAT,sizeof(Position),out);
     glBindTexture(GL_TEXTURE_2D,textures[texture]);
     glDrawArrays(GL_TRIANGLES,0,mesh->count);
+}
+static void world_firearm(int pistol,BotPose current,BotPose previous,float transition) {
+    if (pistol)
+        actor_batch(WORLD_PISTOL_BATCH,WORLD_PISTOL_POSE_BASE,WORLD_PISTOL_VERTICES,
+                    world_pistol_indices,world_pistol_neighbors,current,previous,transition,batches[WORLD_PISTOL_BATCH].texture);
+    else
+        actor_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,
+                    current,previous,transition,batches[BOT_GUN_BATCH].texture);
 }
 static void projection(float near,float half_h) {
     glMatrixMode(GL_PROJECTION);
@@ -445,8 +456,7 @@ static void level(const MatchView *v) {
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
                     v->current_pose,v->previous_pose,v->pose_transition,batches[BODY_BATCH].texture);
-        actor_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,
-                    v->current_pose,v->previous_pose,v->pose_transition,batches[BOT_GUN_BATCH].texture);
+        world_firearm(v->bot_pistol,v->current_pose,v->previous_pose,v->pose_transition);
         stencil_reference(64);
         glPopMatrix();
     }
@@ -463,13 +473,8 @@ static void level(const MatchView *v) {
         stencil_reference(192);
         actor_batch(BODY_BATCH,BODY_POSE_BASE,BODY_VERTICES,body_indices,body_neighbors,
                     pose,pose,1,PLAYER_SKIN);
-        if (v->pistol || v->knife) {
-            unsigned gun=v->knife?KNIFE_DEATH_BATCH:PISTOL_DEATH_BATCH;
-            animated_batch(gun+frame,gun+next,blend);
-        } else {
-            actor_batch(BOT_GUN_BATCH,BOT_GUN_POSE_BASE,BOT_GUN_VERTICES,bot_gun_indices,bot_gun_neighbors,
-                        pose,pose,1,batches[BOT_GUN_BATCH].texture);
-        }
+        if (v->knife) animated_batch(KNIFE_DEATH_BATCH+frame,KNIFE_DEATH_BATCH+next,blend);
+        else world_firearm(v->pistol,pose,pose,1);
         stencil_reference(64);
         glPopMatrix();
     }
@@ -543,17 +548,18 @@ static void level(const MatchView *v) {
         color(1,1,1,1);
     }
     if (v->elapsed_ms<v->bot_flash_end_ms && v->bot_alive) {
-        MatchPoint p=muzzle_pose(v->current_pose);
-        if (v->pose_transition<1) p=mix_point(muzzle_pose(v->previous_pose),p,v->pose_transition);
+        MatchPoint p=muzzle_pose(v->current_pose,v->bot_pistol);
+        if (v->pose_transition<1) p=mix_point(muzzle_pose(v->previous_pose,v->bot_pistol),p,v->pose_transition);
         MatchPoint muzzle=bot_model_point(v,p);
         float x=muzzle.x,y=muzzle.y,z=muzzle.z;
         float angle=(v->bot_flash_end_ms%360)*.017453293f,ca=cosf(angle),sa=sinf(angle);
         glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR);
         glBindTexture(GL_TEXTURE_2D,textures[FLASH_TEX]);
         begin_quads();
+        float radius=v->bot_pistol?.175f:.525f;
         for(int j=0;j<4;++j) {
             int u=j==1||j==2,w=j>=2;
-            float right=u?.525f:-.525f,up=w?-.525f:.525f;
+            float right=u?radius:-radius,up=w?-radius:radius;
             float r=right*ca-up*sa,h=right*sa+up*ca;
             vertex(x-s*r-c*sp*h,y+c*r-s*sp*h,z+cp*h,u,1-w);
         }
@@ -845,10 +851,16 @@ static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,i
         input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};
 }
 static unsigned sample_count;
-static int tracing;
+static int tracing,wait_for_pistol;
 void gpu_trace_init(void) {
     FILE *marker=fopen("D:\\frame-trace.on","rb");
-    if (marker) { fclose(marker); tracing=1; }
+    if (marker) {
+        char trigger[8]={0};
+        fread(trigger,1,sizeof(trigger)-1,marker);
+        fclose(marker);
+        wait_for_pistol=strncmp(trigger,"pistol",6)==0;
+        tracing=1;
+    }
     marker=fopen("D:\\duel-trace.on","rb");
     if (marker) { fclose(marker); duel_frames=malloc(DUEL_CAPACITY*sizeof(*duel_frames)); }
 }
@@ -882,7 +894,8 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     if (work_count<32) ++work_count;
     unsigned address=(unsigned)pb_back_buffer() & 0x03ffffff;
     unsigned signature=0;
-    if (tracing && (v->phase==PLAYING || sample_count)) {
+    if (wait_for_pistol && v->phase==PLAYING && v->bot_pistol) wait_for_pistol=0;
+    if (tracing && !wait_for_pistol && (v->phase==PLAYING || sample_count)) {
         // Sample the completed scene on both sides of the reticle, above the weapon.
         const uint32_t *row=(const uint32_t *)pb_back_buffer()+
             (pb_back_buffer_height()*9/20)*(pb_back_buffer_pitch()/4);
@@ -904,7 +917,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
         if (file) { fwrite(duel_frames,sizeof(*duel_frames),duel_count,file); fclose(file); }
         duel_count=0;
     }
-    if (tracing && (v->phase==PLAYING || sample_count)) {
+    if (tracing && !wait_for_pistol && (v->phase==PLAYING || sample_count)) {
         input_times[sample_count][0]=sample_tick;
         input_times[sample_count][1]=work_ticks[(work_index-1)%32];
         input_times[sample_count][2]=signature;
