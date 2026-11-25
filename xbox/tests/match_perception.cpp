@@ -513,3 +513,27 @@ extern "C" void test_lan_ffa_starts(void) {
     assert(next_lan_start(4)==2);
     match_lan_stop();
 }
+
+extern "C" void test_lan_damage_feedback(void) {
+    int ammo[NUMGUNS]={},mag[NUMGUNS]={};
+    match_prepare();match_lan_spawn(100,0,GUN_ASSAULT,GUN_ASSAULT,ammo,mag);
+    player.yaw=0;
+    match_lan_remote(player.x,player.y+6,feet_z,0,0,0);
+    match_lan_damage(1,1,18,82,0);
+    assert(player.state.health==82 && damage_directions[2]==clock_ms+1000);
+    assert(hurt_until==clock_ms+18*7 && lan_pain_sound==PLAYER_PAIN);
+    match_lan_damage(0,0,32,68,0);
+    assert(blood_count==3 && bot.pain_until==clock_ms+300 && player.state.health==82);
+    char name[]="Windows";
+    match_lan_frag(0,0,GUN_SHOTGUN,0,name);
+    name[0]='X';
+    match_lan_frag(1,0,GUN_SHOTGUN,1,"Windows");
+    MatchView v={};match_view(&v);
+    assert(!strcmp(v.frag_messages[0].text,"you were splattered by Windows"));
+    assert(!strcmp(v.frag_messages[1].text,"you peppered Windows"));
+    match_lan_frag(1,1,GUN_GRENADE,0,"Windows");match_view(&v);
+    assert(!strcmp(v.frag_messages[0].text,"you suicided!"));
+    clock_ms+=3000;match_view(&v);
+    assert(!v.frag_messages[0].text);
+    match_lan_stop();
+}

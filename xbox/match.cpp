@@ -4,6 +4,7 @@
 #include "navigation.h"
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
 #include "../source/src/playerstate.h"
 #define STANDALONE
 typedef unsigned char uchar;
@@ -11,15 +12,15 @@ typedef unsigned char uchar;
 #include "../source/src/weaponstats.inc"
 
 namespace {
-struct WeaponFeedback { MatchSound shot,reload; const char *frag; };
+struct WeaponFeedback { MatchSound shot,reload; const char *verb; };
 const WeaponFeedback feedback[]={
-    {RIFLE_SHOT,RIFLE_RELOAD,"you shredded Bot"},
-    {SMG_SHOT,SMG_RELOAD,"you sprayed Bot"},
-    {CARBINE_SHOT,CARBINE_RELOAD,"you picked off Bot"},
-    {PISTOL_SHOT,PISTOL_RELOAD,"you busted Bot"},
-    {KNIFE_SWING,SILENT,"you slashed Bot"},
-    {SNIPER_SHOT,SNIPER_RELOAD,"you sniped Bot"},
-    {SHOTGUN_SHOT,SHOTGUN_RELOAD,"you splattered Bot"}
+    {RIFLE_SHOT,RIFLE_RELOAD,"shredded"},
+    {SMG_SHOT,SMG_RELOAD,"sprayed"},
+    {CARBINE_SHOT,CARBINE_RELOAD,"picked off"},
+    {PISTOL_SHOT,PISTOL_RELOAD,"busted"},
+    {KNIFE_SWING,SILENT,"slashed"},
+    {SNIPER_SHOT,SNIPER_RELOAD,"punctured"},
+    {SHOTGUN_SHOT,SHOTGUN_RELOAD,"peppered"}
 };
 MatchWeapon view_weapon(int gun) {
     switch (gun) {
@@ -43,7 +44,7 @@ constexpr unsigned duration = 90000;
 constexpr unsigned switch_ms = 400;
 constexpr unsigned player_respawn_ms=2000,bot_respawn_ms=5000;
 constexpr unsigned frag_message_ms=3000;
-struct FragMessage { const char *text; unsigned time; };
+struct FragMessage { char text[72]; unsigned time; };
 FragMessage frag_messages[3];
 constexpr float radians = .017453293f;
 struct Fighter {
@@ -73,7 +74,7 @@ int supply_index=-1;
 unsigned next_supply_check;
 bool lan_item_visible[item_count];
 unsigned lan_retry_at[item_count];
-MatchSound lan_pickup_sound;
+MatchSound lan_pickup_sound,lan_pain_sound,lan_actor_voice;
 unsigned unavailable_until[item_count], random_state, aim_state;
 int spawn_cycle=-1, initial_spawn_cycles=2;
 unsigned spawn_seed;
@@ -373,6 +374,35 @@ void place_death_camera() {
     death_yaw=d>.01f?atan2f(player.y-death_camera.y,player.x-death_camera.x):player.yaw;
     death_pitch=atan2f(feet_z+stance*.5f-death_camera.z,fmaxf(1,d));
 }
+void record_frag(bool local_victim,bool suicide,int gun,bool gib,const char *opponent) {
+    frag_messages[2]=frag_messages[1];
+    frag_messages[1]=frag_messages[0];
+    FragMessage &line=frag_messages[0];
+    line.time=clock_ms;
+    const char *verb=feedback[view_weapon(gun)].verb;
+    if(gun==GUN_SHOTGUN && gib) verb="splattered";
+    if(gun==GUN_SNIPER && gib) verb="headshot";
+    if(gun==GUN_GRENADE) verb="gibbed";
+    if(suicide) snprintf(line.text,sizeof(line.text),"%s suicided%s",local_victim?"you":opponent,local_victim?"!":"");
+    else if(local_victim) snprintf(line.text,sizeof(line.text),"you were %s by %s",verb,opponent);
+    else snprintf(line.text,sizeof(line.text),"you %s %s",verb,opponent);
+}
+void player_damage_feedback(int amount,bool show_direction) {
+    unsigned remaining=hurt_until>clock_ms?hurt_until-clock_ms:0;
+    hurt_until=clock_ms+fminf(3999,remaining+7.f*amount);
+    if(show_direction) {
+        float relative=atan2f(bot.y-player.y,bot.x-player.x)-player.yaw;
+        int sector=(int)floorf(relative/(45*radians)+.5f);
+        damage_directions[(unsigned)sector%8]=clock_ms+1000;
+    }
+}
+void actor_blood(const Fighter &victim,int amount) {
+    for(int i=0;i<amount/10 && i<64;++i) {
+        blood[next_blood]={splash_particle(victim.x,victim.y,eye(victim),3000),0};
+        next_blood=(next_blood+1)%64;
+        if(blood_count<64) ++blood_count;
+    }
+}
 void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float dz,bool headshot=false,int pellet_damage=0,bool pellet_gib=false) {
     float length=sqrtf(dx*dx+dy*dy+dz*dz);
     int base_damage=gun==GUN_SHOTGUN?pellet_damage:guns[gun].damage;
@@ -382,34 +412,21 @@ void damage(Fighter &victim, Fighter &attacker, int gun,float dx,float dy,float 
     bool dead=victim.state.health<=0;
     MatchSound death=dead && effect_random(2) ? ALT_DEATH : PLAYER_DEATH;
     if (&victim == &player) {
-        unsigned remaining=hurt_until>clock_ms?hurt_until-clock_ms:0;
-        hurt_until=clock_ms+fminf(3999,remaining+7*dealt);
-        float relative=atan2f(attacker.y-player.y,attacker.x-player.x)-player.yaw;
-        int sector=(int)floorf(relative/(45*radians)+.5f);
-        damage_directions[(unsigned)sector%8]=clock_ms+1000;
+        player_damage_feedback(dealt,true);
         pain_sound=dead ? death : PLAYER_PAIN;
         if (dead) { place_death_camera(); switch_end=0; player.pitch_velocity=0; }
     } else {
         bot_voice=dead ? death : (MatchSound)(BOT_PAIN1+effect_random(5));
-        for (int i=0;i<base_damage/10;++i) {
-            blood[next_blood]={splash_particle(victim.x,victim.y,eye(victim),3000),0};
-            next_blood=(next_blood+1)%64;
-            if (blood_count<64) ++blood_count;
-        }
+        actor_blood(victim,base_damage);
     }
     if (victim.state.health > 0) return;
-    if (&victim==&bot && (gun==GUN_KNIFE || pellet_gib)) spawn_gibs(victim);
+    if (&victim==&bot && (gun==GUN_KNIFE || pellet_gib || headshot)) spawn_gibs(victim);
     victim.state.health = 0;
     bool local_frag=&attacker==&player;
-    const char *message;
-    if (local_frag) message=feedback[view_weapon(gun)].frag;
-    else message=gun==GUN_PISTOL?"you were busted by Bot":"you were shredded by Bot";
-    frag_messages[2]=frag_messages[1];
-    frag_messages[1]=frag_messages[0];
-    frag_messages[0]={message,clock_ms};
+    record_frag(!local_frag,false,gun,headshot || pellet_gib,"Bot");
     victim.respawn_at=clock_ms+(local_frag?bot_respawn_ms:player_respawn_ms);
     victim.flash_until = 0;
-    attacker.frags+=gun==GUN_KNIFE?2:1;
+    attacker.frags+=(gun==GUN_KNIFE || headshot)?2:1;
     if (attacker.frags >= FRAG_LIMIT) phase = INTERMISSION;
 }
 MatchSound trigger(Fighter &f, bool fire, bool refill) {
@@ -772,7 +789,7 @@ void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prep
 void match_lan_map(unsigned seed) {
     spawn_cycle=-1; initial_spawn_cycles=2; spawn_seed=seed;
     if(!lan_match) { begin(PLAYING); lan_match=true; }
-    hide_bot=true;
+    hide_bot=true; lan_pain_sound=lan_actor_voice=SILENT;
     match_lan_reset_items();
 }
 void match_lan_spawn(int hp,int armour,int primary,int gun,const int *ammo,const int *mag) {
@@ -830,12 +847,27 @@ void match_lan_hitpush(int gun,int damage,float x,float y,float z) {
         impulse(player,x,y,z,damage/100.f*guns[gun].pushfactor);
 }
 void match_lan_health(int hp,int armour) {
-    if(hp<player.state.health) hurt_until=clock_ms+250;
     if(hp<=0 && !player.respawn_at) {
         place_death_camera();
         player.respawn_at=clock_ms+player_respawn_ms;
     }
     player.state.health=hp;player.state.armour=armour;
+}
+void match_lan_damage(int local_victim,int from_remote,int amount,int hp,int armour) {
+    if(local_victim) {
+        match_lan_health(hp,armour);
+        player.pain_until=clock_ms+300;
+        player_damage_feedback(amount,from_remote && !hide_bot);
+        if(hp>0) lan_pain_sound=PLAYER_PAIN;
+    } else if(!hide_bot) {
+        bot.pain_until=clock_ms+300;
+        actor_blood(bot,amount);
+        lan_actor_voice=(MatchSound)(BOT_PAIN1+effect_random(5));
+    }
+}
+void match_lan_frag(int local_victim,int suicide,int gun,int gib,const char *opponent) {
+    record_frag(local_victim,suicide,gun,gib,opponent);
+    (local_victim?lan_pain_sound:lan_actor_voice)=effect_random(2)?ALT_DEATH:PLAYER_DEATH;
 }
 void match_lan_time(unsigned remaining_ms) { lan_end_ms=clock_ms+remaining_ms; }
 void match_lan_score(int local,int frags) { (local?player:bot).frags=frags; }
@@ -862,7 +894,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     if (gib_count) update_gibs(elapsed);
     if (phase!=INTERMISSION) idle_ms=(idle_ms+elapsed)%4000;
     bot_sound=lan_shot_sound; lan_shot_sound=SILENT;
-    movement_sound=pain_sound=bot_voice=SILENT;
+    movement_sound=SILENT; pain_sound=lan_pain_sound; bot_voice=lan_actor_voice;
+    lan_pain_sound=lan_actor_voice=SILENT;
     pickup_sound=lan_match?lan_pickup_sound:SILENT;lan_pickup_sound=SILENT;
     step_sound=stance_sound=SILENT;
     air_sound.sound=impact_sound.sound=SILENT;
@@ -1272,7 +1305,7 @@ void match_view(MatchView *v) {
     unsigned now=clock_ms+intermission_age;
     for (unsigned i=0;i<3;++i) {
         unsigned age=now-frag_messages[i].time;
-        v->frag_messages[i]={age<frag_message_ms?frag_messages[i].text:nullptr,age};
+        v->frag_messages[i]={age<frag_message_ms && frag_messages[i].text[0]?frag_messages[i].text:nullptr,age};
     }
     v->player_light=player.light_until>now?(unsigned)fminf(50,player.light_until-now):0;
     v->bot_light=bot.light_until>now?(unsigned)fminf(50,bot.light_until-now):0;

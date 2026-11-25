@@ -19,6 +19,7 @@ int own=-1,life,remote=-1,remote_life;
 bool ready,alive;
 unsigned last_pos,last_ping,next_spawn,connect_start;
 char status[96];
+char player_names[MAXCLIENTS][16];
 struct PrimaryChoice { int gun; const char *config,*label; };
 constexpr PrimaryChoice primaries[]={
     {GUN_ASSAULT,"assault","Next spawn: MTP-57 rifle"},
@@ -152,7 +153,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             char map[48];r.string(map,sizeof(map));
             int mode=r.integer();r.skip(3);
             if(!r.valid || strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH) {stop("requires ac_desert deathmatch");return;}
-            ready=true;alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
+            memset(player_names,0,sizeof(player_names));ready=true;alive=false;remote=-1;remote_weapon=GUN_ASSAULT;match_lan_map(now);
             // Size and map revision of the bundled official ac_desert.cgz.
             m.word(SV_MAPIDENT);m.word(12629);m.word(19);m.transmit();
             next_spawn=now+1200;
@@ -191,13 +192,19 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             messages(sub,now,cn);break;
         }
         case SV_DAMAGE:case SV_GIBDAMAGE:{
-            int victim=r.integer();r.skip(3);int armour=r.integer(),hp=r.integer();
-            if(r.valid && victim==own) match_lan_health(hp,armour);
+            int victim=r.integer(),actor=r.integer(),gun=r.integer(),damage=r.integer();
+            int armour=r.integer(),hp=r.integer();
+            if(r.valid && gun>=0 && gun<NUMGUNS && damage>=0 && (victim==own || victim==remote))
+                match_lan_damage(victim==own,actor==remote,damage,hp,armour);
             break;
         }
         case SV_GIBDIED:case SV_DIED:{
-            int victim=r.integer(),actor=r.integer(),frags=r.integer();r.integer();
+            int victim=r.integer(),actor=r.integer(),frags=r.integer(),gun=r.integer();
             if(!r.valid) return;
+            if((victim==own || victim==remote) && (actor==own || actor==remote) && gun>=0 && gun<NUMGUNS) {
+                const char *name=remote>=0 && player_names[remote][0]?player_names[remote]:"PC";
+                match_lan_frag(victim==own,victim==actor,gun,type==SV_GIBDIED,name);
+            }
             if(actor==own || actor==remote) match_lan_score(actor==own,frags);
             if(victim==own) {alive=false;next_spawn=now+2200;match_lan_health(0,0);}
             if(victim==remote) match_lan_remote_death(type==SV_GIBDIED);
@@ -224,7 +231,17 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(r.valid) match_lan_item(entity,false,picker==own);
             break;
         }
-        case SV_INITCLIENT:r.integer();r.string(nullptr,0);r.skip(8);break;
+        case SV_INITCLIENT:case SV_SWITCHNAME: {
+            int cn=type==SV_INITCLIENT?r.integer():sender;
+            char name[16];r.string(name,sizeof(name));
+            if(type==SV_INITCLIENT) r.skip(8);
+            if(r.valid && cn>=0 && cn<MAXCLIENTS) {
+                unsigned n=0;
+                for(const char *ch=name;*ch;++ch) if(*ch>=32 && *ch<=126) player_names[cn][n++]=*ch;
+                player_names[cn][n]=0;
+            }
+            break;
+        }
         case SV_TIMEUP:{
             int elapsed=r.integer(),limit=r.integer();
             if(r.valid && elapsed>=0 && limit>=elapsed) match_lan_time(limit-elapsed);
