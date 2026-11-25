@@ -492,7 +492,9 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
         float pitch=v->pitch*degrees/90;
         if(pitch>1.f/3) pitch=pitch*.25f+.25f;
         if(pitch< -1.f/3) pitch=pitch*.25f-.25f;
-        int pi=nearest((pitch+.5f)*256)&255;
+        int pi=nearest((pitch+.5f)*256);
+        if(pi>255) pi=255;
+        if(pi<0) pi=0;
         int move=(input->move>.1f)-(input->move<-.1f),strafe=(input->strafe>.1f)-(input->strafe<-.1f);
         // The stock strafe flag is positive to the left. Xbox input is positive to the right.
         int movement=4+move*3-strafe+(v->on_ladder?9:v->crouching?18:0);

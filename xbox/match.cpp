@@ -68,6 +68,7 @@ constexpr unsigned frag_message_ms=3000;
 struct FragMessage { char text[72]; unsigned time; };
 FragMessage frag_messages[3];
 constexpr float radians = .017453293f;
+constexpr float max_pitch = 90*radians;
 struct Fighter {
     playerstate state;
     float x, y, yaw, pitch, eye_height;
@@ -730,7 +731,7 @@ int collect(Fighter &f) {
     }
     return -1;
 }
-// Both volumes use horizontal ray distance as their parameter. Rotating into
+// Both volumes use distance along the unit ray as their parameter. Rotating into
 // actor-local space makes the pitched torso an upright finite cylinder.
 static float torso_contact(MatchPoint delta,float yaw,float tilt,float height,float c,float s,float slope,float range) {
     float cy=cosf(yaw),sy=sinf(yaw),ct=cosf(tilt),st=sinf(tilt);
@@ -755,7 +756,7 @@ static float torso_contact(MatchPoint delta,float yaw,float tilt,float height,fl
 }
 void bot_fire_ray(float yaw,float pitch,int gun) {
     MatchPoint from={bot.x,bot.y,eye(bot)-.2f};
-    float dx=cosf(yaw),dy=sinf(yaw),dz=tanf(pitch);
+    float dx=cosf(pitch)*cosf(yaw),dy=cosf(pitch)*sinf(yaw),dz=sinf(pitch);
     MatchPoint target={from.x+512*dx,from.y+512*dy,from.z+512*dz};
     SurfaceHit hit;
     bool wall=trace_surface(from.x,from.y,from.z,target.x,target.y,target.z,&hit);
@@ -769,12 +770,11 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
         ray.bot_head=bot_model_point(&ray,head_poses[was_crouching?135:0]);
     }
     if(gun==GUN_KNIFE) {
-        if(target_contact(&ray,3*cosf(pitch),true)) damage(player,bot,gun,dx,dy,dz);
+        if(target_contact(&ray,3,true)) damage(player,bot,gun,dx,dy,dz);
         return;
     }
     if(gun==GUN_SHOTGUN) {
-        float norm=hypotf(1,dz);
-        shotgun_pattern(from,{dx/norm,dy/norm,dz/norm},reach*norm,&ray,true);
+        shotgun_pattern(from,{dx,dy,dz},reach,&ray,true);
         return;
     }
     bool reaches_wall=wall && reach==wall_depth;
@@ -782,13 +782,13 @@ void bot_fire_ray(float yaw,float pitch,int gun) {
     float contact=torso_contact(delta,player.yaw,player.pitch*.25f,stance,dx,dy,dz,reach);
     bool head=gun==GUN_SNIPER && target_contact(&ray,reach,false)==2;
     if (contact>=0 || head) {
-        reach=head?distance(from.x,from.y,ray.bot_head.x,ray.bot_head.y):contact;
+        reach=head?hypotf(distance(from.x,from.y,ray.bot_head.x,ray.bot_head.y),from.z-ray.bot_head.z):contact;
         // Stock raydamage only awards the sniper headshot multiplier to player1.
         damage(player,bot,gun,dx,dy,dz);
     }
     target={from.x+reach*dx,from.y+reach*dy,from.z+reach*dz};
     // PC attackfx still marks a surface within one unit of a struck actor.
-    if (reaches_wall && (contact<0 || (wall_depth-contact)*hypotf(1,dz)<=1)) {
+    if (reaches_wall && (contact<0 || wall_depth-contact<=1)) {
         mark_surface(hit);
         if (hit.can_mark && hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
             impact_sound={{hit.x,hit.y,hit.z},hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
@@ -1222,7 +1222,7 @@ void update_bot(float dt) {
     float target_yaw=atan2f(ay,ax),target_pitch=atan2f(az,sqrtf(ax*ax+ay*ay+az*az));
     bot.yaw=bot_aim_step(bot.yaw,target_yaw,false,dt);
     bot.pitch=bot_aim_step(bot.pitch,target_pitch,true,dt);
-    bot.pitch=fmaxf(-75*radians,fminf(75*radians,bot.pitch+recoil_degrees(bot,false)*radians));
+    bot.pitch=fmaxf(-max_pitch,fminf(max_pitch,bot.pitch+recoil_degrees(bot,false)*radians));
     float min_fire=bot.state.gunselect==GUN_SHOTGUN || bot.state.gunselect==GUN_KNIFE?0:3;
     if (clock_ms<bot_attack_at || clock_ms<bot.ready_at || fire_distance<min_fire || fire_distance>range.max_fire) return;
     if(bot.state.gunselect==GUN_GRENADE) {
@@ -1547,7 +1547,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
     MatchInput neutral={};
     if (player.respawn_at) {
         death_yaw=fmodf(death_yaw+in->turn*150*radians*dt,6.2831853f);
-        death_pitch=fmaxf(-75*radians,fminf(75*radians,death_pitch+in->look*105*radians*dt));
+        death_pitch=fmaxf(-max_pitch,fminf(max_pitch,death_pitch+in->look*105*radians*dt));
         // Keep knockback, drag and gravity on the body while stick input controls the camera.
         neutral.crouch=was_crouching;
         in=&neutral;
@@ -1572,7 +1572,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         // The PC applies recoil on a 5 ms physics clock. Keep stick input on
         // the display clock so a new aim report affects this rendered frame.
         pitch_change+=recoil_degrees(player,in->crouch);
-        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+pitch_change*radians));
+        player.pitch=fmaxf(-max_pitch,fminf(max_pitch,player.pitch+pitch_change*radians));
 
         float floor,ceiling;
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
@@ -1821,7 +1821,7 @@ static void shotgun_pattern(MatchPoint from,MatchPoint direction,float length,Ma
             if(target && !hide_bot) {
                 float xy=hypotf(d.x,d.y);
                 target->angle=atan2f(d.y,d.x);target->pitch=atan2f(d.z,xy);
-                if(target_contact(target,reach*xy,true)) {
+                if(target_contact(target,reach*hypotf(xy,d.z),true)) {
                     ++hits[ring];
                     reach=victim_distance/sqrtf(xy*xy+d.z*d.z);
                 }
@@ -1892,7 +1892,7 @@ MatchSound match_attack(const MatchInput *in) {
         ray.px=player.x; ray.py=player.y; ray.eye=z; ray.angle=player.yaw;
         ray.pitch=atan2f(dz,hypotf(dx,dy));
         bot_view(&ray);
-        shot_contact=!hide_bot && target_contact(&ray,hypotf(dx,dy),true);
+        shot_contact=!hide_bot && target_contact(&ray,hypotf(hypotf(dx,dy),dz),true);
         float length=sqrtf(dx*dx+dy*dy+dz*dz);
         shot_direction=length>0?MatchPoint{dx/length,dy/length,dz/length}:direction;
         if (shot_contact) {
@@ -1931,7 +1931,7 @@ MatchSound match_attack(const MatchInput *in) {
         bot_view(&ray);
         float magnitude=sqrtf(dx*dx+dy*dy+dz*dz);
         shot_direction={dx/magnitude,dy/magnitude,dz/magnitude};
-        shot_contact=hide_bot?0:target_contact(&ray,length*hypotf(dx,dy),false);
+        shot_contact=hide_bot?0:target_contact(&ray,length*magnitude,false);
         if (shot_contact) {
             if (!lan_match) damage(bot,player,gun,dx,dy,dz,gun==GUN_SNIPER && shot_contact==2);
             // PC raydamage shortens the effects endpoint to the struck actor.
@@ -2089,15 +2089,16 @@ void match_view(MatchView *v) {
 
 static int target_contact(const MatchView *v,float range,bool check_geometry) {
     if (!v->bot_alive || v->respawning) return 0;
-    float c=cosf(v->angle),s=sinf(v->angle),slope=tanf(v->pitch);
+    float c=cosf(v->angle),s=sinf(v->angle);
     if (fabsf((v->ty-v->py)*c-(v->tx-v->px)*s)>4) return 0;
     float x=v->bot_head.x-v->px,y=v->bot_head.y-v->py,z=v->bot_head.z-v->eye;
-    float norm=1+slope*slope,closest=(x*c+y*s+z*slope)/norm;
-    float rx=x-closest*c,ry=y-closest*s,rz=z-closest*slope;
+    float xy=cosf(v->pitch),dx=c*xy,dy=s*xy,dz=sinf(v->pitch);
+    float closest=x*dx+y*dy+z*dz;
+    float rx=x-closest*dx,ry=y-closest*dy,rz=z-closest*dz;
     float radius2=.4f*.4f-rx*rx-ry*ry-rz*rz;
     MatchPoint delta={v->px-v->tx,v->py-v->ty,v->eye-v->bot_floor};
-    auto torso=[&](float limit) { return torso_contact(delta,v->bot_yaw,v->bot_tilt,v->bot_height,c,s,slope,limit); };
-    float enter=radius2>=0?closest-sqrtf(radius2/norm):-1;
+    auto torso=[&](float limit) { return torso_contact(delta,v->bot_yaw,v->bot_tilt,v->bot_height,dx,dy,dz,limit); };
+    float enter=radius2>=0?closest-sqrtf(radius2):-1;
     bool head=enter>=0 && enter<=range;
     if (!head) enter=torso(range);
     else if (check_geometry) {
@@ -2107,8 +2108,8 @@ static int target_contact(const MatchView *v,float range,bool check_geometry) {
     }
     if (enter<0) return 0;
     if (!check_geometry) return head?2:1;
-    return visible(v->px,v->py,v->eye,v->px+c*enter,v->py+s*enter,v->eye+slope*enter) &&
-           prop_depth({v->px,v->py,v->eye},{c,s,slope},enter)>=enter;
+    return visible(v->px,v->py,v->eye,v->px+dx*enter,v->py+dy*enter,v->eye+dz*enter) &&
+           prop_depth({v->px,v->py,v->eye},{dx,dy,dz},enter)>=enter;
 }
 int match_targeted(const MatchView *v) {
     return !v->hide_bot && target_contact(v,512,true);

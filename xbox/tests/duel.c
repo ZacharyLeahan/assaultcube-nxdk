@@ -638,6 +638,11 @@ static void test_bot_hit_volumes(void) {
     assert(match_targeted(&v));
     v.px-=.15f*s; v.py+=.15f*c;
     assert(!match_targeted(&v));
+    v.px=v.tx; v.py=v.ty; v.eye=v.bot_floor+v.bot_height+3;
+    v.pitch=-90*.017453293f;
+    assert(match_targeted(&v));
+    v.pitch=-v.pitch;
+    assert(!match_targeted(&v));
     // Interpolated head coordinates follow the very same pain frames as the mesh.
     MatchPoint idle_head=v.bot_head;
     in=(MatchInput){.fire=1};
@@ -964,6 +969,6 @@ int main(void) {
     input.look=1;
     for (int i=0;i<60;++i) match_update(&input,16,1.f/60);
     match_view(&view);
-    assert(view.angle==stopped && fabsf(view.pitch-75*.017453293f)<.0001f);
+    assert(view.angle==stopped && fabsf(view.pitch-90*.017453293f)<.0001f);
     puts("Passed bot duel, respawns, score limit, rematch and time limit.");
 }
