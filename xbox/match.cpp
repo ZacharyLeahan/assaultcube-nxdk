@@ -20,6 +20,7 @@ struct Fighter {
     playerstate state;
     float x, y, yaw, pitch, eye_height;
     float velocity_x, velocity_y, turn_boost;
+    float sway_x, sway_y;
     int turn_direction;
     int frags;
     unsigned respawn_at, ready_at, reload_at, flash_until;
@@ -34,6 +35,8 @@ MatchPhase phase;
 bool classic_assist;
 MatchSound bot_sound;
 ItemView item_views[item_count];
+BulletMark marks[64];
+unsigned next_mark, mark_count;
 unsigned random_number() {
     random_state = random_state*1664525u + 1013904223u;
     return random_state >> 8;
@@ -46,6 +49,7 @@ void spawn(Fighter &f, int index) {
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=ground(f.x,f.y)+3.6f;
     f.velocity_x=f.velocity_y=f.turn_boost=0;
+    f.sway_x=f.sway_y=0;
     f.turn_direction=0;
     f.state.respawn();
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
@@ -56,6 +60,7 @@ void aim_at_opponent(Fighter &f, const Fighter &opponent) {
     f.pitch = atan2f(eye(opponent)-1-eye(f),fmaxf(1,distance(f.x,f.y,opponent.x,opponent.y)));
 }
 void begin(MatchPhase initial) {
+    next_mark=mark_count=0;
     clock_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0;
@@ -144,9 +149,6 @@ void update_bot(float dt) {
         if (route_next(bot.x,bot.y,&tx,&ty)) {
             mx = tx-bot.x; my = ty-bot.y;
         }
-    } else if (clock_ms >= 1800) {
-        float sign = (clock_ms/1500)%2 ? -1 : 1;
-        mx = -dy/d*sign; my = dx/d*sign;
     }
     float length = hypotf(mx,my), old_x = bot.x, old_y = bot.y;
     if (length > .001f) {
@@ -161,12 +163,13 @@ void update_bot(float dt) {
     }
     if (!sees) { bot_saw_player = false; burst = 0; return; }
     if (!bot_saw_player) {
-        if (bot_attack_at < clock_ms+650) bot_attack_at = clock_ms+650;
+        // SKILL5 in bot/bot_skill.cfg allows 1.5-2 seconds to acquire a target.
+        bot_attack_at = clock_ms+1500+random_number()%501;
         bot_saw_player = true;
     }
     float ideal = atan2f(player.y-bot.y,player.x-bot.x);
     float delta = atan2f(sinf(ideal-bot.yaw),cosf(ideal-bot.yaw));
-    bot.yaw += fmaxf(-2.8f*dt,fminf(2.8f*dt,delta));
+    bot.yaw += fmaxf(-75*radians*dt,fminf(75*radians*dt,delta));
     if (clock_ms < bot_attack_at || fabsf(delta)>.14f || d>80) return;
     int gun = bot.state.gunselect;
     if (!bot.state.mag[gun] && !bot.state.ammo[gun]) bot.state.gunselect = GUN_PISTOL;
@@ -219,7 +222,13 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float fraction=change>0 ? fminf(1,acceleration*dt/change) : 0;
         player.velocity_x+=dx*fraction;
         player.velocity_y+=dy*fraction;
+        float old_x=player.x,old_y=player.y;
         walk(&player.x,&player.y,player.velocity_x*dt,player.velocity_y*dt);
+        if (dt>0) {
+            float gain=1-powf(.7f,100*dt);
+            player.sway_x+=gain*((player.x-old_x)/(16*dt)-player.sway_x);
+            player.sway_y+=gain*((player.y-old_y)/(16*dt)-player.sway_y);
+        }
         // Ease eye height over grid steps. Keep the sight origin inside the new cell.
         const Cube *cell=map_cube((int)player.x,(int)player.y);
         float delta=cell->floor+3.6f-player.eye_height;
@@ -257,9 +266,21 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
 MatchSound match_attack(const MatchInput *in, int aimed) {
     bool fire = in->fire && (guns[player.state.gunselect].isauto || !was_firing);
     was_firing = in->fire;
-    return phase == PLAYING ? trigger(player,fire,in->refill,aimed,bot) : SILENT;
+    MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill,aimed,bot) : SILENT;
+    if (!aimed && (shot==RIFLE_SHOT || shot==PISTOL_SHOT)) {
+        float length=512*cosf(player.pitch), z=eye(player);
+        SurfaceHit hit;
+        if (trace_surface(player.x,player.y,z,player.x+length*cosf(player.yaw),
+                          player.y+length*sinf(player.yaw),z+512*sinf(player.pitch),&hit)) {
+            marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
+            next_mark=(next_mark+1)%64;
+            if (mark_count<64) ++mark_count;
+        }
+    }
+    return shot;
 }
 void match_view(MatchView *v) {
+    v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
     v->classic_assist=classic_assist;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;
@@ -280,9 +301,20 @@ void match_view(MatchView *v) {
         v->reload_lower=t*t*(3-2*t);
     }
     v->weapon_kick=0;
+    float speed=fminf(1,hypotf(player.sway_x,player.sway_y));
+    float step=clock_ms/105.f;
+    v->gun_side=.55f*(player.sway_y*cosf(player.yaw)-player.sway_x*sinf(player.yaw))
+                -.26f*speed*sinf(step);
+    v->gun_up=-.28f*speed*fabsf(cosf(step));
+    v->gun_forward=.45f*(player.sway_x*cosf(player.yaw)+player.sway_y*sinf(player.yaw));
+    v->gun_rotation=v->gun_back=0;
     if (player.flash_until>clock_ms) {
         float t=(90-(player.flash_until-clock_ms))/90.f;
         v->weapon_kick=fminf(t/.22f,(1-t)/.78f);
+        float phase=1.5f*t-1.5f;
+        float kick=-sinf(phase*phase*phase);
+        v->gun_rotation=guns[gun].mdl_kick_rot*kick;
+        v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
     v->flash = player.flash_until > clock_ms; v->hitflash = hit_until > clock_ms;
     v->hurt = hurt_until > clock_ms; v->phase = phase; v->bot_sound = bot_sound;

@@ -32,23 +32,41 @@ void walk(float *x, float *y, float dx, float dy) {
         if (passable(*x,ny,map_cube((int)*x,(int)*y)->floor)) *y = ny;
     }
 }
-int visible(float x, float y, float z, float tx, float ty, float tz) {
+int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit *hit) {
     float dx = tx-x, dy = ty-y;
     // Visit each boundary so thin pillars and raised ledges occlude gunfire.
     int ix = (int)x, iy = (int)y, sx = dx >= 0 ? 1 : -1, sy = dy >= 0 ? 1 : -1;
     float step_x = 1/fmaxf(fabsf(dx),.000001f), step_y = 1/fmaxf(fabsf(dy),.000001f);
     float nx = (sx>0 ? ix+1-x : x-ix)*step_x, ny = (sy>0 ? iy+1-y : y-iy)*step_y;
     float t = 0;
+    int entry_axis=0;
     for (;;) {
         float end = fminf(1,fminf(nx,ny));
         const Cube *c = map_cube(ix,iy);
         float a = z+(tz-z)*t, b = z+(tz-z)*end;
-        if (map_solid(c) || fminf(a,b) <= c->floor || fmaxf(a,b) >= c->ceil) return 0;
-        if (end >= 1) return 1;
+        if (map_solid(c) || fminf(a,b) <= c->floor || fmaxf(a,b) >= c->ceil) {
+            if (hit) {
+                int axis=entry_axis;
+                if (!map_solid(c) && a>c->floor && a<c->ceil && tz!=z) {
+                    if (b>=c->ceil && !c->roof) return 0; // open sky
+                    t=((b<=c->floor ? c->floor : c->ceil)-z)/(tz-z);
+                    axis=2;
+                }
+                hit->x=x+t*dx; hit->y=y+t*dy; hit->z=z+t*(tz-z); hit->axis=axis;
+                if (axis==0) hit->x-=sx*.015f;
+                if (axis==1) hit->y-=sy*.015f;
+                if (axis==2) hit->z+=tz<z?.015f:-.015f;
+            }
+            return 1;
+        }
+        if (end >= 1) return 0;
         t = end;
-        if (nx <= end) { ix += sx; nx += step_x; }
-        if (ny <= end) { iy += sy; ny += step_y; }
+        if (nx <= end) { ix += sx; nx += step_x; entry_axis=0; }
+        if (ny <= end) { iy += sy; ny += step_y; entry_axis=1; }
     }
+}
+int visible(float x,float y,float z,float tx,float ty,float tz) {
+    return !trace_surface(x,y,z,tx,ty,tz,NULL);
 }
 
 // A reverse breadth-first search gives the next walkable cell from any spawn.

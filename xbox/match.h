@@ -16,10 +16,12 @@ typedef struct { float move, strafe, turn, look; int fire, refill, swap, start, 
 typedef enum { READY, PLAYING, INTERMISSION } MatchPhase;
 typedef enum { SILENT, RIFLE_SHOT, RIFLE_RELOAD, PISTOL_SHOT, PISTOL_RELOAD } MatchSound;
 typedef struct { int x, y, icon; } ItemView;
+typedef struct { float x,y,z; int axis; unsigned expires; } BulletMark;
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_yaw;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
     float stride_blend, weapon_kick, reload_lower;
+    float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     int bot_pose, bot_flash, respawning, reload, flash, hitflash, hurt;
     unsigned seconds;
     MatchPhase phase;
@@ -27,6 +29,8 @@ typedef struct {
     MatchSound bot_sound;
     const ItemView *items;
     int item_count;
+    const BulletMark *marks;
+    unsigned mark_count, elapsed_ms;
 } MatchView;
 
 const Cube *map_cube(int x, int y);

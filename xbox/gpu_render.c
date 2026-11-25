@@ -240,6 +240,21 @@ static void level(const MatchView *v) {
         }
     }
     end_quads(); glDisable(GL_ALPHA_TEST);
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
+    begin_quads();
+    for (unsigned i=0;i<v->mark_count;++i) {
+        const BulletMark *m=v->marks+i;
+        if (m->expires<=v->elapsed_ms) continue;
+        for (int j=0;j<4;++j) {
+            int u=j==1||j==2, w=j>=2;
+            float a=u?.30f:-.30f, b=w?.30f:-.30f;
+            vertex(m->x+(m->axis==0?0:a),m->y+(m->axis==0?a:m->axis==2?b:0),
+                   m->z+(m->axis==2?0:b),u,w);
+        }
+    }
+    end_quads(); glDisable(GL_BLEND);
     // The sky encloses the entire map. Depth rejection skips covered sky pixels.
     glLoadMatrixf(camera);
     glDepthMask(GL_FALSE);
@@ -252,7 +267,8 @@ static void weapon(const MatchView *v) {
     projection();
     const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 4,-1,-10,1};
     glLoadMatrixf(camera);
-    glTranslatef(0,0,-6*v->reload_lower);
+    glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up-4*v->reload_lower);
+    glRotatef(v->gun_rotation-45*v->reload_lower,1,0,0);
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
     animated_batch(first,first+2,v->weapon_kick);
@@ -273,6 +289,30 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
         end_quads();
     }
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    if (v->phase==PLAYING) {
+        const float cx=hud_width-84, cy=112, radius=60, span=29;
+        float c=cosf(v->angle), s=sinf(v->angle);
+        glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);
+        color(1,1,1,1);
+        begin_quads();
+        for (int i=0;i<32;++i) {
+            vertex(cx,cy,0,v->px/MAP,v->py/MAP);
+            for (int j=i;j<=i+1;++j) {
+                float a=j*(6.2831853f/32), x=cosf(a), y=sinf(a);
+                vertex(cx+radius*x,cy+radius*y,0,(v->px-span*(s*x+c*y))/MAP,
+                       (v->py+span*(c*x-s*y))/MAP);
+            }
+            vertex(cx,cy,0,v->px/MAP,v->py/MAP);
+        }
+        end_quads();
+        glBindTexture(GL_TEXTURE_2D,textures[RADAR_RING]);
+        begin_quads(); quad(cx-70,cy-70,140,140,0,0,1,1); end_quads();
+        glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+        color(.4f,1,.45f,1); begin_quads();
+        vertex(cx,cy-5,0,0,0); vertex(cx+4,cy+4,0,0,0);
+        vertex(cx,cy+2,0,0,0); vertex(cx-4,cy+4,0,0,0);
+        end_quads();
+    }
     color(.03f,.04f,.05f,.78f); begin_quads();
     quad(28,24,528,v->phase==PLAYING?62:116,0,0,0,0); end_quads();
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
