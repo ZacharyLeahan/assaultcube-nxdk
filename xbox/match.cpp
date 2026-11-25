@@ -46,6 +46,7 @@ bool grounded, held_jump, in_water;
 unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
+unsigned radar_action_until;
 unsigned unavailable_until[item_count], random_state, aim_state;
 int bot_pose;
 float stride_phase,stride_rate;
@@ -188,6 +189,7 @@ void spawn(Fighter &f, int index) {
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
     f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
+        radar_action_until=0;
         switch_end=0; previous_firearm=GUN_ASSAULT;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
@@ -367,6 +369,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
         // Manual reload starts immediately, retaining any outstanding shot wait.
         unsigned start=f.ready_at>clock_ms?f.ready_at:clock_ms;
         f.ready_at=start+reloadtime(gun);
+        if (&f==&player) radar_action_until=clock_ms+500;
         f.reload_at=f.ready_at;
         f.reload_hud_until=clock_ms+reloadtime(gun);
         return gun == GUN_PISTOL ? PISTOL_RELOAD : RIFLE_RELOAD;
@@ -379,6 +382,7 @@ MatchSound trigger(Fighter &f, bool fire, bool refill) {
     if (f.ready_at && f.ready_at>=frame_start_ms && clock_ms-f.ready_at<delay)
         action=f.ready_at;
     f.ready_at = action+delay;
+    if (&f==&player) radar_action_until=action+500;
     f.flash_until = action+90;
     f.light_until=clock_ms+100;
     return gun == GUN_PISTOL ? PISTOL_SHOT : RIFLE_SHOT;
@@ -789,6 +793,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             if (current==GUN_KNIFE) next_gun=previous_firearm;
             else if (in->knife_select) { previous_firearm=current; next_gun=GUN_KNIFE; }
             else next_gun=current==GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
+            radar_action_until=clock_ms+500;
             switch_end=clock_ms+switch_ms;
             player.ready_at=0;
             player.shots=player.shot_until=0;
@@ -899,6 +904,7 @@ MatchSound match_attack(const MatchInput *in) {
     if (player.state.gunselect==GUN_KNIFE) {
         if (phase!=PLAYING || player.respawn_at || !fire || player.ready_at>clock_ms) return SILENT;
         unsigned action=player.ready_at>=frame_start_ms?player.ready_at:clock_ms;
+        radar_action_until=action+500;
         player.ready_at=player.shot_until=action+attackdelay(GUN_KNIFE);
         semi_trigger_used=true;
         MatchPoint direction;
@@ -973,6 +979,7 @@ void match_view(MatchView *v) {
     v->camera=player.respawn_at?death_camera:MatchPoint{player.x,player.y,eye(player)};
     v->camera_yaw=player.respawn_at?death_yaw:player.yaw;
     v->camera_pitch=player.respawn_at?death_pitch:player.pitch;
+    v->radar_active=clock_ms<radar_action_until;
     v->player_floor=feet_z;
     v->death_frame=player.respawn_at?fminf(5,(now+player_respawn_ms-player.respawn_at)/100.f):0;
     bot_view(v);
