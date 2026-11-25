@@ -69,7 +69,64 @@ static void test_weapon_switch(void) {
     match_update(&in,1,.001f);
     assert(match_attack(&in)==PISTOL_SHOT);
 }
+static void test_well_ladder(void) {
+    MatchView v;
+    MatchInput in={.start=1};
+    match_prepare(); match_update(&in,16,.016f);
+    // Walk from the opening spawn around the west side of the courtyard.
+    const float route[][2]={{117.5f,132.5f},{117.5f,142.5f},{123.5f,142.5f},
+        {123.5f,143.5f},{127.5f,143.5f},{127.5f,147.5f},{128.5f,147.5f},
+        {128.5f,148.5f},{129.5f,148.5f},{129.5f,149.5f},{145.5f,149.5f},{145.5f,161.5f}};
+    for (unsigned i=0;i<sizeof(route)/sizeof(route[0]);++i) {
+        int n;
+        for (n=0;n<150;++n) {
+            match_view(&v);
+            float dx=route[i][0]-v.px,dy=route[i][1]-v.py;
+            if (hypotf(dx,dy)<.12f) break;
+            float scale=1/fmaxf(1.5f,hypotf(dx,dy));
+            in=(MatchInput){.move=scale*(dx*cosf(v.angle)+dy*sinf(v.angle)),
+                            .strafe=scale*(dy*cosf(v.angle)-dx*sinf(v.angle))};
+            match_update(&in,16,.016f);
+        }
+        assert(n<150);
+    }
+    // Face east and jump backward over the rim.
+    for (int i=0;i<100;++i) {
+        match_view(&v);
+        in=(MatchInput){.turn=fmaxf(-.8f,fminf(.8f,-remainderf(v.angle,6.2831853f)/(.016f*150*.017453293f)))};
+        match_update(&in,16,.016f);
+    }
+    in=(MatchInput){.move=-1,.jump=1};
+    for (int i=0;i<32;++i) match_update(&in,16,.016f);
+    in=(MatchInput){0};
+    int entered=0,exited=0;
+    for (int i=0;i<100;++i) {
+        match_update(&in,16,.016f); match_view(&v);
+        entered+=v.movement_sound==WATER_ENTER;
+    }
+    assert(v.eye < -9 && entered==1);
+    in.move=1;
+    for (int i=0;i<150 && v.eye < -3;++i) {
+        match_update(&in,16,.016f); match_view(&v);
+        exited+=v.movement_sound==WATER_EXIT;
+    }
+    match_view(&v); float halfway=v.eye;
+    assert(halfway>=-3 && halfway<0 && exited==1);
+    in.move=0;
+    for (int i=0;i<12;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(fabsf(v.eye-halfway)<.001f);
+    in.move=-1;
+    for (int i=0;i<8;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(v.eye<halfway-1);
+    in=(MatchInput){.crouch=1};
+    for (int i=0;i<60;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(v.eye < -9);
+    in=(MatchInput){.move=1};
+    for (int i=0;i<110;++i) match_update(&in,16,.016f);
+    match_view(&v); assert(v.px>142 && v.eye>3);
+}
 int main(void) {
+    test_well_ladder();
     test_weapon_switch();
     MatchInput floor_shot={.start=1};
     MatchView effects;
@@ -90,6 +147,21 @@ int main(void) {
     // This floor has opposite high corners. The body uses the cell mean,
     // while a vertical shot at the center lands on its rendered diagonal.
     SurfaceHit slope;
+    // The solid boundary above the east battlement is a sky portal.
+    assert(!trace_surface(179,156.5f,12,190,156.5f,12,&slope));
+    // The low rotated obstacle at (164,156) stops walking but can be jumped.
+    float x=160.5f,y=156.5f,floor,ceiling;
+    walk_body(&x,&y,5,0,0,4.5f,1.5f);
+    assert(x>161 && x<163);
+    walk_body(&x,&y,2,0,2,4.5f,0);
+    body_space(x,y,2,&floor,&ceiling);
+    assert(x>163 && fabsf(floor-1.8f)<.001f);
+    x=160.5f;
+    walk(&x,&y,5,0);
+    assert(x>161 && x<163);
+    // Opposite corners of the clip's bounding box remain walkable.
+    body_space(162.4f,154.4f,0,&floor,&ceiling);
+    assert(floor==0 && ceiling==16);
     assert(map_floor(map_cube(91,72))==2.375f);
     assert(trace_surface(91.5f,72.5f,4,91.5f,72.5f,1,&slope));
     assert(slope.axis==2 && fabsf(slope.z-2.515f)<.001f);
@@ -117,6 +189,7 @@ int main(void) {
     int saw_bot_death = 0, saw_bot_respawn = 0, saw_player_death = 0, saw_player_respawn = 0;
     unsigned burst_shots=0;
     int saw_pain=0,saw_fall=0,saw_corpse=0;
+    int heard_bot_pain=0,heard_bot_death=0;
     for (unsigned tick = 0; tick < 3000; ++tick) {
         match_view(&view);
         input.fire = !view.player_frags;
@@ -132,6 +205,8 @@ int main(void) {
         match_view(&view);
         assert(view.wide_crosshair == (burst_shots>3));
         if (view.bot_alive && view.bot_pose>=54 && view.bot_pose<=57) saw_pain=1;
+        if (view.bot_voice>=BOT_PAIN1 && view.bot_voice<=BOT_PAIN5) heard_bot_pain=1;
+        if (view.bot_voice==PLAYER_DEATH || view.bot_voice==ALT_DEATH) heard_bot_death=1;
         if (!view.bot_alive) {
             assert(!match_targeted(&view));
             if (view.bot_pose>178 && view.bot_pose<183) saw_fall=1;
@@ -146,6 +221,7 @@ int main(void) {
     // This scenario caught the bot getting stuck on a ledge after the first respawn.
     assert(saw_bot_death && saw_bot_respawn && saw_player_death && saw_player_respawn);
     assert(saw_pain && saw_fall && saw_corpse);
+    assert(heard_bot_pain && heard_bot_death);
     assert(view.phase == INTERMISSION && view.player_frags == 1 && view.bot_frags == FRAG_LIMIT);
     input.start = 1;
     match_update(&input,16,16*.001f);

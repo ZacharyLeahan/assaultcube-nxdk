@@ -16,6 +16,7 @@ typedef struct { unsigned offset, bytes, width, height, mip; } ImageInfo;
 typedef struct { unsigned texture, first, count, primitive; } Batch;
 typedef struct { int x, y, w, h; } Glyph;
 #include "generated/gpu.h"
+#include "generated/water.h"
 extern const unsigned char gpu_vertices[], gpu_textures[];
 typedef struct { float x,y,z,u,v; unsigned char rgba[4]; } Vertex;
 static const Vertex *geometry;
@@ -204,6 +205,24 @@ static void skybox(void) {
         end_quads();
     }
 }
+static void draw_water(unsigned ms) {
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    float t=fmodf(ms/(300.f*6.2831853f),1.f);
+    begin_quads();
+    for (unsigned i=0;i<sizeof(water_patches)/sizeof(water_patches[0]);++i) {
+        for (unsigned j=0;j<4;++j) {
+            int x=water_patches[i][0]+4*(j==1||j==2),y=water_patches[i][1]+4*(j>=2);
+            float phase=x*y*(.1f/6.2831853f)+t;
+            float wave=phase-floorf(phase)-.5f;
+            wave*=8-16*fabsf(wave);
+            color(water_color[0]/255.f,water_color[1]/255.f,water_color[2]/255.f,
+                  fminf(1,(water_color[3]+24*fabsf(wave))/255.f));
+            vertex(x,y,WATER_SURFACE+.15f*wave,0,0);
+        }
+    }
+    end_quads();
+}
 static void level(const MatchView *v) {
     float c=cosf(v->angle),s=sinf(v->angle);
     float cp=cosf(v->pitch), sp=sinf(v->pitch);
@@ -217,7 +236,14 @@ static void level(const MatchView *v) {
     // The map uses +Y to the camera's right, reversing projected winding.
     glFrontFace(GL_CW);
     glEnable(GL_CULL_FACE);
-    for (int i=0;i<WORLD_BATCHES;++i) batch(i);
+    // Slot zero marks a view of the sky, including walls at the map boundary.
+    // Its depth keeps geometry beyond the opening out of the finished frame.
+    glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_KEEP);
+    batch(SKY_PORTAL_BATCH);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+    for (int i=SKY_PORTAL_BATCH+1;i<WORLD_BATCHES;++i) batch(i);
     glDisable(GL_CULL_FACE);
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
     {
@@ -242,9 +268,14 @@ static void level(const MatchView *v) {
     bind_vertices(stream);
     // Transparent effects blend against the sky or the nearest opaque surface.
     glDepthMask(GL_FALSE);
+    glStencilFunc(GL_EQUAL,0,255);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_KEEP);
+    glDisable(GL_DEPTH_TEST);
     glPushMatrix(); glLoadMatrixf(camera);
     skybox();
     glPopMatrix();
+    glDisable(GL_STENCIL_TEST);
+    glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();
@@ -277,12 +308,12 @@ static void level(const MatchView *v) {
         }
     }
     end_quads();
+    draw_water(v->elapsed_ms);
     glDisable(GL_BLEND);
     color(1,1,1,1);
     glDepthMask(GL_TRUE);
 }
-static void weapon(const MatchView *v) {
-    if(v->respawning) return;
+static void weapon_transform(const MatchView *v) {
     // Reserve the front of the depth buffer for the view weapon.
     // The view weapon uses the PC's separate 75-degree vertical field of view.
     projection(.30f,.30f*.76732699f);
@@ -292,13 +323,20 @@ static void weapon(const MatchView *v) {
     glRotatef(v->gun_rotation,1,0,0);
     // PC MD3 units are 1/16 of a cube, and weapon::renderhudmodel uses scale 1.28.
     glScalef(.08f,.08f,.08f);
+}
+static void weapon(const MatchView *v) {
+    if(v->respawning) return;
+    weapon_transform(v);
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
     int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;
     animated_batch(current,next,v->weapon_kick);
     animated_batch(current+1,next+1,v->weapon_kick);
-    bind_vertices(stream);
-    if (v->flash) {
+}
+static void muzzle_flash(const MatchView *v) {
+    if (v->flash && !v->respawning) {
+        weapon_transform(v);
+        bind_vertices(stream);
         const float (*muzzle)[3]=v->pistol?pistol_muzzle:assault_muzzle;
         float p[3];
         for (int i=0;i<3;++i) p[i]=muzzle[v->gun_pose][i]+v->weapon_kick*
@@ -348,6 +386,12 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+    if (v->eye<WATER_SURFACE) {
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+        color(water_color[0]/255.f,water_color[1]/255.f,water_color[2]/255.f,.4f);
+        begin_quads(); quad(0,0,hud_width,720,0,0,1,1); end_quads();
+    }
     if (v->damage_alpha>0) {
         glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
         glBindTexture(GL_TEXTURE_2D,textures[DAMAGE_TEX]);
@@ -481,10 +525,16 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     pb_erase_depth_stencil_buffer(0,0,pb_back_buffer_width(),pb_back_buffer_height());
     color(1,1,1,1);
     glEnable(GL_DEPTH_TEST);
+    // The clear leaves stencil zero. Opaque pixels, including the gun, hide the sky.
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS,0,255);
+    glStencilOp(GL_KEEP,GL_KEEP,GL_INCR);
     glDepthRange(0,.04);
     weapon(v);
     glDepthRange(.04,1);
     level(v);
+    glDepthRange(0,.04);
+    muzzle_flash(v);
     glDepthRange(0,1);
     hud(v,fps10,connected,input->showmap);
     // Show the completed surface at vblank. The default pbkit queue can expose

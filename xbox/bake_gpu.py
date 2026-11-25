@@ -32,8 +32,18 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
             vertices.extend(vertex.pack(*xyz, *uv, *rgb, 255))
         batches.append((tex, start, len(vertices)//vertex.size-start, primitive))
 
+    world_uv=[]
     for name in names:
-        texture(Image.open(packages/"textures"/name.decode()), (256,256))
+        with Image.open(packages/"textures"/name.decode()) as image:
+            width,height=image.size
+            # PC geometry repeats the original image at 32 texels per map unit.
+            world_uv.append((32/width,32/height))
+            size=tuple(max(4,1<<(n-1).bit_length()) for n in (width,height))
+            texture(image,size)
+
+    def world_texcoord(tex,u,v):
+        sx,sy=world_uv[tex]
+        return (u*sx,v*sy)
     world = np.frombuffer(cells,np.uint8).reshape(256,256,8)
     lights = np.array([(x,y,z,max(2,r),red,green or red,blue or red)
                        for x,y,z,r,kind,red,green,blue in entities if kind == 1 and r>0])
@@ -62,14 +72,13 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                 continue
             f,c = (f+128)%256-128, (c+128)%256-128
             for face,base,tex in ((0,f,ft),(1,c,ct)):
-                if face and not tex: continue
                 corners=((x,y),(x+1,y),(x+1,y+1),(x,y+1))
                 points=[(u,v,level(kind,base,face,u,v)) for u,v in corners]
                 if all(p[2]==points[0][2] for p in points):
                     planes[face,points[0][2],bool(face)][x,y]=tex
                 else:
                     for p in ([points[i] for i in (1,0,3,2)] if face else points):
-                        groups[tex].append((p,(p[0]/8,p[1]/8),light(*p,face)))
+                        groups[tex].append((p,world_texcoord(tex,p[0],p[1]),light(*p,face)))
             for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
                 nk,nf,nc,nw,_,_,nu,_ = map(int,world[y+dy,x+dx])
                 nf,nc = (nf+128)%256-128,(nc+128)%256-128
@@ -95,7 +104,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                         corners=((a[0],a[1]),(b[0],b[1]),(b[0],b[2]),(a[0],a[2]))
                         for s,z in (reversed(corners) if dx>0 or dy<0 else corners):
                             p=(coord,s,z) if dx else (s,coord,z)
-                            groups[tex].append((p,(s/8,-z/8),light(*p,axis)))
+                            groups[tex].append((p,world_texcoord(tex,s,-z),light(*p,axis)))
                     continue
                 walls = [(f,c,nw)] if nk<2 else [(f,min(c,nf),nw),(max(f,nc),c,nu)]
                 for low,high,material in walls:
@@ -113,7 +122,9 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
             corners=((a,b),(a+width,b),(a+width,b+height),(a,b+height))
             for u,v in (reversed(corners) if reverse else corners):
                 xyz = (u,v,level) if face<2 else (level,u,v) if face==2 else (u,level,v)
-                groups[tex].append((xyz,(u/8,(v if face<2 else -v)/8),light(*xyz,face)))
+                groups[tex].append((xyz,world_texcoord(tex,u,v if face<2 else -v),light(*xyz,face)))
+    mark("SKY_PORTAL_BATCH",len(batches))
+    add_batch(0,groups.pop(0),4)
     for tex,points in sorted(groups.items()): add_batch(tex,points,4)
     mark("WORLD_BATCHES",len(batches))
 
@@ -230,7 +241,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                     for n in names])
     heights=world[:,:,1].view(np.int8).astype(float)
     yy,xx=np.indices((512,512))
-    terrain=tiles[world[yy//2,xx//2,4],yy%16,xx%16]
+    slot=world[yy//2,xx//2,4]
+    scale=np.asarray(world_uv)[slot]
+    u=(xx*8*scale[:,:,0]).astype(int)%16
+    v=(yy*8*scale[:,:,1]).astype(int)%16
+    terrain=tiles[slot,v,u]
     terrain=np.clip(terrain*(1+np.clip(heights[yy//2,xx//2],-8,8)[:,:,None]/30),0,255)
     terrain[world[yy//2,xx//2,0]<2]=(30,30,30)
     mark("RADAR_TEX",len(textures))

@@ -24,6 +24,8 @@ def bake():
     names = re.findall(rb'^texture 0 "([^"]+)"', config, re.M)
     starts = []
     pickups = []
+    ladders = []
+    clips = []
     item_kinds = {3: "I_CLIPS", 4: "I_AMMO", 6: "I_HEALTH", 7: "I_HELMET", 8: "I_ARMOUR"}
     for i in range(count):
         x, y, z, yaw, kind, team = struct.unpack_from("<4h2B", data, offset + 16*i)
@@ -31,6 +33,13 @@ def bake():
             starts.append((x, y, yaw))
         elif kind in item_kinds:
             pickups.append((x, y, yaw, item_kinds[kind]))
+        elif kind == 12:
+            ladders.append((x,y,yaw))  # attr1 is height above the cell floor
+        elif kind == 15:
+            half_x,half_y,height,_,tilt,shape=struct.unpack_from("<BBBh bB",data,offset+16*i+9)
+            if tilt or shape not in (0,3):
+                raise ValueError("Unsupported ac_desert clip shape")
+            clips.append((x,y,yaw,half_x,half_y,height,shape))
     pos = offset + 16*count
     cells = bytearray()
     deltas = bytearray()
@@ -59,6 +68,19 @@ def bake():
         if max(cells[index::8]) >= len(names):
             raise ValueError("Map references a missing texture")
     (OUT / "world.bin").write_bytes(cells)
+    water,r,g,b,a=struct.unpack_from("<i4B",data,916)
+    surface=water/10-.3
+    wet=[(i%256,i//256) for i,(k,f,*_) in enumerate(struct.iter_unpack("<Bbb5B",cells))
+         if k>=2 and f<surface]
+    patches=sorted({(x//4*4,y//4*4) for x,y in wet})
+    (OUT/"water.h").write_text(f"#define WATER_LEVEL ({water/10:.3f}f)\n#define WATER_SURFACE (WATER_LEVEL-.3f)\n"+
+        f"static const unsigned char water_color[4] = {{{r},{g},{b},{a}}};\n"+
+        "static const short water_patches[][2] = {"+
+        ",".join(f"{{{x},{y}}}" for x,y in patches)+"};\n")
+    (OUT / "ladders.h").write_text("static const short ladders[][3] = {\n"+
+        "".join(f"    {{{x}, {y}, {height}}},\n" for x,y,height in ladders)+"};\n")
+    (OUT / "clips.h").write_text("static const MapClip clips[] = {\n"+
+        "".join("    {"+", ".join(map(str,c))+"},\n" for c in clips)+"};\n")
     (OUT / "deltas.bin").write_bytes(deltas)
     (OUT / "starts.h").write_text("static const short starts[][3] = {\n" +
         "".join(f"    {{{x}, {y}, {yaw}}},\n" for x,y,yaw in starts) + "};\n")
@@ -69,7 +91,8 @@ def bake():
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
     bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots)
     sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
-            "player/jump","player/land","player/step","player/pain1","player/die1",
+            "player/jump","player/land","player/step",*(f"player/pain{i}" for i in range(1,7)),
+            "player/die1","player/die2","player/splash1","player/splash2",
             "misc/pickup_ammo_clip","misc/pickup_health","misc/pickup_helmet","misc/pickup_armour","misc/change_gun")
     for sound in sounds:
         name=sound.split("/")[-1]

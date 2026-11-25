@@ -19,12 +19,41 @@ static float height_delta(const Cube *c) {
 float map_floor(const Cube *c) { return c->kind==2 ? c->floor-height_delta(c) : c->floor; }
 static float map_ceiling(const Cube *c) { return c->kind==3 ? c->ceil+height_delta(c) : c->ceil; }
 
+typedef struct { short x,y,offset,half_x,half_y,height,shape; } MapClip;
+#include "generated/clips.h"
+
+static void clip_space(float x,float y,float feet,float *floor,float *ceiling) {
+    const float radius=.32f;
+    for (unsigned i=0;i<sizeof(clips)/sizeof(clips[0]);++i) {
+        const MapClip *clip=&clips[i];
+        float dx=x-clip->x,dy=y-clip->y;
+        float w=clip->half_x*.2f,h=clip->half_y*.2f;
+        if (clip->shape==3) {
+            float rr=radius*1.41421356f;
+            float a=fabsf((dx-dy)*.70710678f)-h-rr;
+            float b=fabsf((dx+dy)*.70710678f)-w-rr;
+            if (a>=0 || b>=0 || a+b+rr>=0) continue;
+        } else if (fabsf(dx)>w+radius+.00001f || fabsf(dy)>h+radius+.00001f) continue;
+        float base=map_cube(clip->x,clip->y)->floor+clip->offset*.1f;
+        if (feet<base-.42f) *ceiling=fminf(*ceiling,base);
+        else *floor=fmaxf(*floor,base+clip->height*.2f);
+    }
+}
+
+// The bot walks at terrain height and takes routes around raised obstacles.
+static int bot_clip_clear(float x,float y,float feet) {
+    float floor=feet,ceiling=127;
+    clip_space(x,y,feet,&floor,&ceiling);
+    return floor<=feet && ceiling>=feet+4.5f;
+}
+
 static int fits(const Cube *c, float previous) {
     return !map_solid(c) && !(c->tag & 192) && map_floor(c) <= previous + 1.5f &&
            map_ceiling(c) - fmaxf(map_floor(c), previous) >= 4.5f;
 }
 static int passable(float x, float y, float previous) {
-    if (!fits(map_cube((int)x,(int)y),previous)) return 0;
+    const Cube *dest=map_cube((int)x,(int)y);
+    if (!fits(dest,previous) || !bot_clip_clear(x,y,map_floor(dest))) return 0;
     for (int i = 0; i < 4; ++i) {
         const Cube *corner = map_cube((int)(x + ((i&1) ? .32f : -.32f)),
                                       (int)(y + ((i&2) ? .32f : -.32f)));
@@ -41,17 +70,27 @@ void walk(float *x, float *y, float dx, float dy) {
         if (passable(*x,ny,map_floor(map_cube((int)*x,(int)*y)))) *y = ny;
     }
 }
-void body_space(float x,float y,float *floor,float *ceiling) {
+#include "generated/ladders.h"
+int ladder_space(float x,float y,float feet,float *top) {
+    for (unsigned i=0;i<sizeof(ladders)/sizeof(ladders[0]);++i) {
+        const short *p=ladders[i];
+        float dx=x-p[0],dy=y-p[1],end=map_cube(p[0],p[1])->floor+p[2];
+        if (dx*dx+dy*dy<2.25f && feet<=end) { *top=end; return 1; }
+    }
+    return 0;
+}
+void body_space(float x,float y,float feet,float *floor,float *ceiling) {
     *floor=-128; *ceiling=127;
     for (int i=0;i<4;++i) {
         const Cube *c=map_cube((int)(x+((i&1)?.32f:-.32f)),(int)(y+((i&2)?.32f:-.32f)));
         if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return; }
         *floor=fmaxf(*floor,map_floor(c)); *ceiling=fminf(*ceiling,map_ceiling(c));
     }
+    clip_space(x,y,feet,floor,ceiling);
 }
 static int body_fits(float x,float y,float feet,float height,float step) {
     float floor,ceiling;
-    body_space(x,y,&floor,&ceiling);
+    body_space(x,y,feet,&floor,&ceiling);
     return floor<=feet+step && fmaxf(floor,feet)+height<=ceiling;
 }
 void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float step) {
@@ -102,6 +141,7 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
         }
         if (map_solid(c) || a<=fa || b<=fb || a>=ca || b>=cb) {
             if (hit) {
+                if (map_solid(c) && !c->wall) return 0;
                 int axis=entry_axis;
                 if (!map_solid(c) && a>fa && a<ca) {
                     if (b>=cb && !c->roof) return 0; // open sky
@@ -141,7 +181,7 @@ void navigation_prepare(void) {
     for (int y=0; y<MAP; ++y) for (int x=0; x<MAP; ++x) {
         const Cube *dest=map_cube(x,y);
         unsigned mask=0;
-        if (!map_solid(dest)) for (int i=0; i<4; ++i) {
+        if (!map_solid(dest) && bot_clip_clear(x+.5f,y+.5f,map_floor(dest))) for (int i=0; i<4; ++i) {
             const Cube *from=map_cube(x-vx[i],y-vy[i]);
             if (fits(from,map_floor(from)) && fits(dest,map_floor(from))) mask |= 1u<<i;
         }

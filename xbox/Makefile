@@ -20,7 +20,9 @@ main.exe: $(PBGL_LIB)
 # bake.py also regenerates the binary assets referenced by assets.s.
 $(CURDIR)/assets.obj: $(wildcard generated/*.bin)
 
-$(CURDIR)/gpu_render.obj: generated/gpu.h
+$(CURDIR)/gpu_render.obj: generated/gpu.h generated/water.h
+$(CURDIR)/navigation.obj: generated/ladders.h generated/clips.h
+$(CURDIR)/match.obj: generated/starts.h generated/items.h generated/water.h
 $(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj): match.h
 $(addprefix $(CURDIR)/,match.obj gpu_render.obj navigation.obj): navigation.h
 

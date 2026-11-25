@@ -5,6 +5,7 @@ Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and 
 | Control | Action |
 | --- | --- |
 | Left stick | Move and strafe |
+| Left stick forward / back on the well ladder | Climb / descend. Center the stick to hold position |
 | Right stick | Turn and aim vertically |
 | A | Jump |
 | B | Hold to crouch |
