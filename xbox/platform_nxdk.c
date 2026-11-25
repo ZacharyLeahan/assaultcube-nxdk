@@ -121,7 +121,7 @@ int main(void) {
         match_update(&input, elapsed, refreshes*refresh_period);
         match_view(&view);
         int aimed = match_targeted(&view);
-        MatchSound effect = match_attack(&input, aimed);
+        MatchSound effect = match_attack(&input);
         sound(effect,0);
         sound(view.bot_sound,1);
         match_view(&view);

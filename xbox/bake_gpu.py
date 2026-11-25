@@ -128,7 +128,11 @@ def bake_gpu(out, packages, names, cells, entities):
         tex=model_skin(folder/"skin_weapon.jpg",(256,256))
         header=struct.unpack_from("<4si64s9i",d)
         mark(name.upper()+"_BATCH",len(batches))
-        for pose in (0,10):
+        muzzle=[]
+        for pose in (0,*range(8,16)):
+            for tag in range(header[5]):
+                label,*origin=struct.unpack_from("<64s3f",d,header[-3]+112*(pose*header[5]+tag))
+                if label.rstrip(b"\0")==b"tag_muzzle": muzzle.append(tuple(origin))
             off=header[-2]
             for _ in range(header[6]):
                 _,label,_,_,_,nv,nt,tr,_,st,xyz,end=struct.unpack_from("<4s64s10i",d,off)
@@ -138,6 +142,9 @@ def bake_gpu(out, packages, names, cells, entities):
                 # MD3 weapon assets point down +Y, with Z up and the grip on camera right.
                 model_batch(hands if label.rstrip(b"\0")==b"hands" else tex,pos,uv,tri,tri)
                 off+=end
+        if len(muzzle)!=9: raise ValueError(f"Missing muzzle tag for {name}")
+        symbols.append(f"static const float {name}_muzzle[][3] = {{"+
+                       ",".join("{"+",".join(map(str,p))+"}" for p in muzzle)+"};\n")
 
     mark("ITEM_TEX",len(textures))
     icons = Image.open(packages/"misc/items.png").convert("RGBA")
@@ -163,6 +170,8 @@ def bake_gpu(out, packages, names, cells, entities):
     decal[:,:,:3]=np.where(gray[:,:,None]>128,255,0)
     decal[:,:,3]=np.minimum(255,2*abs(gray-128))
     texture(Image.fromarray(decal),(64,64))
+    mark("FLASH_TEX",len(textures))
+    texture(Image.open(packages/"misc/muzzleflash.jpg"),(128,128),False)
     mark("SOLID_TEX",len(textures))
     texture(Image.new("RGBA",(4,4),"white"),(4,4),False)
     mark("FONT_TEX",len(textures))

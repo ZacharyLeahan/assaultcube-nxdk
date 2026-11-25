@@ -21,6 +21,8 @@ struct Fighter {
     float x, y, yaw, pitch, eye_height;
     float velocity_x, velocity_y, turn_boost;
     float sway_x, sway_y;
+    float pitch_velocity;
+    unsigned shots, shot_until;
     int turn_direction;
     int frags;
     unsigned respawn_at, ready_at, reload_at, flash_until;
@@ -50,6 +52,7 @@ void spawn(Fighter &f, int index) {
     f.eye_height=ground(f.x,f.y)+3.6f;
     f.velocity_x=f.velocity_y=f.turn_boost=0;
     f.sway_x=f.sway_y=0;
+    f.pitch_velocity=0; f.shots=f.shot_until=0;
     f.turn_direction=0;
     f.state.respawn();
     f.state.spawnstate(GMODE_BOTDEATHMATCH);
@@ -211,7 +214,10 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         manual_yaw=yaw_rate*dt;
         player.yaw=fmodf(player.yaw+manual_yaw,6.2831853f);
         float look=fmaxf(-1,fminf(1,in->look));
-        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+look*105*radians*dt));
+        player.pitch=fmaxf(-75*radians,fminf(75*radians,player.pitch+(look*105+player.pitch_velocity*16)*radians*dt));
+        player.pitch_velocity*=expf(-25*dt);
+        if (player.pitch_velocity>.001f && player.pitch_velocity<.05f)
+            player.pitch_velocity-=guns[player.state.gunselect].recoilbackfade*.01f;
 
         float speed=16/fmaxf(1,hypotf(in->move,in->strafe));
         float c=cosf(player.yaw), s=sinf(player.yaw);
@@ -237,6 +243,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (in->swap && player.ready_at <= clock_ms) {
             player.state.gunselect = player.state.gunselect == GUN_PISTOL ? GUN_ASSAULT : GUN_PISTOL;
             player.ready_at = clock_ms+250;
+            player.shots=player.shot_until=0;
         }
     }
     collect(player); update_bot(dt); collect(bot);
@@ -263,15 +270,30 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         }
     }
 }
-MatchSound match_attack(const MatchInput *in, int aimed) {
+MatchSound match_attack(const MatchInput *in) {
     bool fire = in->fire && (guns[player.state.gunselect].isauto || !was_firing);
     was_firing = in->fire;
-    MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill,aimed,bot) : SILENT;
-    if (!aimed && (shot==RIFLE_SHOT || shot==PISTOL_SHOT)) {
-        float length=512*cosf(player.pitch), z=eye(player);
+    if (!in->fire) player.shots=0;
+    MatchSound shot=phase == PLAYING ? trigger(player,fire,in->refill,false,bot) : SILENT;
+    if (shot==RIFLE_SHOT || shot==PISTOL_SHOT) {
+        const int gun=player.state.gunselect;
+        const guninfo &g=guns[gun];
+        ++player.shots;
+        player.shot_until=clock_ms+g.attackdelay;
+        float ramp=(float)player.shots/g.recoilincrease;
+        player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
+        int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;
+        auto jitter=[spread]() { return ((int)(random_number()%spread)-spread/2)*.001f; };
+        float dx=cosf(player.pitch)*cosf(player.yaw)+jitter();
+        float dy=cosf(player.pitch)*sinf(player.yaw)+jitter();
+        float dz=sinf(player.pitch)+jitter(), z=eye(player);
+        MatchView ray={};
+        ray.px=player.x; ray.py=player.y; ray.eye=z;
+        ray.angle=atan2f(dy,dx); ray.pitch=atan2f(dz,hypotf(dx,dy));
+        ray.tx=bot.x; ray.ty=bot.y; ray.bot_alive=!bot.respawn_at;
+        if (match_targeted(&ray)) { damage(bot,player,gun); return shot; }
         SurfaceHit hit;
-        if (trace_surface(player.x,player.y,z,player.x+length*cosf(player.yaw),
-                          player.y+length*sinf(player.yaw),z+512*sinf(player.pitch),&hit)) {
+        if (trace_surface(player.x,player.y,z,player.x+512*dx,player.y+512*dy,z+512*dz,&hit)) {
             marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
             next_mark=(next_mark+1)%64;
             if (mark_count<64) ++mark_count;
@@ -308,15 +330,21 @@ void match_view(MatchView *v) {
     v->gun_up=-.28f*speed*fabsf(cosf(step));
     v->gun_forward=.45f*(player.sway_x*cosf(player.yaw)+player.sway_y*sinf(player.yaw));
     v->gun_rotation=v->gun_back=0;
-    if (player.flash_until>clock_ms) {
-        float t=(90-(player.flash_until-clock_ms))/90.f;
-        v->weapon_kick=fminf(t/.22f,(1-t)/.78f);
+    v->gun_pose=v->next_gun_pose=0;
+    v->flash=0;
+    if (player.shot_until>clock_ms) {
+        unsigned age=attackdelay(gun)-(player.shot_until-clock_ms);
+        float t=age/(float)attackdelay(gun);
+        float frame=8*t;
+        v->gun_pose=1+(int)frame; v->next_gun_pose=(v->gun_pose+1)%9;
+        v->weapon_kick=frame-floorf(frame);
+        v->flash=age<(unsigned)attackdelay(gun)/4;
         float phase=1.5f*t-1.5f;
         float kick=-sinf(phase*phase*phase);
         v->gun_rotation=guns[gun].mdl_kick_rot*kick;
         v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
-    v->flash = player.flash_until > clock_ms; v->hitflash = hit_until > clock_ms;
+    v->hitflash = hit_until > clock_ms;
     v->hurt = hurt_until > clock_ms; v->phase = phase; v->bot_sound = bot_sound;
     v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;

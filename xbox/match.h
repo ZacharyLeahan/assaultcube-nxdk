@@ -22,6 +22,7 @@ typedef struct {
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
     float stride_blend, weapon_kick, reload_lower;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
+    unsigned gun_pose, next_gun_pose;
     int bot_pose, bot_flash, respawning, reload, flash, hitflash, hurt;
     unsigned seconds;
     MatchPhase phase;
@@ -37,7 +38,7 @@ const Cube *map_cube(int x, int y);
 int map_solid(const Cube *cube);
 void match_prepare(void);
 void match_update(const MatchInput *input, unsigned elapsed, float motion_seconds);
-MatchSound match_attack(const MatchInput *input, int aimed);
+MatchSound match_attack(const MatchInput *input);
 int match_targeted(const MatchView *view);
 void match_view(MatchView *view);
 #ifdef __cplusplus

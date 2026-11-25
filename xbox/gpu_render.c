@@ -271,9 +271,24 @@ static void weapon(const MatchView *v) {
     glRotatef(v->gun_rotation-45*v->reload_lower,1,0,0);
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
-    animated_batch(first,first+2,v->weapon_kick);
-    animated_batch(first+1,first+3,v->weapon_kick);
+    int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;
+    animated_batch(current,next,v->weapon_kick);
+    animated_batch(current+1,next+1,v->weapon_kick);
     bind_vertices(stream);
+    if (v->flash) {
+        const float (*muzzle)[3]=v->pistol?pistol_muzzle:assault_muzzle;
+        float p[3];
+        for (int i=0;i<3;++i) p[i]=muzzle[v->gun_pose][i]+v->weapon_kick*
+            (muzzle[v->next_gun_pose][i]-muzzle[v->gun_pose][i]);
+        glBindTexture(GL_TEXTURE_2D,textures[FLASH_TEX]);
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE); glDepthMask(GL_FALSE);
+        begin_quads();
+        for (int j=0;j<4;++j) {
+            int u=j==1||j==2, w=j>=2;
+            vertex(p[0]+(u?4:-4),p[1],p[2]+(w?-4:4),u,w);
+        }
+        end_quads(); glDepthMask(GL_TRUE); glDisable(GL_BLEND);
+    }
 }
 static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
     glDisable(GL_DEPTH_TEST);

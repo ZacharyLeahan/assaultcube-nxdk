@@ -45,11 +45,16 @@ int main(void) {
 
     int saw_bot_death = 0, saw_bot_respawn = 0, saw_player_death = 0, saw_player_respawn = 0;
     for (unsigned tick = 0; tick < 3000; ++tick) {
-        input.fire = tick < 34;
+        match_view(&view);
+        input.fire = !view.player_frags;
+        // Track the torso during the opening burst, including its vertical recoil.
+        float dx=view.tx-view.px, dy=view.ty-view.py;
+        float chest=map_cube((int)view.tx,(int)view.ty)->floor+2.6f;
+        input.look=input.fire ? (atan2f(chest-view.eye,hypotf(dx,dy))-view.pitch)/(.033f*105*.017453293f) : 0;
+        input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);
         match_view(&view);
-        int aimed = input.fire && match_targeted(&view);
-        match_attack(&input,aimed);
+        match_attack(&input);
         match_view(&view);
         if (view.player_frags && !view.bot_alive) saw_bot_death = 1;
         if (saw_bot_death && view.bot_alive) saw_bot_respawn = 1;
