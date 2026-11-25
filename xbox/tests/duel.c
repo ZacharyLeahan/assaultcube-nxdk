@@ -317,7 +317,8 @@ static void test_death_camera(void) {
         if (v.respawning) break;
     }
     assert(v.respawning && v.camera_pitch<0 && v.death_frame==0);
-    assert(!strcmp(v.frag_messages[0].text,"you were shredded by Bot"));
+    assert(!strcmp(v.frag_messages[0].text,v.bot_sound==PISTOL_SHOT?
+                   "you were busted by Bot":"you were shredded by Bot"));
     float back=(v.px-v.camera.x)*cosf(v.camera_yaw)+(v.py-v.camera.y)*sinf(v.camera_yaw);
     assert(back>4 && back<8 && visible(v.px,v.py,v.eye,v.camera.x,v.camera.y,v.camera.z));
     MatchPoint camera=v.camera;
@@ -667,10 +668,12 @@ static void test_prop_depth(void) {
 
 void test_easy_bot_perception(void);
 void test_easy_bot_spacing(void);
+void test_easy_bot_aim(void);
 
 int main(void) {
     test_easy_bot_perception();
     test_easy_bot_spacing();
+    test_easy_bot_aim();
     test_prop_depth();
     test_heightfield_impact();
     test_shot_light();
