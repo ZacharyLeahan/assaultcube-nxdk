@@ -51,23 +51,44 @@ float step_distance;
 ItemView item_views[item_count];
 BulletMark marks[64];
 unsigned next_mark, mark_count;
-ImpactSpark sparks[64];
+SplashParticle sparks[64];
+BloodParticle blood[64];
+unsigned next_blood,blood_count;
 unsigned next_spark,spark_count,effect_seed;
 unsigned effect_random(unsigned limit) {
     effect_seed=1664525u*effect_seed+1013904223u;
     return (effect_seed>>8)%limit;
 }
+SplashParticle splash_particle(float x,float y,float z,unsigned max_lifetime) {
+    short dx,dy,dz;
+    do {
+        dx=(int)effect_random(300)-150;
+        dy=(int)effect_random(300)-150;
+        dz=(int)effect_random(300)-150;
+    } while (dx*dx+dy*dy+dz*dz>150*150);
+    return {x,y,z,dx,dy,dz,clock_ms,effect_random(max_lifetime)};
+}
 void spark_splash(const SurfaceHit &hit) {
     for (int i=0;i<5;++i) {
-        short x,y,z;
-        do {
-            x=(int)effect_random(300)-150;
-            y=(int)effect_random(300)-150;
-            z=(int)effect_random(300)-150;
-        } while (x*x+y*y+z*z>150*150);
-        sparks[next_spark]={hit.x,hit.y,hit.z,x,y,z,clock_ms,effect_random(750)};
+        sparks[next_spark]=splash_particle(hit.x,hit.y,hit.z,750);
         next_spark=(next_spark+1)%64;
         if (spark_count<64) ++spark_count;
+    }
+}
+void update_blood(unsigned elapsed) {
+    for (unsigned i=0;i<blood_count;++i) {
+        BloodParticle &b=blood[i];
+        SplashParticle &p=b.motion;
+        unsigned age=clock_ms-p.born;
+        if (b.on_floor || age>p.lifetime) continue;
+        float travel=elapsed/20000.f;
+        p.x+=travel*p.dx; p.y+=travel*p.dy;
+        p.z+=travel*p.dz-age*(float)elapsed/30000.f;
+        const Cube *c=map_cube((int)p.x,(int)p.y);
+        if (c->kind==4 && p.z<=c->floor) {
+            p.z=c->floor+.005f; p.born=clock_ms; p.lifetime=10000;
+            b.on_floor=1;
+        }
     }
 }
 unsigned random_number() {
@@ -107,6 +128,7 @@ void begin(MatchPhase initial) {
     next_mark=mark_count=0;
     intermission_age=0;
     next_spark=spark_count=0; effect_seed=1;
+    next_blood=blood_count=0;
     clock_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0;
@@ -151,7 +173,14 @@ void damage(Fighter &victim, Fighter &attacker, int gun) {
         int sector=(int)floorf(relative/(45*radians)+.5f);
         damage_directions[(unsigned)sector%8]=clock_ms+1000;
         pain_sound=dead ? death : PLAYER_PAIN;
-    } else bot_voice=dead ? death : (MatchSound)(BOT_PAIN1+effect_random(5));
+    } else {
+        bot_voice=dead ? death : (MatchSound)(BOT_PAIN1+effect_random(5));
+        for (int i=0;i<guns[gun].damage/10;++i) {
+            blood[next_blood]={splash_particle(victim.x,victim.y,eye(victim),3000),0};
+            next_blood=(next_blood+1)%64;
+            if (blood_count<64) ++blood_count;
+        }
+    }
     if (victim.state.health > 0) return;
     victim.state.health = 0;
     victim.respawn_at = clock_ms+2000;
@@ -256,6 +285,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         return;
     }
     clock_ms += elapsed;
+    update_blood(elapsed);
     if (clock_ms >= duration) { phase = INTERMISSION; return; }
     if (player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
     if (bot.respawn_at && bot.respawn_at <= clock_ms) respawn_near(bot,player);
@@ -424,6 +454,7 @@ MatchSound match_attack(const MatchInput *in) {
 void match_view(MatchView *v) {
     v->marks=marks; v->mark_count=mark_count; v->elapsed_ms=clock_ms;
     v->sparks=sparks; v->spark_count=spark_count;
+    v->blood=blood; v->blood_count=blood_count;
     v->classic_assist=classic_assist;
     v->px = player.x; v->py = player.y; v->eye = eye(player);
     v->angle = player.yaw; v->pitch = player.pitch;

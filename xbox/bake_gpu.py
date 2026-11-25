@@ -277,6 +277,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     texture(Image.fromarray(decal),(64,64))
     mark("SPARK_TEX",len(textures))
     texture(Image.open(packages/"misc/base.png"),(32,32),False)
+    mark("BLOOD_TEX",len(textures))
+    texture(Image.open(packages/"misc/blood.png"),(256,256))
     mark("FLASH_TEX",len(textures))
     texture(Image.open(packages/"misc/muzzleflash.jpg"),(128,128),False)
     mark("DAMAGE_TEX",len(textures))

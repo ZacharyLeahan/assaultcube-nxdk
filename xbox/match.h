@@ -24,7 +24,8 @@ typedef struct {
     float x,y,z;
     short dx,dy,dz;
     unsigned born, lifetime;
-} ImpactSpark;
+} SplashParticle;
+typedef struct { SplashParticle motion; unsigned on_floor; } BloodParticle;
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_yaw;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
@@ -44,8 +45,10 @@ typedef struct {
     int item_count;
     const BulletMark *marks;
     unsigned mark_count, elapsed_ms;
-    const ImpactSpark *sparks;
+    const SplashParticle *sparks;
     unsigned spark_count;
+    const BloodParticle *blood;
+    unsigned blood_count;
 } MatchView;
 
 const Cube *map_cube(int x, int y);

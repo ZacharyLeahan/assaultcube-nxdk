@@ -310,12 +310,33 @@ static void level(const MatchView *v) {
         }
     }
     end_quads();
+    glBlendFunc(GL_ZERO,GL_ONE_MINUS_SRC_COLOR);
+    glBindTexture(GL_TEXTURE_2D,textures[BLOOD_TEX]);
+    begin_quads();
+    for (unsigned i=0;i<v->blood_count;++i) {
+        const BloodParticle *b=&v->blood[i];
+        const SplashParticle *p=&b->motion;
+        unsigned age=v->elapsed_ms-p->born;
+        if (age>p->lifetime) continue;
+        float fade=b->on_floor ? fminf(1,(p->lifetime-age)/1000.f) : 1;
+        color(.5f*fade,fade,fade,1);
+        float size=b->on_floor?.6f:.3f;
+        unsigned tile=(i*7)%4,rotation=(i/4)%4;
+        for (int j=0;j<4;++j) {
+            float right=j==1||j==2?size:-size,up=j>=2?-size:size;
+            unsigned k=(j+rotation)%4;
+            float u=((tile&1)+(k==1||k==2))*.5f,w=((tile>>1)+(k<2))*.5f;
+            if (b->on_floor) vertex(p->x+right,p->y+up,p->z,u,w);
+            else vertex(p->x-s*right-c*sp*up,p->y+c*right-s*sp*up,p->z+cp*up,u,w);
+        }
+    }
+    end_quads();
     glBlendFunc(GL_SRC_ALPHA,GL_ONE);
     glBindTexture(GL_TEXTURE_2D,textures[SPARK_TEX]);
     color(.4f,.4f,.4f,1);
     begin_quads();
     for (unsigned i=0;i<v->spark_count;++i) {
-        const ImpactSpark *p=v->sparks+i;
+        const SplashParticle *p=v->sparks+i;
         unsigned age=v->elapsed_ms-p->born;
         if (age>p->lifetime) continue;
         float travel=age/20000.f;

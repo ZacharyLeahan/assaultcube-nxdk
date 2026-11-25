@@ -139,7 +139,7 @@ int main(void) {
     match_view(&effects);
     assert(effects.mark_count==1 && effects.spark_count==5);
     for (unsigned i=0;i<effects.spark_count;++i) {
-        const ImpactSpark *p=effects.sparks+i;
+        const SplashParticle *p=effects.sparks+i;
         assert(p->x==effects.marks[0].x && p->y==effects.marks[0].y && p->z==effects.marks[0].z);
         assert(p->born==effects.elapsed_ms && p->lifetime<750);
         assert(p->dx*p->dx+p->dy*p->dy+p->dz*p->dz<=150*150);
@@ -190,6 +190,7 @@ int main(void) {
     unsigned burst_shots=0;
     int saw_pain=0,saw_fall=0,saw_corpse=0;
     int heard_bot_pain=0,heard_bot_death=0;
+    int saw_splash=0,saw_stain=0;
     for (unsigned tick = 0; tick < 3000; ++tick) {
         match_view(&view);
         input.fire = !view.player_frags;
@@ -204,6 +205,16 @@ int main(void) {
         if (match_attack(&input)==RIFLE_SHOT) ++burst_shots;
         match_view(&view);
         assert(view.wide_crosshair == (burst_shots>3));
+        for (unsigned i=0;i<view.blood_count;++i) {
+            const BloodParticle *b=view.blood+i;
+            if (b->on_floor) {
+                assert(b->motion.lifetime==10000);
+                saw_stain=1;
+            } else if (b->motion.born==view.elapsed_ms) {
+                assert(b->motion.x==view.tx && b->motion.y==view.ty);
+                saw_splash=1;
+            }
+        }
         if (view.bot_alive && view.bot_pose>=54 && view.bot_pose<=57) saw_pain=1;
         if (view.bot_voice>=BOT_PAIN1 && view.bot_voice<=BOT_PAIN5) heard_bot_pain=1;
         if (view.bot_voice==PLAYER_DEATH || view.bot_voice==ALT_DEATH) heard_bot_death=1;
@@ -222,12 +233,14 @@ int main(void) {
     assert(saw_bot_death && saw_bot_respawn && saw_player_death && saw_player_respawn);
     assert(saw_pain && saw_fall && saw_corpse);
     assert(heard_bot_pain && heard_bot_death);
+    assert(saw_splash && saw_stain);
     assert(view.phase == INTERMISSION && view.player_frags == 1 && view.bot_frags == FRAG_LIMIT);
     input.start = 1;
     match_update(&input,16,16*.001f);
     match_view(&view);
     assert(view.phase == PLAYING && view.health == 100 && view.magazine == 20 && view.reserve == 40);
     assert(view.player_frags == 0 && view.bot_frags == 0);
+    assert(view.blood_count==0);
     input.start = 0;
     match_update(&input,90000,90000*.001f);
     match_view(&view);
