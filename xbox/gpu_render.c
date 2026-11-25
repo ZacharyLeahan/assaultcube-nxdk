@@ -290,6 +290,21 @@ static void weapon(const MatchView *v) {
         end_quads(); glDepthMask(GL_TRUE); glDisable(GL_BLEND);
     }
 }
+static void equipment(float x,int col,int row,int value,int reserve) {
+    glBindTexture(GL_TEXTURE_2D,textures[EQUIPMENT_TEX]);
+    begin_quads(); quad(x,648,48,48,col*.25f,row*.25f,.25f,.25f); end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[DIGITS_TEX]);
+    char count[20];
+    if (reserve>=0) snprintf(count,sizeof(count),"%d/%d",value,reserve);
+    else snprintf(count,sizeof(count),"%d",value);
+    x+=52;
+    begin_quads();
+    for (const char *ch=count;*ch;++ch) {
+        float u=*ch=='/'?476:4+48*(*ch-'0'), w=*ch=='/'?24:40;
+        quad(x,650,w*.71f,45,u/512.f,0,w/512.f,1); x+=w*.71f;
+    }
+    end_quads();
+}
 static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
@@ -328,8 +343,15 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
         vertex(cx,cy+2,0,0,0); vertex(cx-4,cy+4,0,0,0);
         end_quads();
     }
-    color(.03f,.04f,.05f,.78f); begin_quads();
-    quad(28,24,528,v->phase==PLAYING?62:116,0,0,0,0); end_quads();
+    if(v->phase!=PLAYING) {
+        color(.03f,.04f,.05f,.78f); begin_quads();
+        quad(28,24,528,116,0,0,0,0); end_quads();
+    } else if(!v->respawning) {
+        color(1,1,1,1);
+        equipment(30,2,3,v->health,-1);
+        if (v->armour) equipment(200,(v->armour-1)/25,2,v->armour,-1);
+        equipment(hud_width*.33f,v->pistol?1:2,v->pistol?0:1,v->magazine,v->reserve);
+    }
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);
     char line[100];
@@ -337,15 +359,14 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
         text(42,30,27,"ac_desert   /   Bot Deathmatch");
         text(42,59,23,"START to play    /    First to 3");
     } else {
-        snprintf(line,sizeof(line),"YOU  %d      BOT  %d       %u:%02u",v->player_frags,v->bot_frags,v->seconds/60,v->seconds%60);
-        text(42,28,28,line);
+        snprintf(line,sizeof(line),"YOU %d    BOT %d",v->player_frags,v->bot_frags);
+        text(42,28,22,line);
+        snprintf(line,sizeof(line),"%u:%02u",v->seconds/60,v->seconds%60);
+        text(hud_width-106,20,22,line);
         if(v->phase==INTERMISSION)
             text(42,59,23,v->player_frags>v->bot_frags?"You win   /   START for rematch":v->player_frags<v->bot_frags?"Bot wins   /   START for rematch":"Draw   /   START for rematch");
         else if(v->respawning) text(42,58,22,"Fragged   /   Respawning");
-        else {
-            snprintf(line,sizeof(line),"HP %d    ARM %d    %s  %d/%d  %s",v->health,v->armour,v->pistol?"MK-77":"MTP-57",v->magazine,v->reserve,v->reload?"Reload":"");
-            text(42,58,20,line);
-        }
+        else if(v->reload) text(hud_width*.33f,620,18,"Reloading");
     }
     if(v->phase!=PLAYING) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
@@ -353,7 +374,7 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
         text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);
-    text(hud_width-128,29,22,line);
+    text(hud_width-128,v->phase==READY?29:676,19,line);
     glDisable(GL_BLEND);
 }
 // An opt-in 12-second capture. Defer disk I/O until the sample is complete.
