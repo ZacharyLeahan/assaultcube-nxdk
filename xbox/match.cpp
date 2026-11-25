@@ -1175,9 +1175,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float c=cosf(player.yaw), s=sinf(player.yaw);
         float forward=climbing && !grounded && in->move<0 ? 0 : in->move;
         if (swimming) forward*=cosf(player.pitch);
-        float stick_length=fmaxf(1,hypotf(in->move,in->strafe));
-        float target_x=(forward*c-in->strafe*s)/stick_length;
-        float target_y=(forward*s+in->strafe*c)/stick_length;
+        float target_x=forward*c-in->strafe*s;
+        float target_y=forward*s+in->strafe*c;
         // Sum the PC's 5 ms friction steps, including distance travelled
         // during acceleration, over the current display interval.
         float friction=swimming?20.f:grounded?6.f:climbing?1.5f:30.f;

@@ -92,13 +92,13 @@ static void test_wind_playback(void) {
     assert(memcmp(replay+512,next,sizeof(next))==0);
 }
 
-static void test_strafe_reversal(unsigned hz) {
+static void test_strafe_reversal(unsigned hz,float forward,float side) {
     MatchInput in={.start=1};
     MatchView start,v;
     match_prepare(); match_update(&in,0,0); match_view(&start);
     float velocity=0,distance=0;
     for (int section=0;section<3;++section) {
-        in=(MatchInput){.strafe=section==0?.6f:section==1?-.6f:0};
+        in=(MatchInput){.move=forward,.strafe=section==0?side:section==1?-side:0};
         for (unsigned frame=0;frame<hz/5;++frame) {
             unsigned dt=(frame+1)*1000/hz-frame*1000/hz;
             match_update(&in,dt,dt*.001f);
@@ -725,10 +725,11 @@ int main(void) {
     test_incoming_fire(1);
     navigation_prepare();
     for (unsigned i=0;i<sizeof(starts)/sizeof(starts[0]);++i) test_routes_to_spawn(starts[i][0],starts[i][1]);
-    test_strafe_reversal(60);
+    test_strafe_reversal(60,0,.6f);
+    test_strafe_reversal(60,1,1);
     test_weapon_sway(0);
     test_weapon_sway(1);
-    test_strafe_reversal(50);
+    test_strafe_reversal(50,0,.6f);
     test_rifle_recoil(60,0);
     test_rifle_recoil(60,1);
     test_rifle_recoil(50,0);

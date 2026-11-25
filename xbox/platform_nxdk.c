@@ -184,6 +184,17 @@ static float axis(SDL_GameController *pad, SDL_GameControllerAxis a) {
     return fabsf(v) < .18f ? 0 : copysignf((fabsf(v)-.18f)/.82f,v);
 }
 
+static void read_movement(SDL_GameController *pad, float *forward, float *side) {
+    float x=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTX)/32768.f;
+    float y=-SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTY)/32768.f;
+    float radius=hypotf(x,y);
+    if(radius<=.18f) return;
+    // Full stick travel reaches the two independent movement keys used by stock.
+    float scale=(fminf(1,radius)-.18f)/(.82f*fmaxf(fabsf(x),fabsf(y)));
+    *forward+=y*scale;
+    *side+=x*scale;
+}
+
 // A circular deadzone lets small diagonal aim corrections follow the stick direction.
 static void read_aim(SDL_GameController *pad, float *turn, float *look) {
     float x=SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_RIGHTX)/32768.f;
@@ -246,7 +257,7 @@ int main(void) {
             Pad *pad = &pads[i];
             SDL_GameController *p = pad->handle;
             ++connected;
-            move -= axis(p,SDL_CONTROLLER_AXIS_LEFTY); strafe += axis(p,SDL_CONTROLLER_AXIS_LEFTX);
+            read_movement(p,&move,&strafe);
             read_aim(p,&turn,&look);
             jump |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_A);
             crouch |= SDL_GameControllerGetButton(p,SDL_CONTROLLER_BUTTON_B);
@@ -315,7 +326,7 @@ int main(void) {
         }
         if (releasing && !buttons && !fire) releasing=0;
         MatchInput input = {
-            .move = move, .strafe = strafe, .turn = turn, .look = look,
+            .move = fmaxf(-1,fminf(1,move)), .strafe = fmaxf(-1,fminf(1,strafe)), .turn = turn, .look = look,
             .scope = scope, .fire = fire, .refill = refill, .swap = swap, .knife_select=knife_select, .grenade_select=grenade_select, .start = start,
             .assist_choice=tuned-classic, .jump=jump, .crouch=crouch, .showmap=showmap
         };
