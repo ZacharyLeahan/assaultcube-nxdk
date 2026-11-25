@@ -21,6 +21,8 @@ main.exe: $(PBGL_LIB)
 $(CURDIR)/assets.obj: $(wildcard generated/*.bin)
 
 $(CURDIR)/gpu_render.obj: generated/gpu.h
+$(addprefix $(CURDIR)/,platform_nxdk.obj match.obj gpu_render.obj navigation.obj): match.h
+$(addprefix $(CURDIR)/,match.obj gpu_render.obj navigation.obj): navigation.h
 
 # Relink when switching between the instrumented and stock SDL driver.
 INPUT_MODE := generated/input-mode-$(if $(filter 1,$(AIM_TRACE)),trace,play)

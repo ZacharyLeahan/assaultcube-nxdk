@@ -33,12 +33,13 @@ static float aspect, hud_width;
 // Spend remaining slack before reading the pad so newer reports reach this refresh.
 static unsigned tick_hz, last_flip, sample_tick, work_ticks[32], work_index, work_count;
 static int holdoff;
-void gpu_begin_input(unsigned refresh_hz, int respawning) {
+void gpu_begin_input(unsigned refresh_hz, int respawning, int bot_shot_pending) {
     unsigned now=(unsigned)KeQueryPerformanceCounter();
     if (work_count==32 && !holdoff && !respawning) {
         unsigned peak=0;
         for (unsigned i=0;i<32;++i) if (work_ticks[i]>peak) peak=work_ticks[i];
-        unsigned period=tick_hz/refresh_hz, guard=tick_hz/400; // 2.5 ms
+        // A newly landed hit adds a full-screen blend before the cost is in the history.
+        unsigned period=tick_hz/refresh_hz, guard=bot_shot_pending?tick_hz/160:tick_hz/400;
         unsigned offset=period>peak+guard ? period-peak-guard : 0;
         unsigned cap=tick_hz*7/1000;
         if (offset>cap) offset=cap;
@@ -136,8 +137,10 @@ static void end_quads(void) {
 }
 static void batch(unsigned n) {
     const Batch *b=&batches[n];
+    // Keep NV2A draw indices local even when the packed scene exceeds 65536 vertices.
+    bind_vertices(geometry+b->first);
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
-    glDrawArrays(b->primitive==4?GL_QUADS:GL_TRIANGLES,b->first,b->count);
+    glDrawArrays(b->primitive==4?GL_QUADS:GL_TRIANGLES,0,b->count);
 }
 // Pose pairs share topology and UVs. Read positions from cached XBE memory
 // and write each mesh to its own GPU span until this frame has finished.
@@ -162,8 +165,7 @@ static void animated_batch(unsigned current,unsigned next,float blend) {
     glBindTexture(GL_TEXTURE_2D,textures[b->texture]);
     glDrawArrays(GL_TRIANGLES,0,b->count);
 }
-static void projection(void) {
-    float near=.25f, half_h=near*(120.f/180.f);
+static void projection(float near,float half_h) {
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glFrustum(-half_h*aspect,half_h*aspect,-half_h,half_h,near,1200);
@@ -206,7 +208,8 @@ static void level(const MatchView *v) {
     float c=cosf(v->angle),s=sinf(v->angle);
     float cp=cosf(v->pitch), sp=sinf(v->pitch);
     const float camera[16]={-s,-c*sp,-c*cp,0, c,-s*sp,-s*cp,0, 0,cp,-sp,0, 0,0,0,1};
-    projection();
+    // PC world FOV is horizontal: tan(90 degrees / 2) == 1.
+    projection(.15f,.15f/aspect);
     glLoadMatrixf(camera);
     glTranslatef(-v->px,-v->py,-v->eye);
     glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE);
@@ -216,65 +219,202 @@ static void level(const MatchView *v) {
     glEnable(GL_CULL_FACE);
     for (int i=0;i<WORLD_BATCHES;++i) batch(i);
     glDisable(GL_CULL_FACE);
-    if (v->bot_alive) {
+    for (int i=PROP_START;i<PROP_END;++i) batch(i);
+    {
         glPushMatrix();
-        glTranslatef(v->tx,v->ty,map_cube((int)v->tx,(int)v->ty)->floor);
+        glTranslatef(v->tx,v->ty,map_floor(map_cube((int)v->tx,(int)v->ty)));
         glRotatef(v->bot_yaw*57.29578f,0,0,1);
-        int next=v->bot_pose%6+1;
-        animated_batch(BODY_BATCH+v->bot_pose,BODY_BATCH+next,v->stride_blend);
-        animated_batch(BOT_GUN_BATCH+v->bot_pose,BOT_GUN_BATCH+next,v->stride_blend);
+        unsigned current=bot_frame_batch[v->bot_pose],next=bot_frame_batch[v->next_bot_pose];
+        animated_batch(BODY_BATCH+current,BODY_BATCH+next,v->bot_pose_blend);
+        animated_batch(BOT_GUN_BATCH+current,BOT_GUN_BATCH+next,v->bot_pose_blend);
+        glPopMatrix();
+    }
+    bind_vertices(geometry);
+    for (int i=0;i<v->item_count;++i) {
+        const ItemView *p=v->items+i;
+        if ((p->x-v->px)*c+(p->y-v->py)*s < -3) continue;
+        glPushMatrix();
+        glTranslatef(p->x,p->y,p->base+1+.05f*sinf(v->elapsed_ms*.01f+p->x+p->y));
+        glRotatef(v->elapsed_ms*.1f,0,0,1);
+        batch(PICKUP_BATCH+p->icon);
         glPopMatrix();
     }
     bind_vertices(stream);
-    glBindTexture(GL_TEXTURE_2D,textures[ITEM_TEX]);
-    glEnable(GL_ALPHA_TEST); glAlphaFunc(GL_GREATER,.35f);
+    // Transparent effects blend against the sky or the nearest opaque surface.
+    glDepthMask(GL_FALSE);
+    glPushMatrix(); glLoadMatrixf(camera);
+    skybox();
+    glPopMatrix();
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D,textures[BULLET_TEX]);
     begin_quads();
-    for (int i=0;i<v->item_count;++i) {
-        const ItemView *p=v->items+i;
-        float x=p->x+.5f,y=p->y+.5f,z=map_cube(p->x,p->y)->floor;
+    for (unsigned i=0;i<v->mark_count;++i) {
+        const BulletMark *m=v->marks+i;
+        if (m->expires<=v->elapsed_ms) continue;
         for (int j=0;j<4;++j) {
-            int right=j==1||j==2,bottom=j>=2;
-            float offset=right?.65f:-.65f;
-
-            vertex(x-s*offset,y+c*offset,z+(bottom?0:1.3f),right,(p->icon+(bottom?.99f:.01f))/8);
+            int u=j==1||j==2, w=j>=2;
+            float a=u?.30f:-.30f, b=w?.30f:-.30f;
+            vertex(m->x+(m->axis==0?0:a),m->y+(m->axis==0?a:m->axis==2?b:0),
+                   m->z+(m->axis==2?0:b),u,w);
         }
     }
-    end_quads(); glDisable(GL_ALPHA_TEST);
-    // The sky encloses the entire map. Depth rejection skips covered sky pixels.
-    glLoadMatrixf(camera);
-    glDepthMask(GL_FALSE);
-    skybox();
+    end_quads();
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE);
+    glBindTexture(GL_TEXTURE_2D,textures[SPARK_TEX]);
+    color(.4f,.4f,.4f,1);
+    begin_quads();
+    for (unsigned i=0;i<v->spark_count;++i) {
+        const ImpactSpark *p=v->sparks+i;
+        unsigned age=v->elapsed_ms-p->born;
+        if (age>p->lifetime) continue;
+        float travel=age/20000.f;
+        float x=p->x+p->dx*travel,y=p->y+p->dy*travel;
+        float z=p->z+p->dz*travel-age*(float)age/120000.f;
+        for (int j=0;j<4;++j) {
+            int u=j==1||j==2,w=j>=2;
+            float right=u?.06f:-.06f,up=w?-.06f:.06f;
+            vertex(x-s*right-c*sp*up,y+c*right-s*sp*up,z+cp*up,u,1-w);
+        }
+    }
+    end_quads();
+    glDisable(GL_BLEND);
+    color(1,1,1,1);
     glDepthMask(GL_TRUE);
 }
 static void weapon(const MatchView *v) {
     if(v->respawning) return;
     // Reserve the front of the depth buffer for the view weapon.
-    projection();
-    const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 4,-1,-10,1};
+    // The view weapon uses the PC's separate 75-degree vertical field of view.
+    projection(.30f,.30f*.76732699f);
+    const float camera[16]={1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1};
     glLoadMatrixf(camera);
-    glTranslatef(0,0,-6*v->reload_lower);
+    glTranslatef(v->gun_side,v->gun_forward-v->gun_back,v->gun_up);
+    glRotatef(v->gun_rotation,1,0,0);
+    // PC MD3 units are 1/16 of a cube, and weapon::renderhudmodel uses scale 1.28.
+    glScalef(.08f,.08f,.08f);
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
-    animated_batch(first,first+2,v->weapon_kick);
-    animated_batch(first+1,first+3,v->weapon_kick);
+    int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;
+    animated_batch(current,next,v->weapon_kick);
+    animated_batch(current+1,next+1,v->weapon_kick);
     bind_vertices(stream);
+    if (v->flash) {
+        const float (*muzzle)[3]=v->pistol?pistol_muzzle:assault_muzzle;
+        float p[3];
+        for (int i=0;i<3;++i) p[i]=muzzle[v->gun_pose][i]+v->weapon_kick*
+            (muzzle[v->next_gun_pose][i]-muzzle[v->gun_pose][i]);
+        glBindTexture(GL_TEXTURE_2D,textures[FLASH_TEX]);
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE); glDepthMask(GL_FALSE);
+        begin_quads();
+        for (int j=0;j<4;++j) {
+            int u=j==1||j==2, w=j>=2;
+            vertex(p[0]+(u?4:-4),p[1],p[2]+(w?-4:4),u,w);
+        }
+        end_quads(); glDepthMask(GL_TRUE); glDisable(GL_BLEND);
+    }
 }
-static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
+static void equipment(float x,int col,int row,int value,int reserve) {
+    glBindTexture(GL_TEXTURE_2D,textures[EQUIPMENT_TEX]);
+    begin_quads(); quad(x,648,48,48,col*.25f,row*.25f,.25f,.25f); end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[DIGITS_TEX]);
+    char count[20];
+    if (reserve>=0) snprintf(count,sizeof(count),"%d/%d",value,reserve);
+    else snprintf(count,sizeof(count),"%d",value);
+    x+=52;
+    begin_quads();
+    for (const char *ch=count;*ch;++ch) {
+        float u=*ch=='/'?476:4+48*(*ch-'0'), w=*ch=='/'?24:40;
+        quad(x,650,w*.71f,45,u/512.f,0,w/512.f,1); x+=w*.71f;
+    }
+    end_quads();
+}
+static void overview(const MatchView *v) {
+    const float size=540, x=(hud_width-size)*.5f, y=(720-size)*.5f;
+    color(1,1,1,1);
+    glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);
+    glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR);
+    begin_quads();
+    quad(x,y,size,size,MAP_LEFT/MAP,MAP_TOP/MAP,(float)MAP_SPAN/MAP,(float)MAP_SPAN/MAP);
+    end_quads();
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D,textures[RADAR_ICONS]);
+    glPushMatrix();
+    glTranslatef(x+(v->px-MAP_LEFT)*size/MAP_SPAN,y+(v->py-MAP_TOP)*size/MAP_SPAN,0);
+    glRotatef(90+v->angle*57.29578f,0,0,1);
+    begin_quads(); quad(-12,-12,24,24,v->respawning?.25f:v->flash?.5f:0,.5f,.25f,.25f); end_quads();
+    glPopMatrix();
+}
+static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
-    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    if (v->damage_alpha>0) {
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
+        glBindTexture(GL_TEXTURE_2D,textures[DAMAGE_TEX]);
+        color(v->damage_alpha,v->damage_alpha,v->damage_alpha,v->damage_alpha);
+        begin_quads(); quad(0,0,hud_width,720,0,0,1,1); end_quads();
+        glDisable(GL_BLEND);
+    }
+    glEnable(GL_BLEND);
     if (!v->respawning) {
-        float x=hud_width*.5f,y=360;
-        color(1,v->hitflash?.3f:.9f,aimed?.2f:.9f,1);
+        float half=v->wide_crosshair?8.4f:6.f;
+        glBlendFunc(GL_ONE,GL_ONE);
+        glBindTexture(GL_TEXTURE_2D,textures[CROSSHAIR_TEX]);
+        color(1,v->health<=25?0:v->health<=50?.5f:1,v->health<=50?0:1,1);
         begin_quads();
-        quad(x-13,y-1,8,2,0,0,0,0); quad(x+5,y-1,8,2,0,0,0,0);
-        quad(x-1,y-13,2,8,0,0,0,0); quad(x-1,y+5,2,8,0,0,0,0);
+        quad(hud_width*.5f-half,360-half,2*half,2*half,0,0,1,1);
         end_quads();
     }
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-    color(.03f,.04f,.05f,.78f); begin_quads();
-    quad(28,24,528,v->phase==PLAYING?62:116,0,0,0,0); end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    if (v->phase==PLAYING) {
+        color(.5f,0,0,.5f);
+        begin_quads();
+        for (int i=0;i<8;++i) {
+            unsigned until=v->damage_directions[i];
+            if (until<=v->elapsed_ms+200) continue;
+            float size=40*(1-200.f/(until-v->elapsed_ms));
+            float a=i*.78539816f, s=sinf(a), c=cosf(a);
+            float x=hud_width*.5f+200*s,y=360-200*c;
+            vertex(x,y,0,0,0); vertex(x+size*(c-s),y+size*(s+c),0,0,0);
+            vertex(x-size*(c+s),y+size*(c-s),0,0,0); vertex(x,y,0,0,0);
+        }
+        end_quads();
+    }
+    if (v->phase==PLAYING && showmap) overview(v);
+    else if (v->phase==PLAYING) {
+        const float cx=hud_width-84, cy=112, radius=60, span=29;
+        float c=cosf(v->angle), s=sinf(v->angle);
+        glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);
+        color(1,1,1,1);
+        begin_quads();
+        for (int i=0;i<32;++i) {
+            vertex(cx,cy,0,v->px/MAP,v->py/MAP);
+            for (int j=i;j<=i+1;++j) {
+                float a=j*(6.2831853f/32), x=cosf(a), y=sinf(a);
+                vertex(cx+radius*x,cy+radius*y,0,(v->px-span*(s*x+c*y))/MAP,
+                       (v->py+span*(c*x-s*y))/MAP);
+            }
+            vertex(cx,cy,0,v->px/MAP,v->py/MAP);
+        }
+        end_quads();
+        glBindTexture(GL_TEXTURE_2D,textures[RADAR_RING]);
+        begin_quads(); quad(cx-70,cy-70,140,140,0,0,1,1); end_quads();
+        glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+        color(.4f,1,.45f,1); begin_quads();
+        vertex(cx,cy-5,0,0,0); vertex(cx+4,cy+4,0,0,0);
+        vertex(cx,cy+2,0,0,0); vertex(cx-4,cy+4,0,0,0);
+        end_quads();
+    }
+    if(v->phase!=PLAYING) {
+        color(.03f,.04f,.05f,.78f); begin_quads();
+        quad(28,24,528,116,0,0,0,0); end_quads();
+    } else if(!v->respawning) {
+        color(1,1,1,1);
+        equipment(30,2,3,v->health,-1);
+        if (v->armour) equipment(200,(v->armour-1)/25,2,v->armour,-1);
+        equipment(hud_width*.33f,v->pistol?1:2,v->pistol?0:1,v->magazine,v->reserve);
+    }
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);
     char line[100];
@@ -282,15 +422,14 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
         text(42,30,27,"ac_desert   /   Bot Deathmatch");
         text(42,59,23,"START to play    /    First to 3");
     } else {
-        snprintf(line,sizeof(line),"YOU  %d      BOT  %d       %u:%02u",v->player_frags,v->bot_frags,v->seconds/60,v->seconds%60);
-        text(42,28,28,line);
+        snprintf(line,sizeof(line),"YOU %d    BOT %d",v->player_frags,v->bot_frags);
+        text(42,28,22,line);
+        snprintf(line,sizeof(line),"%u:%02u",v->seconds/60,v->seconds%60);
+        text(hud_width-106,20,22,line);
         if(v->phase==INTERMISSION)
             text(42,59,23,v->player_frags>v->bot_frags?"You win   /   START for rematch":v->player_frags<v->bot_frags?"Bot wins   /   START for rematch":"Draw   /   START for rematch");
         else if(v->respawning) text(42,58,22,"Fragged   /   Respawning");
-        else {
-            snprintf(line,sizeof(line),"HP %d    ARM %d    %s  %d/%d  %s",v->health,v->armour,v->pistol?"MK-77":"MTP-57",v->magazine,v->reserve,v->reload?"Reload":"");
-            text(42,58,20,line);
-        }
+        else if(v->reload) text(hud_width*.33f,620,18,"Reloading");
     }
     if(v->phase!=PLAYING) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
@@ -298,7 +437,7 @@ static void hud(const MatchView *v,int aimed,unsigned fps10,int connected) {
         text(42,110,19,v->classic_assist ? "D-pad L/R   Aim assist: Classic" : "D-pad L/R   Aim assist: Tuned");
     } else if(!connected) text(42,92,22,"Connect a controller");
     snprintf(line,sizeof(line),"%u.%u FPS",fps10/10,fps10%10);
-    text(hud_width-128,29,22,line);
+    text(hud_width-128,v->phase==READY?29:676,19,line);
     glDisable(GL_BLEND);
 }
 // An opt-in 12-second capture. Defer disk I/O until the sample is complete.
@@ -320,7 +459,7 @@ static unsigned duel_count;
 enum { DUEL_CAPACITY=5500 }; // 90 seconds at 60 Hz plus clock tolerance.
 
 static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,int aimed) {
-    float chest=map_cube((int)v->tx,(int)v->ty)->floor+2.6f;
+    float chest=map_floor(map_cube((int)v->tx,(int)v->ty))+2.6f;
     int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
     return (TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,v->tx,v->ty,chest,
         input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};
@@ -347,7 +486,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glDepthRange(.04,1);
     level(v);
     glDepthRange(0,1);
-    hud(v,aimed,fps10,connected);
+    hud(v,fps10,connected,input->showmap);
     // Show the completed surface at vblank. The default pbkit queue can expose
     // an in-progress frame on this console when rendering the full 720p scene.
     glFinish();
@@ -400,6 +539,9 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
             }
             file=fopen("D:\\tracking.bin","wb");
             if (file) {
+                float focal_pixels=.5f*pb_back_buffer_width();
+                fwrite("ACT1",4,1,file);
+                fwrite(&focal_pixels,sizeof(focal_pixels),1,file);
                 fwrite(tracking_frames,sizeof(tracking_frames),1,file);
                 fclose(file);
             }

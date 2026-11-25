@@ -1,4 +1,5 @@
 #include "../match.h"
+#include "../navigation.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -22,7 +23,77 @@ static void test_tracking_breakaway(void) {
     }
 }
 
+static void test_stance(void) {
+    MatchView v;
+    MatchInput input={.start=1};
+    match_prepare(); match_update(&input,16,1.f/60); match_view(&v);
+    float standing=v.eye, peak=standing;
+    int jumps=0, landings=0;
+    input=(MatchInput){.jump=1};
+    for (int i=0;i<90;++i) {
+        match_update(&input,16,1.f/60); match_view(&v);
+        jumps+=v.movement_sound==PLAYER_JUMP;
+        landings+=v.movement_sound==PLAYER_LAND;
+        peak=fmaxf(peak,v.eye);
+        if (i>60) assert(fabsf(v.eye-standing)<.001f);
+    }
+    assert(peak>standing+2 && peak<standing+5);
+    assert(jumps==1 && landings==1);
+    input=(MatchInput){.crouch=1};
+    for (int i=0;i<15;++i) match_update(&input,16,1.f/60);
+    match_view(&v); assert(fabsf(v.eye-standing+.9f)<.001f);
+    input.crouch=0;
+    for (int i=0;i<15;++i) match_update(&input,16,1.f/60);
+    match_view(&v); assert(fabsf(v.eye-standing)<.001f);
+}
+
+static void test_weapon_switch(void) {
+    MatchView v;
+    MatchInput in={.start=1};
+    match_prepare();
+    match_update(&in,16,.016f);
+    in=(MatchInput){.swap=1};
+    match_update(&in,16,.016f);
+    assert(match_attack(&in)==WEAPON_CHANGE);
+    in=(MatchInput){.fire=1};
+    match_update(&in,199,.016f);
+    match_view(&v);
+    assert(!v.pistol && v.gun_rotation < -89 && match_attack(&in)==SILENT);
+    match_update(&in,2,.002f);
+    match_view(&v);
+    assert(v.pistol && v.gun_rotation < -89 && match_attack(&in)==SILENT);
+    in.fire=0;
+    match_update(&in,199,.016f);
+    assert(match_attack(&in)==SILENT);
+    in.fire=1;
+    match_update(&in,1,.001f);
+    assert(match_attack(&in)==PISTOL_SHOT);
+}
 int main(void) {
+    test_weapon_switch();
+    MatchInput floor_shot={.start=1};
+    MatchView effects;
+    match_prepare();
+    match_update(&floor_shot,16,.016f);
+    floor_shot=(MatchInput){.look=-1};
+    for (int i=0;i<20;++i) match_update(&floor_shot,16,.016f);
+    floor_shot.fire=1;
+    assert(match_attack(&floor_shot)==RIFLE_SHOT);
+    match_view(&effects);
+    assert(effects.mark_count==1 && effects.spark_count==5);
+    for (unsigned i=0;i<effects.spark_count;++i) {
+        const ImpactSpark *p=effects.sparks+i;
+        assert(p->x==effects.marks[0].x && p->y==effects.marks[0].y && p->z==effects.marks[0].z);
+        assert(p->born==effects.elapsed_ms && p->lifetime<750);
+        assert(p->dx*p->dx+p->dy*p->dy+p->dz*p->dz<=150*150);
+    }
+    // This floor has opposite high corners. The body uses the cell mean,
+    // while a vertical shot at the center lands on its rendered diagonal.
+    SurfaceHit slope;
+    assert(map_floor(map_cube(91,72))==2.375f);
+    assert(trace_surface(91.5f,72.5f,4,91.5f,72.5f,1,&slope));
+    assert(slope.axis==2 && fabsf(slope.z-2.515f)<.001f);
+    test_stance();
     test_tracking_breakaway();
     MatchView view;
     MatchInput input = {0};
@@ -44,13 +115,28 @@ int main(void) {
     input.start = 0;
 
     int saw_bot_death = 0, saw_bot_respawn = 0, saw_player_death = 0, saw_player_respawn = 0;
+    unsigned burst_shots=0;
+    int saw_pain=0,saw_fall=0,saw_corpse=0;
     for (unsigned tick = 0; tick < 3000; ++tick) {
-        input.fire = tick < 34;
+        match_view(&view);
+        input.fire = !view.player_frags;
+        // Track the torso during the opening burst, including its vertical recoil.
+        float dx=view.tx-view.px, dy=view.ty-view.py;
+        float chest=map_floor(map_cube((int)view.tx,(int)view.ty))+2.6f;
+        input.look=input.fire ? (atan2f(chest-view.eye,hypotf(dx,dy))-view.pitch)/(.033f*105*.017453293f) : 0;
+        input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);
         match_view(&view);
-        int aimed = input.fire && match_targeted(&view);
-        match_attack(&input,aimed);
+        if (!input.fire) burst_shots=0;
+        if (match_attack(&input)==RIFLE_SHOT) ++burst_shots;
         match_view(&view);
+        assert(view.wide_crosshair == (burst_shots>3));
+        if (view.bot_alive && view.bot_pose>=54 && view.bot_pose<=57) saw_pain=1;
+        if (!view.bot_alive) {
+            assert(!match_targeted(&view));
+            if (view.bot_pose>178 && view.bot_pose<183) saw_fall=1;
+            if (view.bot_pose==183 && view.next_bot_pose==183) saw_corpse=1;
+        }
         if (view.player_frags && !view.bot_alive) saw_bot_death = 1;
         if (saw_bot_death && view.bot_alive) saw_bot_respawn = 1;
         if (view.respawning) saw_player_death = 1;
@@ -59,6 +145,7 @@ int main(void) {
     }
     // This scenario caught the bot getting stuck on a ledge after the first respawn.
     assert(saw_bot_death && saw_bot_respawn && saw_player_death && saw_player_respawn);
+    assert(saw_pain && saw_fall && saw_corpse);
     assert(view.phase == INTERMISSION && view.player_frags == 1 && view.bot_frags == FRAG_LIMIT);
     input.start = 1;
     match_update(&input,16,16*.001f);

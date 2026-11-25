@@ -6,6 +6,9 @@ Play a local one-on-one bot deathmatch on the original `ac_desert` by makkE and 
 | --- | --- |
 | Left stick | Move and strafe |
 | Right stick | Turn and aim vertically |
+| A | Jump |
+| B | Hold to crouch |
+| Back | Hold for the overhead map |
 | Right trigger | Fire. Hold for automatic rifle fire, tap for each pistol shot |
 | X | Reload from reserve ammunition |
 | Y | Switch between the MTP-57 rifle and MK-77 pistol |
@@ -49,7 +52,7 @@ The PC client, dedicated server, and Xbox match consume the same `playerstate` c
 | `gpu_render.c` | NV2A world and model drawing, skybox, HUD, and vblank presentation through pbGL and pbkit |
 | `bake.py`, `bake_gpu.py`, `assets.s` | Import and embed original game assets including free-for-all player starts |
 
-The duel rules and bot navigation are local to this port. The renderer approximates slopes and diagonal walls with flat grid cells. The complete PC bot AI, recoil and spread simulation, jump physics, placed map models, other weapons, and multiplayer remain future work.
+The Xbox duel uses its own bot AI and movement code. The renderer includes the original map props and sloped floors and ceilings. Diagonal wall cells still use solid squares. The playable loadout is the rifle and pistol.
 
 ## Verification
 
@@ -80,6 +83,8 @@ For a trace, place an empty `frame-trace.on` beside the installed XBE and start 
 ### Right-stick latency
 
 The physical Xbox timing test pairs a changed XID report in the USB completion callback with the presentation of the first frame turning in the requested direction. Both endpoints use the Xbox performance counter. The pixel check additionally requires a change in a row of scene samples taken from the completed framebuffer. The measurements exclude stick mechanics, USB travel before the callback, panel scanout and TV processing.
+
+With the animated bot and PC weapon camera (commit `c945d2d01`), two 720p runs gave median delays of 20.8 and 18.6 ms at 58% stick travel, and 14.3 and 20.5 ms at 15% travel. All 54 eligible onsets turned the camera, with delays from 12.0 to 31.6 ms. Each run captured 720 frames on consecutive refreshes.
 
 | Right-stick step | Previous build | Revised run | Revised repeat with pixel check |
 | --- | ---: | ---: | ---: |
