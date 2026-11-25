@@ -109,16 +109,16 @@ unsigned random_number() {
 }
 float ground(float x, float y) { return map_floor(map_cube((int)x,(int)y)); }
 float distance(float x,float y,float tx,float ty) { return hypotf(tx-x,ty-y); }
-float eye(const Fighter &f) { return &f==&player ? f.eye_height : ground(f.x,f.y)+BOT_EYE_HEIGHT; }
+float eye(const Fighter &f) { return &f==&player ? f.eye_height : ground(f.x,f.y)+PLAYER_EYE_HEIGHT; }
 void spawn(Fighter &f, int index) {
     f.x = starts[index][0]+.5f; f.y = starts[index][1]+.5f;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
-    f.eye_height=ground(f.x,f.y)+3.6f;
+    f.eye_height=ground(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
         switch_end=0;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
-        feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=0; air_ms=jump_start_ticks=0;
+        feet_z=ground(f.x,f.y); stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
         grounded=true; held_jump=false;
         in_water=false; last_splash=0;
         sway_ms=0; sway_vertical=0;
@@ -166,7 +166,7 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
         if (fallback < 0) fallback = i;
         if (!route_next(x,y,&tx,&ty)) continue;
         float score = -fabsf(d-32);
-        float spawn_eye=ground(x,y)+(&f==&player?3.6f:BOT_EYE_HEIGHT);
+        float spawn_eye=ground(x,y)+PLAYER_EYE_HEIGHT;
         if (!visible(x,y,spawn_eye,opponent.x,opponent.y,eye(opponent))) score += 8;
         if (score > best_score) { best_score = score; best = i; }
     }
@@ -179,7 +179,7 @@ void impulse(Fighter &f,float x,float y,float z,float amount) {
     f.velocity_x+=amount*x;
     f.velocity_y+=amount*y;
     if (&f==&player && (!grounded || in_water)) {
-        float speed=(stance<3.59f?6.4f:16.f)*(in_water?.5f:1.f);
+        float speed=(stance<PLAYER_EYE_HEIGHT?6.4f:16.f)*(in_water?.5f:1.f);
         jump_speed+=amount*z*speed;
     }
 }
@@ -411,18 +411,19 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
         float ladder_top=0;
         bool climbing=!in->crouch && ladder_space(player.x,player.y,feet_z,&ladder_top);
-        float target=fminf(in->crouch?2.7f:3.6f,ceiling-feet_z-.9f);
-        stance+=fmaxf(-8*dt,fminf(8*dt,target-stance));
+        float target=fminf(in->crouch?.75f*PLAYER_EYE_HEIGHT:PLAYER_EYE_HEIGHT,ceiling-feet_z-PLAYER_ABOVE_EYE);
+        float stance_step=.6f*16*dt*(player.eye_height<WATER_LEVEL?.5f:1.f);
+        stance+=fmaxf(-stance_step,fminf(stance_step,target-stance));
         bool swimming=player.eye_height<WATER_LEVEL+.5f;
         if (swimming && !in_water) jump_speed=0;
-        if ((grounded || swimming) && !climbing && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
+        if ((grounded || swimming) && !climbing && !held_jump && in->jump && !in->crouch && stance>=PLAYER_EYE_HEIGHT) {
             grounded=false; jump_speed=swimming?16:32; air_ms=0;
             jump_start_ticks=swimming?0:2;
             if (swimming) { player.velocity_x/=8; player.velocity_y/=8; }
             else movement_sound=PLAYER_JUMP;
         }
         held_jump=in->jump;
-        float speed=stance<3.59f?6.4f:16.f;
+        float speed=stance<PLAYER_EYE_HEIGHT?6.4f:16.f;
         if (swimming) speed*=.5f;
         float c=cosf(player.yaw), s=sinf(player.yaw);
         float forward=climbing && !grounded && in->move<0 ? 0 : in->move;
@@ -442,7 +443,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         player.velocity_x-=dx*fraction;
         player.velocity_y-=dy*fraction;
         walk_body(&player.x,&player.y,travel_x,travel_y,
-                  feet_z,stance+.9f,grounded||climbing?1.5f:0.f);
+                  feet_z,stance+PLAYER_ABOVE_EYE,grounded||climbing?1.5f:0.f);
         if (was_crouching!=bool(in->crouch)) {
             was_crouching=in->crouch;
             stance_sound=was_crouching?CROUCH_IN:CROUCH_OUT;
@@ -455,13 +456,13 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
         if (feet_z>floor+.01f) grounded=false;
         if (climbing) {
-            feet_z=fminf(fminf(ladder_top,ceiling-stance-.9f),feet_z+(swimming?8:16)*in->move*dt);
+            feet_z=fminf(fminf(ladder_top,ceiling-stance-PLAYER_ABOVE_EYE),feet_z+(swimming?8:16)*in->move*dt);
             air_ms=jump_start_ticks=0; jump_speed=0;
             grounded=feet_z<=floor;
         } else if (swimming) {
             float desired=8*in->move*sinf(player.pitch);
             jump_speed+=(desired-jump_speed)*fraction;
-            feet_z=fminf(ceiling-stance-.9f,feet_z+(jump_speed-2.5f)*dt);
+            feet_z=fminf(ceiling-stance-PLAYER_ABOVE_EYE,feet_z+(jump_speed-2.5f)*dt);
             grounded=feet_z<=floor;
             air_ms=jump_start_ticks=0;
         } else if (!grounded) {
@@ -472,7 +473,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
                 if (jump_start_ticks) { jump_start_ticks=0; jump_speed*=23.f/24; }
                 else { air_ms+=5; jump_speed*=119.f/120; }
                 feet_z+=(jump_speed-9.5f-air_ms/30.f)*.005f;
-                if (feet_z+stance+.9f>=ceiling) { feet_z=ceiling-stance-.9f; jump_speed=0; }
+                if (feet_z+stance+PLAYER_ABOVE_EYE>=ceiling) { feet_z=ceiling-stance-PLAYER_ABOVE_EYE; jump_speed=0; }
                 if (feet_z<=floor+.01f) { feet_z=floor; break; }
             }
         }
@@ -665,7 +666,7 @@ void match_view(MatchView *v) {
         v->flash=age<(unsigned)attackdelay(gun)/4;
         float phase=1.5f*t-1.5f;
         float kick=-sinf(phase*phase*phase);
-        if (stance<3.59f) kick*=.75f;
+        if (stance<PLAYER_EYE_HEIGHT) kick*=.75f;
         v->gun_rotation=guns[gun].mdl_kick_rot*kick;
         v->gun_back=guns[gun].mdl_kick_back*kick*.1f;
     }
@@ -708,9 +709,9 @@ static float torso_contact(const MatchView *v,float c,float s,float slope,float 
         enter=fmaxf(enter,closest-half); exit=fminf(exit,closest+half);
     } else if (ox*ox+side*side>1.1f*1.1f) return -1;
     if (fabsf(dz)>.000001f) {
-        float bottom=-oz/dz,top=(BOT_EYE_HEIGHT-oz)/dz;
+        float bottom=-oz/dz,top=(PLAYER_EYE_HEIGHT-oz)/dz;
         enter=fmaxf(enter,fminf(bottom,top)); exit=fminf(exit,fmaxf(bottom,top));
-    } else if (oz<0 || oz>BOT_EYE_HEIGHT) return -1;
+    } else if (oz<0 || oz>PLAYER_EYE_HEIGHT) return -1;
     return enter<=exit?enter:-1;
 }
 static int target_contact(const MatchView *v,float range,bool check_geometry) {

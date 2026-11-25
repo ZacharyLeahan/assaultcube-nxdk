@@ -141,6 +141,7 @@ static void test_stance(unsigned hz) {
     MatchInput input={.start=1};
     match_prepare(); match_update(&input,0,0); match_view(&v);
     float standing=v.eye, peak=standing;
+    assert(fabsf(standing-map_floor(map_cube((int)v.px,(int)v.py))-4.5f)<.001f);
     int jumps=0, landings=0;
     input=(MatchInput){.jump=1};
     for (unsigned frame=1;frame<=hz;++frame) {
@@ -162,9 +163,10 @@ static void test_stance(unsigned hz) {
     for (int i=0;i<15;++i) {
         match_update(&input,16,1.f/60); match_view(&v);
         assert(v.stance_sound==(i==0?CROUCH_IN:SILENT));
+        assert(fabsf(v.eye-standing+fminf(1.125f,(i+1)*9.6f/60))<.001f);
         assert(v.footsteps==CROUCH_STEPS);
     }
-    match_view(&v); assert(fabsf(v.eye-standing+.9f)<.001f);
+    match_view(&v); assert(fabsf(v.eye-standing+1.125f)<.001f);
     input.crouch=0;
     for (int i=0;i<15;++i) {
         match_update(&input,16,1.f/60); match_view(&v);
@@ -300,7 +302,15 @@ static void test_well_ladder(void) {
         match_update(&in,16,.016f); match_view(&v);
         entered+=v.movement_sound==WATER_ENTER;
     }
+    // Standing on the well floor puts the eyes exactly at the swim threshold.
+    assert(fabsf(v.eye+8.5f)<.001f && entered==0);
+    in.crouch=1;
+    for (int i=0;i<20;++i) {
+        match_update(&in,16,.016f); match_view(&v);
+        entered+=v.movement_sound==WATER_ENTER;
+    }
     assert(v.eye < -9 && entered==1);
+    in.crouch=0;
     in.move=1;
     for (int i=0;i<150 && v.eye < -3;++i) {
         match_update(&in,16,.016f); match_view(&v);
@@ -361,7 +371,7 @@ static void test_bot_hitpush(void) {
     float effect_distance=hypotf(hypotf(after.sparks[0].x-before.px,after.sparks[0].y-before.py),
                                  after.sparks[0].z-(before.eye-.2f));
     float target_distance=hypotf(hypotf(before.tx-before.px,before.ty-before.py),
-                                 map_floor(map_cube((int)before.tx,(int)before.ty))+BOT_EYE_HEIGHT-before.eye);
+                                 map_floor(map_cube((int)before.tx,(int)before.ty))+PLAYER_EYE_HEIGHT-before.eye);
     assert(fabsf(effect_distance-target_distance)<.001f);
     in.fire=0;
     for (int i=0;i<20;++i) match_update(&in,5,.005f);
@@ -563,7 +573,7 @@ int main(void) {
         input.fire = !view.player_frags;
         // Track the torso during the opening burst, including its vertical recoil.
         float dx=view.tx-view.px, dy=view.ty-view.py;
-        float chest=map_floor(map_cube((int)view.tx,(int)view.ty))+BOT_EYE_HEIGHT-1;
+        float chest=map_floor(map_cube((int)view.tx,(int)view.ty))+PLAYER_EYE_HEIGHT-1;
         input.look=input.fire ? (atan2f(chest-view.eye,hypotf(dx,dy))-view.pitch)/(.033f*105*.017453293f) : 0;
         input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);
