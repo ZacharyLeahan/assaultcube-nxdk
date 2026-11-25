@@ -896,7 +896,7 @@ static void scoreboard(const MatchView *v) {
         if(network) {snprintf(value,sizeof(value),"%d",rows[i].ping);text(x+508,y,21,value);}
     }
 }
-static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int scores,const SystemMenu *menu) {
+static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int scores,int aimed,const SystemMenu *menu) {
     glDisable(GL_DEPTH_TEST);
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
@@ -994,6 +994,12 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
     glEnable(GL_TEXTURE_2D); glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
     color(.95f,.94f,.87f,1);
     char line[100];
+    if(aimed && v->phase==PLAYING && !v->respawning && !scores && !showmap) {
+        if(lan_connected())
+            snprintf(line,sizeof(line),"%s [cn:%d]",lan_opponent_name(),lan_opponent_number());
+        else snprintf(line,sizeof(line),"%s",v->bot_name);
+        text(8,625,20,line);
+    }
     if(v->phase==READY) {
         text(42,30,27,"ac_desert   /   Bot Deathmatch");
         text(42,59,23,v->stock_round?"START to play    /    15 minutes":"START to play    /    First to 3");
@@ -1099,7 +1105,7 @@ unsigned gpu_present(const MatchView *v,const MatchInput *input,int aimed,unsign
     glDepthRange(0,.04);
     if (view_weapon) muzzle_flash(v);
     glDepthRange(0,1);
-    hud(v,fps10,connected,input->showmap,input->scores,menu);
+    hud(v,fps10,connected,input->showmap,input->scores,aimed,menu);
     // Show the completed surface at vblank. The default pbkit queue can expose
     // an in-progress frame on this console when rendering the full 720p scene.
     glFinish();

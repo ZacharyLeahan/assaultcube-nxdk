@@ -230,8 +230,7 @@ void messages(Reader &r,unsigned now,int sender=-1) {
             if(!r.valid) return;
             if(victim>=0 && victim<MAXCLIENTS) ++deaths[victim];
             if((victim==own || victim==remote) && (actor==own || actor==remote) && gun>=0 && gun<NUMGUNS) {
-                const char *name=remote>=0 && player_names[remote][0]?player_names[remote]:"PC";
-                match_lan_frag(victim==own,victim==actor,gun,type==SV_GIBDIED,name);
+                match_lan_frag(victim==own,victim==actor,gun,type==SV_GIBDIED,lan_opponent_name());
             }
             if(actor==own || actor==remote) match_lan_score(actor==own,frags);
             if(victim==own) {alive=joining=false;next_spawn=now+2000;match_lan_health(0,0);}
@@ -389,6 +388,10 @@ const char *lan_status(void) {
     return status[0]?status:nullptr;
 }
 int lan_connected(void) {return ready;}
+const char *lan_opponent_name(void) {
+    return remote>=0 && remote<MAXCLIENTS && player_names[remote][0]?player_names[remote]:"PC";
+}
+int lan_opponent_number(void) {return remote;}
 int lan_skin(int local) {
     int cn=local?own:remote;
     if(!ready || cn<0 || cn>=MAXCLIENTS) return local?4:0;
@@ -400,7 +403,7 @@ int lan_scores(LanScore rows[2],const MatchView *v) {
     if(!ready || own<0 || own>=MAXCLIENTS) return 0;
     rows[0]={"Xbox",v->player_frags,deaths[own],pings[own]};
     if(remote<0 || remote>=MAXCLIENTS) return 1;
-    rows[1]={player_names[remote][0]?player_names[remote]:"PC",v->bot_frags,deaths[remote],pings[remote]};
+    rows[1]={lan_opponent_name(),v->bot_frags,deaths[remote],pings[remote]};
     return 2;
 }
 void lan_toggle_primary(unsigned now) {

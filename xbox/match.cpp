@@ -2111,5 +2111,5 @@ static int target_contact(const MatchView *v,float range,bool check_geometry) {
            prop_depth({v->px,v->py,v->eye},{c,s,slope},enter)>=enter;
 }
 int match_targeted(const MatchView *v) {
-    return target_contact(v,512,true);
+    return !v->hide_bot && target_contact(v,512,true);
 }
