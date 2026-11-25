@@ -40,7 +40,8 @@ static float map_ceiling(const Cube *c) { return c->kind==3 ? c->ceil+height_del
 typedef struct { short x,y,offset,half_x,half_y,height,shape; } MapClip;
 #include "generated/clips.h"
 
-static void clip_space(float x,float y,float feet,float radius,float *floor,float *ceiling) {
+static void clip_space(float x,float y,float feet,float *floor,float *ceiling) {
+    const float radius=PLAYER_RADIUS;
     for (unsigned i=0;i<sizeof(clips)/sizeof(clips[0]);++i) {
         const MapClip *clip=&clips[i];
         float dx=x-clip->x,dy=y-clip->y;
@@ -57,36 +58,6 @@ static void clip_space(float x,float y,float feet,float radius,float *floor,floa
     }
 }
 
-// The bot walks at terrain height and takes routes around raised obstacles.
-static int bot_clip_clear(float x,float y,float feet) {
-    float floor=feet,ceiling=127;
-    clip_space(x,y,feet,.32f,&floor,&ceiling);
-    return floor<=feet && ceiling>=feet+4.5f;
-}
-
-static int fits(const Cube *c, float previous) {
-    return !map_solid(c) && !(c->tag & 192) && map_floor(c) <= previous + 1.5f &&
-           map_ceiling(c) - fmaxf(map_floor(c), previous) >= 4.5f;
-}
-static int passable(float x, float y, float previous) {
-    const Cube *dest=map_cube((int)x,(int)y);
-    if (!fits(dest,previous) || !bot_clip_clear(x,y,map_floor(dest))) return 0;
-    for (int i = 0; i < 4; ++i) {
-        const Cube *corner = map_cube((int)(x + ((i&1) ? .32f : -.32f)),
-                                      (int)(y + ((i&2) ? .32f : -.32f)));
-        if (map_solid(corner) || (corner->tag & 192)) return 0;
-    }
-    return 1;
-}
-void walk(float *x, float *y, float dx, float dy) {
-    // Small steps also check intervening cells during a slow frame.
-    int steps = 1 + (int)(fmaxf(fabsf(dx), fabsf(dy)) * 3);
-    for (int i = 0; i < steps; ++i) {
-        float nx = *x+dx/steps, ny = *y+dy/steps;
-        if (passable(nx,*y,map_floor(map_cube((int)*x,(int)*y)))) *x = nx;
-        if (passable(*x,ny,map_floor(map_cube((int)*x,(int)*y)))) *y = ny;
-    }
-}
 #include "generated/ladders.h"
 int ladder_space(float x,float y,float feet,float *top) {
     for (unsigned i=0;i<sizeof(ladders)/sizeof(ladders[0]);++i) {
@@ -119,7 +90,7 @@ static const MapCorner *body_bounds(float x,float y,float feet,float *floor,floa
         if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return NULL; }
         *floor=fmaxf(*floor,map_floor(c)); *ceiling=fminf(*ceiling,map_ceiling(c));
     }
-    clip_space(x,y,feet,PLAYER_RADIUS,floor,ceiling);
+    clip_space(x,y,feet,floor,ceiling);
     return surface;
 }
 void body_space(float x,float y,float feet,float *floor,float *ceiling) {
@@ -151,6 +122,14 @@ void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float
         if (body_fits(nx,*y,feet,height,step)) *x=nx;
         if (body_fits(*x,ny,feet,height,step)) *y=ny;
     }
+}
+float body_floor(float x,float y) {
+    float floor,ceiling;
+    body_space(x,y,map_floor(map_cube((int)x,(int)y)),&floor,&ceiling);
+    return floor;
+}
+void walk(float *x,float *y,float dx,float dy) {
+    walk_body(x,y,dx,dy,body_floor(*x,*y),PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE,1.5f);
 }
 static float surface_delta(int ix,int iy,float u,float v,int ceiling) {
     const uint8_t *d=&deltas[iy*MAP+ix];
@@ -254,33 +233,40 @@ static int goal_x = -1, goal_y = -1;
 // during combat only visits bytes and queue entries.
 static uint8_t arrivals[MAP*MAP];
 void navigation_prepare(void) {
-    for (int y=0; y<MAP; ++y) for (int x=0; x<MAP; ++x) {
-        const Cube *dest=map_cube(x,y);
-        unsigned mask=0;
-        if (!map_solid(dest) && bot_clip_clear(x+.5f,y+.5f,map_floor(dest))) for (int i=0; i<4; ++i) {
-            const Cube *from=map_cube(x-vx[i],y-vy[i]);
-            if (fits(from,map_floor(from)) && fits(dest,map_floor(from))) mask |= 1u<<i;
+    const float height=PLAYER_EYE_HEIGHT+PLAYER_ABOVE_EYE;
+    memset(arrivals,0,sizeof(arrivals));
+    for (int y=1;y<MAP-1;++y) for (int x=1;x<MAP-1;++x) {
+        if (map_cube(x,y)->kind==0) continue;
+        int id=y*MAP+x;
+        float cx=x+.5f,cy=y+.5f,floor,ceiling;
+        body_space(cx,cy,map_floor(map_cube(x,y)),&floor,&ceiling);
+        if (ceiling-floor<height) continue;
+        for (int axis=0;axis<2;++axis) {
+            int dx=axis==0,dy=axis==1;
+            // A narrow strip between a step and a rotated crate can be lower
+            // than either center. Check the rise and clearance on both sides.
+            float previous=floor,previous_roof=ceiling;
+            int forward=1,reverse=1;
+            for (int sample=1;sample<=16 && (forward || reverse);++sample) {
+                float sx=cx+dx*sample/16.f,sy=cy+dy*sample/16.f;
+                float next,roof;
+                body_space(sx,sy,map_floor(map_cube((int)sx,(int)sy)),&next,&roof);
+                float clearance=fminf(roof,previous_roof)-fmaxf(previous,next);
+                forward &= clearance>=height && next<=previous+1.5f;
+                reverse &= clearance>=height && previous<=next+1.5f;
+                previous=next; previous_roof=roof;
+            }
+            int neighbor=id+dx+dy*MAP;
+            if (forward) arrivals[neighbor]|=1u<<(axis*2);
+            if (reverse) arrivals[id]|=2u<<(axis*2);
         }
-        arrivals[y*MAP+x]=(uint8_t)mask;
     }
     goal_x=goal_y=-1;
 }
-void route_to(int x, int y) {
-    // A player can stand in the open tip of a corner whose center cannot
-    // hold the bot. End the grid route on an adjoining open face.
-    if (map_cube(x,y)->kind==1) {
-        const MapCorner *k=corner_at(x,y);
-        if (arrivals[y*MAP+x-k->nx]) x-=k->nx;
-        else if (arrivals[(y-k->ny)*MAP+x]) y-=k->ny;
-    }
-    if (goal_x == x && goal_y == y) return;
-    goal_x = x; goal_y = y;
-    memset(next_step, 255, sizeof(next_step));
-    int head = 0, tail = 0, id = y*MAP+x;
-    queue[tail++] = (uint16_t)id;
-    next_step[id] = 4;
+static void spread_route(int tail) {
+    int head=0;
     while (head < tail) {
-        id = queue[head++];
+        int id = queue[head++];
         unsigned mask=arrivals[id];
         for (int i=0; i<4; ++i) {
             if (!(mask & (1u<<i))) continue;
@@ -291,14 +277,46 @@ void route_to(int x, int y) {
         }
     }
 }
+void route_to(int x, int y) {
+    // Near cover, a player's off-center position can fit even if the grid center cannot.
+    if (!arrivals[y*MAP+x]) for (int i=0;i<4;++i) {
+        int nx=x+vx[i],ny=y+vy[i];
+        if ((unsigned)nx<MAP && (unsigned)ny<MAP && arrivals[ny*MAP+nx]) {
+            x=nx; y=ny; break;
+        }
+    }
+    if (goal_x == x && goal_y == y) return;
+    goal_x = x; goal_y = y;
+    memset(next_step, 255, sizeof(next_step));
+    int tail = 0, id = y*MAP+x;
+    queue[tail++] = (uint16_t)id;
+    next_step[id] = 4;
+    spread_route(tail);
+    // A target on a drop-only ledge can still be engaged from below.
+    // Preserve paths onto the ledge and seed visible firing positions only
+    // in parts of the graph that could not reach it on foot.
+    tail=0;
+    float eye=body_floor(x+.5f,y+.5f)+PLAYER_EYE_HEIGHT;
+    for (int dy=-5;dy<=5;++dy) for (int dx=-5;dx<=5;++dx) {
+        int nx=x+dx,ny=y+dy;
+        if ((unsigned)nx>=MAP || (unsigned)ny>=MAP || dx*dx+dy*dy>25) continue;
+        int candidate=ny*MAP+nx;
+        if (next_step[candidate]!=255 || !arrivals[candidate]) continue;
+        float z=body_floor(nx+.5f,ny+.5f)+PLAYER_EYE_HEIGHT;
+        if (!visible(nx+.5f,ny+.5f,z,x+.5f,y+.5f,eye-1)) continue;
+        queue[tail++]=(uint16_t)candidate;
+        next_step[candidate]=4;
+    }
+    spread_route(tail);
+}
 int route_next(float x, float y, float *tx, float *ty) {
     int cx = (int)x, cy = (int)y, dir = next_step[cy*MAP+cx];
     if (dir == 255) return 0;
     *tx = cx+.5f; *ty = cy+.5f;
     if (dir < 4) {
         // Align with the corridor before turning around an inside corner.
-        if (vx[dir] && fabsf(y-*ty) > .15f) *tx = x;
-        else if (vy[dir] && fabsf(x-*tx) > .15f) *ty = y;
+        if (vx[dir] && fabsf(y-*ty) > .001f) *tx = x;
+        else if (vy[dir] && fabsf(x-*tx) > .001f) *ty = y;
         else { *tx += vx[dir]; *ty += vy[dir]; }
     }
     return 1;

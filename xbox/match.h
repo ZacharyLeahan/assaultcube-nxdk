@@ -35,7 +35,7 @@ typedef struct {
 } SplashParticle;
 typedef struct { SplashParticle motion; unsigned on_floor; } BloodParticle;
 typedef struct {
-    float px, py, eye, angle, pitch, tx, ty, bot_yaw,bot_tilt;
+    float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt;
     MatchPoint bot_head;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
     float bot_pose_blend, weapon_kick;

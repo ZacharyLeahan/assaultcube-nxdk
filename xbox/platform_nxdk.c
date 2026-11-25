@@ -128,7 +128,7 @@ static void update_audio(const MatchView *v,MatchSound gun) {
     set_footsteps(BOT_STEPS,v->bot_footsteps,v->elapsed_ms,v->phase==PLAYING && v->bot_alive);
     if (voices[BOT_GUN].remaining || voices[BOT_VOICE].remaining || voices[BOT_STEPS].loop) {
         float left,right;
-        spatial_gain(v,(MatchPoint){v->tx,v->ty,map_floor(map_cube((int)v->tx,(int)v->ty))+PLAYER_EYE_HEIGHT},&left,&right);
+        spatial_gain(v,(MatchPoint){v->tx,v->ty,v->bot_floor+PLAYER_EYE_HEIGHT},&left,&right);
         const int channels[]={BOT_GUN,BOT_VOICE,BOT_STEPS};
         for(unsigned i=0;i<3;++i) {
             int ch=channels[i];

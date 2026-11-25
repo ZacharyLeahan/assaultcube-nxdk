@@ -109,16 +109,16 @@ unsigned random_number() {
 }
 float ground(float x, float y) { return map_floor(map_cube((int)x,(int)y)); }
 float distance(float x,float y,float tx,float ty) { return hypotf(tx-x,ty-y); }
-float eye(const Fighter &f) { return &f==&player ? f.eye_height : ground(f.x,f.y)+PLAYER_EYE_HEIGHT; }
+float eye(const Fighter &f) { return f.eye_height; }
 void spawn(Fighter &f, int index) {
     f.x = starts[index][0]+.5f; f.y = starts[index][1]+.5f;
     f.yaw = (starts[index][2]*.1f-90)*radians; f.pitch = 0;
-    f.eye_height=ground(f.x,f.y)+PLAYER_EYE_HEIGHT;
+    f.eye_height=body_floor(f.x,f.y)+PLAYER_EYE_HEIGHT;
     if (&f==&player) {
         switch_end=0;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
-        feet_z=ground(f.x,f.y); stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
+        feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
         grounded=true; held_jump=false;
         in_water=false; last_splash=0;
         sway_ms=0; sway_vertical=0;
@@ -166,7 +166,7 @@ void respawn_near(Fighter &f, const Fighter &opponent) {
         if (fallback < 0) fallback = i;
         if (!route_next(x,y,&tx,&ty)) continue;
         float score = -fabsf(d-32);
-        float spawn_eye=ground(x,y)+PLAYER_EYE_HEIGHT;
+        float spawn_eye=body_floor(x,y)+PLAYER_EYE_HEIGHT;
         if (!visible(x,y,spawn_eye,opponent.x,opponent.y,eye(opponent))) score += 8;
         if (score > best_score) { best_score = score; best = i; }
     }
@@ -253,7 +253,7 @@ void collect(Fighter &f) {
     if (f.respawn_at) return;
     for (int i = 0; i < item_count; ++i) {
         const ItemLocation &p = locations[i];
-        float dz=(&f==&player?feet_z:ground(f.x,f.y))-ground(p.x,p.y)-p.height_tenths*.1f;
+        float dz=(&f==&player?feet_z:f.eye_height-PLAYER_EYE_HEIGHT)-ground(p.x,p.y)-p.height_tenths*.1f;
         float dx=f.x-p.x, dy=f.y-p.y;
         if (unavailable_until[i] > clock_ms || dx*dx+dy*dy+dz*dz>=6.25f ||
             !f.state.canpickup(p.kind)) continue;
@@ -302,6 +302,7 @@ void update_bot(float dt) {
         float retain=powf(23.f/24,dt/.005f);
         float travel=16*.115f*(1-retain);
         walk(&bot.x,&bot.y,bot.velocity_x*travel,bot.velocity_y*travel);
+        bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
         bot.velocity_x*=retain; bot.velocity_y*=retain;
     }
     if (bot.respawn_at || player.respawn_at || clock_ms < 1000) return;
@@ -323,6 +324,7 @@ void update_bot(float dt) {
     if (length > .001f) {
         float step = fminf(length,(sees ? 4 : 11)*dt);
         walk(&bot.x,&bot.y,mx/length*step,my/length*step);
+        bot.eye_height=body_floor(bot.x,bot.y)+PLAYER_EYE_HEIGHT;
         float traveled=distance(old_x,old_y,bot.x,bot.y);
         if (traveled>.001f) {
             // Advance the six original run poses by distance to avoid foot sliding.
@@ -537,10 +539,10 @@ MatchPoint bot_model_point(const MatchView *v,MatchPoint p) {
     float st=sinf(v->bot_tilt),ct=cosf(v->bot_tilt);
     float forward=ct*p.x-st*p.z,c=cosf(v->bot_yaw),s=sinf(v->bot_yaw);
     return {v->tx+c*forward-s*p.y,v->ty+s*forward+c*p.y,
-            ground(v->tx,v->ty)+st*p.x+ct*p.z};
+            v->bot_floor+st*p.x+ct*p.z};
 }
 static void bot_view(MatchView *v) {
-    v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_alive = !bot.respawn_at;
+    v->bot_yaw = bot.yaw; v->tx = bot.x; v->ty = bot.y; v->bot_floor=eye(bot)-PLAYER_EYE_HEIGHT; v->bot_alive = !bot.respawn_at;
     // The world rifle's md2emit lasts 50 ms of the 90 ms attack cue.
     v->bot_flash_end_ms = bot.flash_until>=40 ? bot.flash_until-40 : 0;
     // MD2 sequences and frame periods used by the PC renderclient.
@@ -695,7 +697,7 @@ void match_view(MatchView *v) {
 // bot-local space makes the pitched torso an upright finite cylinder.
 static float torso_contact(const MatchView *v,float c,float s,float slope,float range) {
     float cy=cosf(v->bot_yaw),sy=sinf(v->bot_yaw),ct=cosf(v->bot_tilt),st=sinf(v->bot_tilt);
-    float x=v->px-v->tx,y=v->py-v->ty,z=v->eye-ground(v->tx,v->ty);
+    float x=v->px-v->tx,y=v->py-v->ty,z=v->eye-v->bot_floor;
     float forward=x*cy+y*sy,side=y*cy-x*sy,df=c*cy+s*sy,ds=s*cy-c*sy;
     float ox=forward*ct+z*st,oz=z*ct-forward*st;
     float dx=df*ct+slope*st,dz=slope*ct-df*st;
