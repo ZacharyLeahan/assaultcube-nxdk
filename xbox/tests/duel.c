@@ -673,6 +673,7 @@ void test_easy_bot_spacing(void);
 void test_easy_bot_aim(void);
 void test_smg_loadout(void);
 void test_carbine_loadout(void);
+void test_sniper_scope(void);
 void test_bot_ammunition(void);
 void test_wall_impact_lifetime(void);
 
@@ -682,6 +683,7 @@ int main(void) {
     test_easy_bot_aim();
     test_smg_loadout();
     test_carbine_loadout();
+    test_sniper_scope();
     test_bot_ammunition();
     test_wall_impact_lifetime();
     test_prop_depth();

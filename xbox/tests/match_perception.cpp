@@ -280,7 +280,36 @@ extern "C" void test_carbine_loadout(void) {
     phase=INTERMISSION;
     in={}; in.swap=1; in.start=1;
     match_update(&in,0,0); match_view(&v);
-    assert(v.weapon==VIEW_RIFLE && v.phase==PLAYING);
+    assert(v.weapon==VIEW_SNIPER && v.phase==PLAYING);
+}
+
+extern "C" void test_sniper_scope(void) {
+    match_prepare();
+    MatchView v={};
+    MatchInput in={};
+    in.swap=1;
+    for (int i=0;i<3;++i) match_update(&in,0,0);
+    in={}; in.start=1; match_update(&in,0,0);
+    in={}; in.turn=.4f; in.look=.3f;
+    float base_yaw=player.yaw,base_pitch=player.pitch;
+    match_update(&in,16,.016f);
+    float yaw_step=player.yaw-base_yaw,pitch_step=player.pitch-base_pitch;
+    base_yaw=player.yaw; base_pitch=player.pitch;
+    in.scope=1;
+    match_update(&in,16,.016f); match_view(&v);
+    assert(v.scoped && fabsf(player.yaw-base_yaw-yaw_step*SCOPE_TAN_HALF_FOV)<.0001f);
+    assert(fabsf(player.pitch-base_pitch-pitch_step*SCOPE_TAN_HALF_FOV)<.0001f);
+    in.scope=0; match_update(&in,16,.016f); match_view(&v); assert(!v.scoped);
+    in.scope=1; match_update(&in,16,.016f); match_update(&in,181,.016f);
+    float x=1,y=0,z=0; apply_spread(player,GUN_SNIPER,x,y,z);
+    assert(x==1 && y==0 && z==0);
+    in.fire=1; assert(match_attack(&in)==SNIPER_SHOT);
+    in.fire=0; in.refill=1; assert(match_attack(&in)==SNIPER_RELOAD);
+    match_view(&v); assert(!v.scoped && v.reload);
+    phase=INTERMISSION; in={}; in.start=in.swap=1;
+    match_update(&in,0,0);
+    in={}; in.scope=1; match_update(&in,16,.016f); match_view(&v);
+    assert(v.weapon==VIEW_RIFLE && !v.scoped);
 }
 
 extern "C" void test_bot_ammunition(void) {
