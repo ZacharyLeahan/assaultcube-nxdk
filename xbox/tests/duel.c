@@ -34,6 +34,23 @@ static void test_routes_to_spawn(int gx,int gy) {
     }
 }
 
+static void test_heightfield_impact(void) {
+    MatchInput input={.start=1};
+    match_prepare(); match_update(&input,0,0);
+    input=(MatchInput){.turn=-.5f,.look=-.825f};
+    for (int i=0;i<24;++i) match_update(&input,20,.02f);
+    MatchView v; match_view(&v);
+    float dx=cosf(v.pitch)*cosf(v.angle),dy=cosf(v.pitch)*sinf(v.angle),dz=sinf(v.pitch);
+    SurfaceHit hit;
+    assert(trace_surface(v.px,v.py,v.eye,v.px+20*dx,v.py+20*dy,v.eye+20*dz,&hit));
+    assert((int)hit.x==125 && (int)hit.y==131 && !hit.can_mark);
+    input=(MatchInput){.fire=1};
+    assert(match_attack(&input)==RIFLE_SHOT);
+    match_view(&v);
+    assert(v.mark_count==0 && v.spark_count==5);
+    assert(hypotf(v.sparks[0].x-hit.x,v.sparks[0].y-hit.y)<.2f);
+}
+
 static void test_wind_playback(void) {
     // At this position only the wind emitter is audible.
     int start[512][2]={0}, next[512][2]={0}, replay[1024][2]={0};
@@ -469,6 +486,7 @@ static void test_prop_depth(void) {
 
 int main(void) {
     test_prop_depth();
+    test_heightfield_impact();
     test_wind_playback();
     test_bot_hitpush();
     test_bot_hit_volumes();
@@ -544,6 +562,7 @@ int main(void) {
     assert(trace_surface(131.1f,134.1f,3,131.9f,134.9f,3,&slope));
     assert(fabsf(slope.fraction-.5f)<.001f);
     assert(slope.axis==3 && fabsf(slope.x-131.489f)<.001f && fabsf(slope.y-134.489f)<.001f);
+    assert(slope.can_mark);
     float slide_x=130.39f,slide_y=133.39f;
     walk_body(&slide_x,&slide_y,.1f,0,-2,4.5f,1.5f);
     assert(fabsf(slide_x-130.4376f)<.001f && fabsf(slide_y-133.34f)<.001f);
@@ -572,6 +591,7 @@ int main(void) {
     assert(map_floor(map_cube(91,72))==2.375f);
     assert(trace_surface(91.5f,72.5f,4,91.5f,72.5f,1,&slope));
     assert(slope.axis==2 && fabsf(slope.z-2.515f)<.001f);
+    assert(!slope.can_mark);
     test_stance(50);
     test_stance(60);
     test_stance(200);

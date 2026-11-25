@@ -83,6 +83,7 @@ void spark_splash(float x,float y,float z) {
     }
 }
 void mark_surface(const SurfaceHit &hit) {
+    if (!hit.can_mark) return;
     marks[next_mark]={hit.x,hit.y,hit.z,hit.axis,clock_ms+10000};
     next_mark=(next_mark+1)%64;
     if (mark_count<64) ++mark_count;
@@ -277,7 +278,7 @@ void bot_shot_effects(float yaw,bool hit_player) {
             target={hit.x,hit.y,hit.z};
             mark_surface(hit);
             spark_splash(hit.x,hit.y,hit.z);
-            if (hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
+            if (hit.can_mark && hypotf(distance(hit.x,hit.y,player.x,player.y),hit.z-eye(player))<=15)
                 impact_sound={target,hit.z<WATER_LEVEL?BULLET_WATER:BULLET_IMPACT};
         }
     }
