@@ -34,7 +34,7 @@ float feet_z, stance, jump_speed, air_seconds, sway_vertical;
 unsigned sway_ms;
 bool grounded, held_jump, in_water;
 unsigned last_splash;
-unsigned clock_ms, next_route, bot_attack_at, hurt_until;
+unsigned clock_ms, frame_start_ms, next_route, bot_attack_at, hurt_until;
 unsigned damage_directions[8];
 unsigned unavailable_until[item_count], random_state;
 int burst, bot_pose;
@@ -129,7 +129,7 @@ void begin(MatchPhase initial) {
     intermission_age=0;
     next_spark=spark_count=0; effect_seed=1;
     next_blood=blood_count=0;
-    clock_ms = 0; random_state = 7331; phase = initial;
+    clock_ms = frame_start_ms = 0; random_state = 7331; phase = initial;
     player.frags = bot.frags = burst = bot_pose = 0;
     stride_phase=0;
     next_route = hurt_until = 0;
@@ -201,8 +201,13 @@ MatchSound trigger(Fighter &f, bool fire, bool refill, bool on_target, Fighter &
     }
     if (!fire || !mag) return SILENT;
     --mag;
-    f.ready_at = clock_ms+attackdelay(gun);
-    f.flash_until = clock_ms+90;
+    // Preserve the part of this frame spent past the previous shot deadline.
+    // An idle trigger or a long stall starts a fresh firing interval.
+    unsigned delay=attackdelay(gun),action=clock_ms;
+    if (f.ready_at && f.ready_at>=frame_start_ms && clock_ms-f.ready_at<delay)
+        action=f.ready_at;
+    f.ready_at = action+delay;
+    f.flash_until = action+90;
     if (on_target && !opponent.respawn_at) damage(opponent,f,gun);
     return gun == GUN_PISTOL ? PISTOL_SHOT : RIFLE_SHOT;
 }
@@ -284,6 +289,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (in->start) begin(PLAYING);
         return;
     }
+    frame_start_ms=clock_ms;
     clock_ms += elapsed;
     update_blood(elapsed);
     if (clock_ms >= duration) { phase = INTERMISSION; return; }
@@ -428,7 +434,7 @@ MatchSound match_attack(const MatchInput *in) {
         const int gun=player.state.gunselect;
         const guninfo &g=guns[gun];
         ++player.shots;
-        player.shot_until=clock_ms+g.attackdelay;
+        player.shot_until=player.ready_at;
         float ramp=(float)player.shots/g.recoilincrease;
         player.pitch_velocity=fminf(ramp*ramp+g.recoilbase*.1f,g.maxrecoil*.1f);
         int spread=gun==GUN_ASSAULT ? (player.shots>2?55:g.spread+(player.shots==1?5:15)) : g.spread;

@@ -4,6 +4,26 @@
 #include <math.h>
 #include <stdio.h>
 
+static void test_rifle_cadence(unsigned hz) {
+    MatchInput in={.start=1};
+    match_prepare();
+    match_update(&in,0,0);
+    in=(MatchInput){.fire=1};
+    unsigned shots=0,first=0,previous=0;
+    for (unsigned frame=1;frame<=3*hz && shots<20;++frame) {
+        unsigned now=frame*1000/hz,dt=now-previous;
+        match_update(&in,dt,dt*.001f);
+        if (match_attack(&in)==RIFLE_SHOT) {
+            if (!shots) first=now;
+            unsigned due=first+shots*120;
+            assert(previous<due && now>=due);
+            ++shots;
+        }
+        previous=now;
+    }
+    assert(shots==20);
+}
+
 static void test_tracking_breakaway(void) {
     MatchView view;
     MatchInput input = {.start=1};
@@ -126,6 +146,8 @@ static void test_well_ladder(void) {
     match_view(&v); assert(v.px>142 && v.eye>3);
 }
 int main(void) {
+    test_rifle_cadence(60);
+    test_rifle_cadence(50);
     test_well_ladder();
     test_weapon_switch();
     MatchInput floor_shot={.start=1};
