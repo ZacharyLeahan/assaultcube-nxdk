@@ -45,7 +45,7 @@ typedef struct {
     MatchPoint bot_head,camera;
     float camera_yaw,camera_pitch,player_floor,death_frame;
     struct { const char *text; unsigned age; } frag_messages[3];
-    int health, armour, magazine, reserve, pistol, knife, player_frags, bot_frags, bot_alive, bot_pistol;
+    int health, armour, magazine, reserve, pistol, knife, player_frags, bot_frags, bot_alive, bot_pistol, radar_active;
     const GibView *gibs; unsigned gib_count; int hide_bot, gib_sound;
     BotPose current_pose,previous_pose;
     float pose_transition,gun_pose_blend,flash_angle;

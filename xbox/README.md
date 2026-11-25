@@ -23,6 +23,8 @@ Controllers can be plugged in or replaced while the game is running. Any of the 
 
 The HUD shows frags, time remaining, health, and armour. The large ammo count is the magazine and the smaller count is the reserve, as on PC. The crosshair disappears during a reload. Walk over the map's ammo, health, helmet, and armour pickups to collect them. The bot can collect them too.
 
+The radar and overhead map show the well water and map models, including barrels and crates. The player marker pulses briefly when you fire, reload, or switch weapons.
+
 The map supplies six ambient sound sources. The courtyard has stereo wind and a distant hawk, water becomes audible near the well, and three air conditioners can be located by ear.
 
 Local rifle and pistol impacts use the crosshair depth of the map and its props. A round that hits a barrel throws sparks at the barrel. Bullet holes appear on nearby level surfaces.

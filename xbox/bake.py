@@ -137,7 +137,7 @@ def bake():
     lighting = model_lighting(cells, entities, *struct.unpack_from("<ii", data, 924))
     (OUT / "cell_light.bin").write_bytes(lighting.tobytes())
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
-    bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting, corners)
+    bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting, corners, surface, (r,g,b,a))
     sounds=("weapon/knife","weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload","weapon/clip_empty",
             "weapon/ric1","weapon/ric2","weapon/ric3","weapon/waterimpact",
             "player/jump","player/land","player/step","player/footsteps","player/crouch","player/watersteps",

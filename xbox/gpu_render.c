@@ -695,6 +695,16 @@ static void equipment(float x,int col,int row,int value,int reserve) {
     x=hud_digits(x+56,823*.8f,value,.8f);
     if (reserve>=0) hud_digits(x,826*.8f,reserve,.4f);
 }
+static void radar_player(const MatchView *v,float x,float y,float yaw,float size) {
+    float col=v->respawning?.25f:v->radar_active?.5f:0;
+    float alpha=v->radar_active?fminf(1,.7f+.5f*sinf(v->elapsed_ms/30.f)):1;
+    color(1,1,1,alpha);
+    glBindTexture(GL_TEXTURE_2D,textures[RADAR_ICONS]);
+    glPushMatrix(); glTranslatef(x,y,0); glRotatef(yaw*57.29578f,0,0,1);
+    begin_quads(); quad(-size*.5f,-size*.5f,size,size,col,.5f,.25f,.25f); end_quads();
+    glPopMatrix();
+    color(1,1,1,1);
+}
 static void overview(const MatchView *v) {
     const float size=540, x=(hud_width-size)*.5f, y=(720-size)*.5f;
     color(1,1,1,1);
@@ -704,12 +714,10 @@ static void overview(const MatchView *v) {
     quad(x,y,size,size,0,0,1,1);
     end_quads();
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-    glBindTexture(GL_TEXTURE_2D,textures[RADAR_ICONS]);
-    glPushMatrix();
-    glTranslatef(x+(v->px-MAP_LEFT)*size/MAP_SPAN,y+(v->py-MAP_TOP)*size/MAP_SPAN,0);
-    glRotatef(90+v->angle*57.29578f,0,0,1);
-    begin_quads(); quad(-12,-12,24,24,v->respawning?.25f:v->flash?.5f:0,.5f,.25f,.25f); end_quads();
-    glPopMatrix();
+    float px=x+(v->px-MAP_LEFT)*size/MAP_SPAN,py=y+(v->py-MAP_TOP)*size/MAP_SPAN;
+    radar_player(v,px,py,v->angle+1.57079633f,24);
+    glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);
+    text(px+12,py+12,12,"You");
 }
 static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     glDisable(GL_DEPTH_TEST);
@@ -758,7 +766,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
     else if (v->phase==PLAYING) {
         const float cx=hud_width-100.8f, cy=97.6f, radius=72, span=75;
         float u=(v->px-MAP_LEFT)/MAP_SPAN, t=(v->py-MAP_TOP)/MAP_SPAN;
-        float c=cosf(v->angle), s=sinf(v->angle);
+        float c=cosf(v->camera_yaw), s=sinf(v->camera_yaw);
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_TEX]);
         color(1,1,1,1);
         begin_quads();
@@ -772,12 +780,11 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap) {
             vertex(cx,cy,0,u,t);
         }
         end_quads();
-        glBindTexture(GL_TEXTURE_2D,textures[RADAR_ICONS]);
-        begin_quads(); quad(cx-6,cy-6,12,12,v->respawning?.25f:v->flash?.5f:0,.5f,.25f,.25f); end_quads();
+        radar_player(v,cx,cy,v->angle-v->camera_yaw,12);
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_RING]);
         begin_quads(); quad(cx-78.4f,cy-78.4f,156.8f,156.8f,0,0,1,1); end_quads();
         glBindTexture(GL_TEXTURE_2D,textures[RADAR_COMPASS]);
-        glPushMatrix(); glTranslatef(cx,cy,0); glRotatef(-90-v->angle*57.29578f,0,0,1);
+        glPushMatrix(); glTranslatef(cx,cy,0); glRotatef(-90-v->camera_yaw*57.29578f,0,0,1);
         begin_quads(); quad(-75.2f,-75.2f,150.4f,150.4f,0,0,1,1); end_quads();
         glPopMatrix();
     }

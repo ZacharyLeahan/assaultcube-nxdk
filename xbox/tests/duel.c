@@ -344,10 +344,12 @@ static void test_knife(void) {
     match_update(&in,401,.016f);
     assert(match_attack(&in)==KNIFE_SWING);
     match_view(&v);
-    assert(v.knife && !v.flash && !v.blood_count && !v.spark_count && !v.player_light);
+    assert(v.knife && v.radar_active && !v.flash && !v.blood_count && !v.spark_count && !v.player_light);
     match_update(&in,460,.016f); match_view(&v);
-    assert(v.gun_pose==12 && v.next_gun_pose==12);
+    assert(v.gun_pose==12 && v.next_gun_pose==12 && v.radar_active);
     match_update(&in,40,.016f);
+    match_view(&v);
+    assert(!v.radar_active);
     assert(match_attack(&in)==SILENT);
     in.fire=0; match_attack(&in);
     for (int i=0;i<500 && !v.player_frags;++i) {
