@@ -248,6 +248,17 @@ static void test_stance(unsigned hz) {
     }
     assert(fabsf(peak-standing-2.943f)<.01f);
     assert(jumps==1 && landings==1);
+    match_prepare();
+    input=(MatchInput){.start=1};match_update(&input,0,0);match_view(&v);
+    float floor=v.player_floor;
+    peak=floor;
+    for(unsigned frame=0;frame<hz;++frame) {
+        unsigned now=frame*1000/hz,dt=(frame+1)*1000/hz-now;
+        input=(MatchInput){.jump=now<100,.crouch=now>=100 && now<550};
+        match_update(&input,dt,dt*.001f);match_view(&v);
+        peak=fmaxf(peak,v.player_floor);
+    }
+    assert(peak-floor>3.73f && peak-floor<3.89f);
     input=(MatchInput){.crouch=1,.strafe=.2f};
     for (int i=0;i<15;++i) {
         match_update(&input,16,1.f/60); match_view(&v);

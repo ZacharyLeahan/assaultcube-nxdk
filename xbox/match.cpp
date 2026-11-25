@@ -71,6 +71,9 @@ float flash_angle;
 MatchPoint death_camera;
 float death_yaw,death_pitch;
 bool grounded, held_jump, in_water, on_ladder, lan_jump;
+bool jump_pending,crouched_in_air;
+unsigned last_jump;
+float last_jump_floor;
 float net_vertical_velocity;
 unsigned last_splash;
 unsigned clock_ms, frame_start_ms, next_route, next_enemy_search, bot_attack_at, hurt_until;
@@ -302,6 +305,7 @@ void spawn(Fighter &f, int index, float offset=.5f) {
         hurt_until=0;
         feet_z=f.eye_height-PLAYER_EYE_HEIGHT; stance=PLAYER_EYE_HEIGHT; jump_speed=0; air_ms=jump_start_ticks=0;
         grounded=true; held_jump=lan_jump=on_ladder=false; net_vertical_velocity=0;
+        jump_pending=crouched_in_air=false;last_jump=0;
         in_water=false; last_splash=0;
         sway_ms=0; sway_vertical=0;
         was_crouching=false; step_sound=stance_sound=SILENT;
@@ -385,7 +389,7 @@ void impulse(Fighter &f,float x,float y,float z,float amount) {
     f.velocity_x+=amount*x;
     f.velocity_y+=amount*y;
     if (&f==&player && (!grounded || in_water)) {
-        float speed=(stance<PLAYER_EYE_HEIGHT?6.4f:16.f)*(in_water?.5f:1.f);
+        float speed=(stance<PLAYER_EYE_HEIGHT && !crouched_in_air?6.4f:16.f)*(in_water?.5f:1.f);
         jump_speed+=amount*z*speed;
     }
 }
@@ -1193,15 +1197,32 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         stance+=fmaxf(-stance_step,fminf(stance_step,target-stance));
         bool swimming=player.eye_height<WATER_LEVEL+.5f;
         if (swimming && !in_water) jump_speed=0;
-        if ((grounded || swimming) && !climbing && !held_jump && in->jump && !in->crouch && stance>=PLAYER_EYE_HEIGHT) {
+        if(!in->jump) jump_pending=false;
+        else if(!held_jump && !was_crouching) jump_pending=true;
+        if(grounded || swimming || climbing) crouched_in_air=false;
+        bool air_crouch=!grounded && !swimming && !climbing && in->crouch && !was_crouching && !crouched_in_air;
+        if ((grounded || swimming) && !climbing && jump_pending && !in->crouch && stance>=PLAYER_EYE_HEIGHT) {
             grounded=false; jump_speed=swimming?16:32; air_ms=0;
+            jump_pending=false;
+            float target_speed=hypotf(in->move,in->strafe);
+            if(last_jump && clock_ms-last_jump<250 && fabsf(in->strafe)>.001f &&
+               feet_z-last_jump_floor>.2f && target_speed>.1f) {
+                float boost=1.25f/fmaxf(1,hypotf(player.velocity_x,player.velocity_y)/target_speed);
+                player.velocity_x*=boost;player.velocity_y*=boost;jump_speed*=boost;
+            }
+            last_jump=clock_ms;last_jump_floor=feet_z;
             jump_start_ticks=swimming?0:2;
             lan_jump=true;
             if (swimming) { player.velocity_x/=8; player.velocity_y/=8; }
             else movement_sound=PLAYER_JUMP;
         }
         held_jump=in->jump;
-        float speed=stance<PLAYER_EYE_HEIGHT?6.4f:16.f;
+        if(air_crouch) {
+            // Stock adds 0.3 to normalized vertical velocity once per flight.
+            jump_speed+=.3f*16;
+            crouched_in_air=true;
+        }
+        float speed=stance<PLAYER_EYE_HEIGHT && !crouched_in_air?6.4f:16.f;
         if (swimming) speed*=.5f;
         float c=cosf(player.yaw), s=sinf(player.yaw);
         float forward=climbing && !grounded && in->move<0 ? 0 : in->move;
