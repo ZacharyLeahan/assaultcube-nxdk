@@ -327,6 +327,27 @@ int main(void) {
     assert(!trace_surface(179,156.5f,12,190,156.5f,12,&slope));
     // The low rotated obstacle at (164,156) stops walking but can be jumped.
     float x=160.5f,y=156.5f,floor,ceiling;
+    // The southeast half of the corner near spawn is solid. Both endpoints
+    // of this shot lie inside the same cell, on opposite sides of its seam.
+    body_space(131.10f,134.10f,-2,&floor,&ceiling);
+    assert(floor==-2 && ceiling==16);
+    body_space(131.35f,134.35f,-2,&floor,&ceiling);
+    assert(floor>ceiling);
+    assert(visible(131.1f,134.1f,3,131.2f,134.2f,3));
+    assert(trace_surface(131.1f,134.1f,3,131.9f,134.9f,3,&slope));
+    assert(slope.axis==3 && fabsf(slope.x-131.489f)<.001f && fabsf(slope.y-134.489f)<.001f);
+    float slide_x=131.17f,slide_y=134.17f;
+    walk_body(&slide_x,&slide_y,.1f,0,-2,4.5f,1.5f);
+    assert(fabsf(slide_x-131.2176f)<.001f && fabsf(slide_y-134.12f)<.001f);
+    // A two-cell-wide corner has a four-unit platform on one side. Rays
+    // above the platform can cross the entire diagonal in either direction.
+    body_space(168.5f,120.5f,0,&floor,&ceiling);
+    assert(floor==0 && ceiling==16);
+    body_space(169.5f,121.5f,4,&floor,&ceiling);
+    assert(floor==4 && ceiling==16);
+    assert(visible(168.4f,120.4f,5,169.6f,121.6f,5));
+    assert(trace_surface(168.4f,120.5f,2,169.6f,121.7f,2,&slope));
+    assert(slope.axis==3 && fabsf(slope.x+slope.y-289.978f)<.001f);
     walk_body(&x,&y,5,0,0,4.5f,1.5f);
     assert(x>161 && x<163);
     walk_body(&x,&y,2,0,2,4.5f,0);

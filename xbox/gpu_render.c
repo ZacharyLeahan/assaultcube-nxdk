@@ -361,7 +361,8 @@ static void level(const MatchView *v) {
         for (int j=0;j<4;++j) {
             int u=j==1||j==2, w=j>=2;
             float a=.6f*(u?HOLE_RIGHT:HOLE_LEFT), b=.6f*(w?HOLE_BOTTOM:HOLE_TOP);
-            vertex(m->x+(m->axis==0?0:a),m->y+(m->axis==0?a:m->axis==2?b:0),
+            if (m->axis>=3) a*=.70710678f;
+            vertex(m->x+(m->axis==0?0:a),m->y+(m->axis==0?a:m->axis==2?b:m->axis==3?-a:m->axis==4?a:0),
                    m->z+(m->axis==2?0:b),u,w);
         }
     }

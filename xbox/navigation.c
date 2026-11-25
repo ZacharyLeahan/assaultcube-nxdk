@@ -11,6 +11,24 @@ const Cube *map_cube(int x, int y) {
 }
 int map_solid(const Cube *cube) { return cube->kind < 2; }
 
+typedef struct {
+    uint16_t index;
+    int16_t plane;
+    int8_t nx,ny,solid,inner_floor,inner_ceil,outer_floor,outer_ceil;
+    uint8_t wall,inner_roof,outer_roof;
+} MapCorner;
+#include "generated/corners.h"
+
+static const MapCorner *corner_at(int x,int y) {
+    unsigned key=y*MAP+x,lo=0,hi=sizeof(corners)/sizeof(corners[0]);
+    while (lo<hi) {
+        unsigned mid=(lo+hi)/2;
+        if (corners[mid].index<key) lo=mid+1;
+        else hi=mid;
+    }
+    return &corners[lo]; // The baker emits an entry for each CORNER cell.
+}
+
 // The PC collision hull samples the average of the four heightfield vertices.
 static float height_delta(const Cube *c) {
     size_t i=((uintptr_t)c-(uintptr_t)world)/sizeof(Cube);
@@ -79,14 +97,32 @@ int ladder_space(float x,float y,float feet,float *top) {
     }
     return 0;
 }
-void body_space(float x,float y,float feet,float *floor,float *ceiling) {
+static const MapCorner *body_bounds(float x,float y,float feet,float *floor,float *ceiling) {
+    const MapCorner *surface=NULL;
     *floor=-128; *ceiling=127;
     for (int i=0;i<4;++i) {
-        const Cube *c=map_cube((int)(x+((i&1)?.32f:-.32f)),(int)(y+((i&2)?.32f:-.32f)));
-        if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return; }
+        float u=x+((i&1)?.32f:-.32f),v=y+((i&2)?.32f:-.32f);
+        int ix=(int)u,iy=(int)v;
+        const Cube *c=map_cube(ix,iy);
+        if (c->kind==1) {
+            const MapCorner *k=corner_at(ix,iy);
+            int inner=k->nx*u+k->ny*v>=k->plane;
+            if (inner) surface=k;
+            if ((inner && k->solid) || ((inner || k->solid) && (c->tag&192))) {
+                *floor=127; *ceiling=-128; return inner?k:NULL;
+            }
+            *floor=fmaxf(*floor,inner?k->inner_floor:k->outer_floor);
+            *ceiling=fminf(*ceiling,inner?k->inner_ceil:k->outer_ceil);
+            continue;
+        }
+        if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return NULL; }
         *floor=fmaxf(*floor,map_floor(c)); *ceiling=fminf(*ceiling,map_ceiling(c));
     }
     clip_space(x,y,feet,floor,ceiling);
+    return surface;
+}
+void body_space(float x,float y,float feet,float *floor,float *ceiling) {
+    body_bounds(x,y,feet,floor,ceiling);
 }
 static int body_fits(float x,float y,float feet,float height,float step) {
     float floor,ceiling;
@@ -96,7 +132,21 @@ static int body_fits(float x,float y,float feet,float height,float step) {
 void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float step) {
     int steps=1+(int)(fmaxf(fabsf(dx),fabsf(dy))*3);
     for (int i=0;i<steps;++i) {
-        float nx=*x+dx/steps, ny=*y+dy/steps;
+        float sx=dx/steps,sy=dy/steps,nx=*x+sx,ny=*y+sy,floor,ceiling;
+        const MapCorner *corner=body_bounds(nx,ny,feet,&floor,&ceiling);
+        if (floor<=feet+step && fmaxf(floor,feet)+height<=ceiling) {
+            *x=nx; *y=ny; continue;
+        }
+        if (corner) {
+            // Project the displacement onto the diagonal and use the PC's
+            // 1/42 backoff so the next update starts clear of the wall.
+            float normal=(sx*corner->nx+sy*corner->ny)*.5f;
+            float slide_x=nx-normal*corner->nx-sx/42;
+            float slide_y=ny-normal*corner->ny-sy/42;
+            if (body_fits(slide_x,slide_y,feet,height,step)) {
+                *x=slide_x; *y=slide_y; continue;
+            }
+        }
         if (body_fits(nx,*y,feet,height,step)) *x=nx;
         if (body_fits(*x,ny,feet,height,step)) *y=ny;
     }
@@ -124,6 +174,21 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
         const Cube *c = map_cube(ix,iy);
         float boundary=end;
         int slope=c->kind==2 || c->kind==3;
+        const MapCorner *k=c->kind==1?corner_at(ix,iy):NULL;
+        int solid=c->kind==0,wall=c->wall,roof=c->roof;
+        float fa=c->floor,ca=c->ceil;
+        if (k) {
+            float start=k->nx*x+k->ny*y-k->plane,rate=k->nx*dx+k->ny*dy;
+            if (rate!=0) {
+                float crossing=-start/rate;
+                if (crossing>t && crossing<end) end=crossing;
+            }
+            int inner=start+rate*((t+end)*.5f)>=0;
+            solid=inner && k->solid;
+            wall=k->wall; roof=inner?k->inner_roof:k->outer_roof;
+            fa=inner?k->inner_floor:k->outer_floor;
+            ca=inner?k->inner_ceil:k->outer_ceil;
+        }
         if (slope) {
             float rate=c->kind==2 ? dx-dy : dx+dy;
             if (rate!=0) {
@@ -132,19 +197,19 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
             }
         }
         float a=z+(tz-z)*t, b=z+(tz-z)*end;
-        float fa=c->floor, fb=fa, ca=c->ceil, cb=ca;
+        float fb=fa,cb=ca;
         if (slope) {
             float da=surface_delta(ix,iy,x+t*dx-ix,y+t*dy-iy,c->kind==3);
             float db=surface_delta(ix,iy,x+end*dx-ix,y+end*dy-iy,c->kind==3);
             if (c->kind==2) { fa-=da; fb-=db; }
             else { ca+=da; cb+=db; }
         }
-        if (map_solid(c) || a<=fa || b<=fb || a>=ca || b>=cb) {
+        if (solid || a<=fa || b<=fb || a>=ca || b>=cb) {
             if (hit) {
-                if (map_solid(c) && !c->wall) return 0;
+                if (solid && !wall) return 0;
                 int axis=entry_axis;
-                if (!map_solid(c) && a>fa && a<ca) {
-                    if (b>=cb && !c->roof) return 0; // open sky
+                if (!solid && a>fa && a<ca) {
+                    if (b>=cb && !roof) return 0; // open sky
                     float before=b<=fb ? a-fa : ca-a;
                     float after=b<=fb ? b-fb : cb-b;
                     t+=(end-t)*before/(before-after);
@@ -154,12 +219,19 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
                 if (axis==0) hit->x-=sx*.015f;
                 if (axis==1) hit->y-=sy*.015f;
                 if (axis==2) hit->z+=tz<z?.015f:-.015f;
+                if (axis>=3 && k) {
+                    float bias=k->nx*dx+k->ny*dy>=0?-.011f:.011f;
+                    hit->x+=bias*k->nx; hit->y+=bias*k->ny;
+                }
             }
             return 1;
         }
         if (end >= 1) return 0;
         t = end;
-        if (end<boundary) continue;
+        if (end<boundary) {
+            if (k) entry_axis=k->nx==k->ny?3:4;
+            continue;
+        }
         if (nx <= end) { ix += sx; nx += step_x; entry_axis=0; }
         if (ny <= end) { iy += sy; ny += step_y; entry_axis=1; }
     }
@@ -190,6 +262,13 @@ void navigation_prepare(void) {
     goal_x=goal_y=-1;
 }
 void route_to(int x, int y) {
+    // A player can stand in the open tip of a corner whose center cannot
+    // hold the bot. End the grid route on an adjoining open face.
+    if (map_cube(x,y)->kind==1) {
+        const MapCorner *k=corner_at(x,y);
+        if (arrivals[y*MAP+x-k->nx]) x-=k->nx;
+        else if (arrivals[(y-k->ny)*MAP+x]) y-=k->ny;
+    }
     if (goal_x == x && goal_y == y) return;
     goal_x = x; goal_y = y;
     memset(next_step, 255, sizeof(next_step));

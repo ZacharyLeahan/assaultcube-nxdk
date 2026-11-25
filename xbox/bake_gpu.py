@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 
 
-def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lighting):
+def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lighting, corners):
     blob = bytearray()
     textures, batches, symbols = [], [], []
     vertices = bytearray()
@@ -44,6 +44,20 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
         sx,sy=world_uv[tex]
         return (u*sx,v*sy)
     world = np.frombuffer(cells,np.uint8).reshape(256,256,8)
+    corner_cells = {}
+    for (bx,by),(size,q,inside,outside) in corners.items():
+        # Positive values face the narrower (or solid) half in cornertest().
+        nx,ny = ((1,1),(1,-1),(-1,-1),(-1,1))[q]
+        center = nx*(bx+size*.5)+ny*(by+size*.5)
+        for y in range(by,by+size):
+            for x in range(bx,bx+size):
+                corner_cells[x,y] = nx,ny,center,inside,outside,bx,size
+
+    def corner_profile(x,y,u,v):
+        nx,ny,center,inside,outside,_,_ = corner_cells[x,y]
+        cell = inside if nx*u+ny*v>center else outside
+        # Corner floors and ceilings are flat even next to a heightfield.
+        return (4 if cell[0] else 0,*cell[1:])
     # Each coplanar grid stores its material. Merge neighboring cells with identical surfaces.
     planes = defaultdict(dict)
     groups = defaultdict(list)
@@ -56,10 +70,36 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     for y in range(1,255):
         for x in range(1,255):
             kind,f,c,w,ft,ct,upper,_ = map(int,world[y,x])
-            if kind < 2:
+            if kind == 0:
                 continue
+            if kind == 1:
+                nx,ny,center,inside,outside,bx,size = corner_cells[x,y]
+                square = ((x,y),(x+1,y),(x+1,y+1),(x,y+1))
+                distances = [nx*u+ny*v-center for u,v in square]
+                for sign,cell in ((1,inside),(-1,outside)):
+                    if not cell[0]: continue
+                    poly = [p for p,d in zip(square,distances) if sign*d>=0]
+                    if len(poly)<3: continue
+                    for face in (0,1):
+                        tex = cell[4+face]
+                        points = list(reversed(poly)) if face else list(poly)
+                        if len(points)==3: points.append(points[-1])
+                        for u,v in points:
+                            groups[tex].append(((u,v,cell[1+face]),world_texcoord(tex,u,v),(255,255,255)))
+                edge = [p for p,d in zip(square,distances) if d==0]
+                if len(edge)==2:
+                    a,b = edge
+                    # The visible wall normal points toward the open half.
+                    if (b[1]-a[1])*nx-(b[0]-a[0])*ny>0: a,b=b,a
+                    spans = [(outside[1],outside[2],inside[3])] if not inside[0] else [
+                        (outside[1],inside[1],inside[3]),(inside[2],outside[2],inside[6])]
+                    for low,high,tex in spans:
+                        if high<=low: continue
+                        for (u,v),z in ((a,low),(b,low),(b,high),(a,high)):
+                            wall_u = u if ny>0 else 2*bx+size-u
+                            groups[tex].append(((u,v,z),world_texcoord(tex,wall_u,-z),(255,255,255)))
             f,c = (f+128)%256-128, (c+128)%256-128
-            for face,base,tex in ((0,f,ft),(1,c,ct)):
+            for face,base,tex in (() if kind==1 else ((0,f,ft),(1,c,ct))):
                 corners=((x,y),(x+1,y),(x+1,y+1),(x,y+1))
                 points=[(u,v,level(kind,base,face,u,v)) for u,v in corners]
                 if all(p[2]==points[0][2] for p in points):
@@ -68,13 +108,20 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                     for p in ([points[i] for i in (1,0,3,2)] if face else points):
                         groups[tex].append((p,world_texcoord(tex,p[0],p[1]),(255,255,255)))
             for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
+                u,v=x+.5+.5*dx,y+.5+.5*dy
+                edge_kind=kind
+                if kind==1:
+                    edge_kind,f,c,*_=corner_profile(x,y,u,v)
+                    if not edge_kind: continue
                 nk,nf,nc,nw,_,_,nu,_ = map(int,world[y+dy,x+dx])
                 nf,nc = (nf+128)%256-128,(nc+128)%256-128
+                if nk==1:
+                    nk,nf,nc,nw,_,_,nu,_=corner_profile(x+dx,y+dy,u,v)
                 axis,coord,u = (2,x+(dx>0),y) if dx else (3,y+(dy>0),x)
-                if kind in (2,3) or nk in (2,3):
+                if edge_kind in (2,3) or nk in (2,3):
                     endpoints=((coord,u),(coord,u+1)) if dx else ((u,coord),(u+1,coord))
-                    floor=[level(kind,f,0,*p) for p in endpoints]
-                    ceil=[level(kind,c,1,*p) for p in endpoints]
+                    floor=[level(edge_kind,f,0,*p) for p in endpoints]
+                    ceil=[level(edge_kind,c,1,*p) for p in endpoints]
                     spans=[(floor,ceil,nw)] if nk<2 else [
                         (floor,[min(ceil[i],level(nk,nf,0,*p)) for i,p in enumerate(endpoints)],nw),
                         ([max(floor[i],level(nk,nc,1,*p)) for i,p in enumerate(endpoints)],ceil,nu)]
@@ -242,6 +289,11 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     py=top+(yy+.5)*span/512
     x,y=px.astype(int),py.astype(int)
     slot=world[y,x,4]
+    solid=world[y,x,0]==0
+    for row,col in zip(*np.nonzero(world[y,x,0]==1)):
+        profile=corner_profile(x[row,col],y[row,col],px[row,col],py[row,col])
+        solid[row,col]=not profile[0]
+        slot[row,col]=profile[4]
     scale=np.asarray(world_uv)[slot]
     u=(px*16*scale[:,:,0]).astype(int)%16
     v=(py*16*scale[:,:,1]).astype(int)%16
@@ -249,7 +301,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     light=((1-fy)*((1-fx)*lighting[y,x]+fx*lighting[y,x+1])
             + fy*((1-fx)*lighting[y+1,x]+fx*lighting[y+1,x+1]))
     terrain=np.minimum(255,tiles[slot,v,u]*light*(2/255))
-    terrain[world[y,x,0]<2]=0
+    terrain[solid]=0
     mark("RADAR_TEX",len(textures))
     texture(Image.fromarray(terrain.astype(np.uint8)),(512,512),False)
     mark("RADAR_ICONS",len(textures))
