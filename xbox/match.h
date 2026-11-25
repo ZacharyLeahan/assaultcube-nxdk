@@ -40,6 +40,7 @@ typedef struct {
 } MatchView;
 
 const Cube *map_cube(int x, int y);
+float map_floor(const Cube *cube);
 int map_solid(const Cube *cube);
 void match_prepare(void);
 void match_update(const MatchInput *input, unsigned elapsed, float motion_seconds);

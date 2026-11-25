@@ -48,7 +48,7 @@ unsigned random_number() {
     random_state = random_state*1664525u + 1013904223u;
     return random_state >> 8;
 }
-float ground(float x, float y) { return map_cube((int)x,(int)y)->floor; }
+float ground(float x, float y) { return map_floor(map_cube((int)x,(int)y)); }
 float distance(float x,float y,float tx,float ty) { return hypotf(tx-x,ty-y); }
 float eye(const Fighter &f) { return &f==&player ? f.eye_height : ground(f.x,f.y)+3.6f; }
 void spawn(Fighter &f, int index) {

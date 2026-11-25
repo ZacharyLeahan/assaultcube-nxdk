@@ -1,4 +1,5 @@
 #include "../match.h"
+#include "../navigation.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -47,6 +48,12 @@ static void test_stance(void) {
 }
 
 int main(void) {
+    // This floor has opposite high corners. The body uses the cell mean,
+    // while a vertical shot at the center lands on its rendered diagonal.
+    SurfaceHit slope;
+    assert(map_floor(map_cube(91,72))==2.375f);
+    assert(trace_surface(91.5f,72.5f,4,91.5f,72.5f,1,&slope));
+    assert(slope.axis==2 && fabsf(slope.z-2.515f)<.001f);
     test_stance();
     test_tracking_breakaway();
     MatchView view;
@@ -74,7 +81,7 @@ int main(void) {
         input.fire = !view.player_frags;
         // Track the torso during the opening burst, including its vertical recoil.
         float dx=view.tx-view.px, dy=view.ty-view.py;
-        float chest=map_cube((int)view.tx,(int)view.ty)->floor+2.6f;
+        float chest=map_floor(map_cube((int)view.tx,(int)view.ty))+2.6f;
         input.look=input.fire ? (atan2f(chest-view.eye,hypotf(dx,dy))-view.pitch)/(.033f*105*.017453293f) : 0;
         input.turn=input.fire ? remainderf(atan2f(dy,dx)-view.angle,6.2831853f)/(.033f*150*.017453293f) : 0;
         match_update(&input,33,33*.001f);

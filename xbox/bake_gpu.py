@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 
-def bake_gpu(out, packages, names, cells, entities, model_slots):
+def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     blob = bytearray()
     textures, batches, symbols = [], [], []
     vertices = bytearray()
@@ -48,23 +48,59 @@ def bake_gpu(out, packages, names, cells, entities, model_slots):
 
     # Each coplanar grid stores its material. Merge neighboring cells with identical surfaces.
     planes = defaultdict(dict)
+    groups = defaultdict(list)
+    def level(kind, base, face, x, y):
+        if kind == 2 + face:
+            delta = deltas[y*256+x] * .25
+            return base + (delta if face else -delta)
+        return base
+
     for y in range(1,255):
         for x in range(1,255):
             kind,f,c,w,ft,ct,upper,_ = map(int,world[y,x])
             if kind < 2:
                 continue
             f,c = (f+128)%256-128, (c+128)%256-128
-            planes[0,f,False][x,y] = ft
-            if ct: planes[1,c,True][x,y] = ct
+            for face,base,tex in ((0,f,ft),(1,c,ct)):
+                if face and not tex: continue
+                corners=((x,y),(x+1,y),(x+1,y+1),(x,y+1))
+                points=[(u,v,level(kind,base,face,u,v)) for u,v in corners]
+                if all(p[2]==points[0][2] for p in points):
+                    planes[face,points[0][2],bool(face)][x,y]=tex
+                else:
+                    for p in ([points[i] for i in (1,0,3,2)] if face else points):
+                        groups[tex].append((p,(p[0]/8,p[1]/8),light(*p,face)))
             for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):
                 nk,nf,nc,nw,_,_,nu,_ = map(int,world[y+dy,x+dx])
                 nf,nc = (nf+128)%256-128,(nc+128)%256-128
                 axis,coord,u = (2,x+(dx>0),y) if dx else (3,y+(dy>0),x)
+                if kind in (2,3) or nk in (2,3):
+                    endpoints=((coord,u),(coord,u+1)) if dx else ((u,coord),(u+1,coord))
+                    floor=[level(kind,f,0,*p) for p in endpoints]
+                    ceil=[level(kind,c,1,*p) for p in endpoints]
+                    spans=[(floor,ceil,nw)] if nk<2 else [
+                        (floor,[min(ceil[i],level(nk,nf,0,*p)) for i,p in enumerate(endpoints)],nw),
+                        ([max(floor[i],level(nk,nc,1,*p)) for i,p in enumerate(endpoints)],ceil,nu)]
+                    for low,high,tex in spans:
+                        if all(h<=l for l,h in zip(low,high)): continue
+                        # Trim at the crossing when two ramps meet partway along an edge.
+                        ends=[(u+i,low[i],high[i]) for i in range(2)]
+                        for i in range(2):
+                            if high[i]<low[i]:
+                                j=1-i
+                                t=(low[i]-high[i])/(high[j]-low[j]+low[i]-high[i])
+                                z=low[i]+t*(low[j]-low[i])
+                                ends[i]=(u+i+t*(j-i),z,z)
+                        a,b=ends
+                        corners=((a[0],a[1]),(b[0],b[1]),(b[0],b[2]),(a[0],a[2]))
+                        for s,z in (reversed(corners) if dx>0 or dy<0 else corners):
+                            p=(coord,s,z) if dx else (s,coord,z)
+                            groups[tex].append((p,(s/8,-z/8),light(*p,axis)))
+                    continue
                 walls = [(f,c,nw)] if nk<2 else [(f,min(c,nf),nw),(max(f,nc),c,nu)]
                 for low,high,material in walls:
                     for z in range(low,high):
                         planes[axis,coord,dx>0 or dy<0][u,z] = material
-    groups = defaultdict(list)
     for (face,level,reverse), surface in planes.items():
         for a,b in sorted(surface,key=lambda k:(k[1],k[0])):
             tex = surface.get((a,b))

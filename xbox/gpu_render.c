@@ -222,7 +222,7 @@ static void level(const MatchView *v) {
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
     if (v->bot_alive) {
         glPushMatrix();
-        glTranslatef(v->tx,v->ty,map_cube((int)v->tx,(int)v->ty)->floor);
+        glTranslatef(v->tx,v->ty,map_floor(map_cube((int)v->tx,(int)v->ty)));
         glRotatef(v->bot_yaw*57.29578f,0,0,1);
         int next=v->bot_pose%6+1;
         animated_batch(BODY_BATCH+v->bot_pose,BODY_BATCH+next,v->stride_blend);
@@ -416,7 +416,7 @@ static unsigned duel_count;
 enum { DUEL_CAPACITY=5500 }; // 90 seconds at 60 Hz plus clock tolerance.
 
 static TrackingFrame tracking_frame(const MatchView *v,const MatchInput *input,int aimed) {
-    float chest=map_cube((int)v->tx,(int)v->ty)->floor+2.6f;
+    float chest=map_floor(map_cube((int)v->tx,(int)v->ty))+2.6f;
     int live=v->phase==PLAYING && v->bot_alive && !v->respawning;
     return (TrackingFrame){v->px,v->py,v->eye,v->angle,v->pitch,v->tx,v->ty,chest,
         input->strafe,input->turn,live,live && visible(v->px,v->py,v->eye,v->tx,v->ty,chest),aimed};

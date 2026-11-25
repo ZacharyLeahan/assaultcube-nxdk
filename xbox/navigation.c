@@ -4,15 +4,24 @@
 #include <string.h>
 
 extern const Cube world[MAP][MAP];
+extern const uint8_t deltas[MAP*MAP];
 const Cube *map_cube(int x, int y) {
     static const Cube outside = {0};
     return (unsigned)x < MAP && (unsigned)y < MAP ? &world[y][x] : &outside;
 }
 int map_solid(const Cube *cube) { return cube->kind < 2; }
 
+// The PC collision hull samples the average of the four heightfield vertices.
+static float height_delta(const Cube *c) {
+    size_t i=((uintptr_t)c-(uintptr_t)world)/sizeof(Cube);
+    return (deltas[i]+deltas[i+1]+deltas[i+MAP]+deltas[i+MAP+1])/16.f;
+}
+float map_floor(const Cube *c) { return c->kind==2 ? c->floor-height_delta(c) : c->floor; }
+static float map_ceiling(const Cube *c) { return c->kind==3 ? c->ceil+height_delta(c) : c->ceil; }
+
 static int fits(const Cube *c, float previous) {
-    return !map_solid(c) && !(c->tag & 192) && c->floor <= previous + 1.5f &&
-           c->ceil - fmaxf(c->floor, previous) >= 4.5f;
+    return !map_solid(c) && !(c->tag & 192) && map_floor(c) <= previous + 1.5f &&
+           map_ceiling(c) - fmaxf(map_floor(c), previous) >= 4.5f;
 }
 static int passable(float x, float y, float previous) {
     if (!fits(map_cube((int)x,(int)y),previous)) return 0;
@@ -28,8 +37,8 @@ void walk(float *x, float *y, float dx, float dy) {
     int steps = 1 + (int)(fmaxf(fabsf(dx), fabsf(dy)) * 3);
     for (int i = 0; i < steps; ++i) {
         float nx = *x+dx/steps, ny = *y+dy/steps;
-        if (passable(nx,*y,map_cube((int)*x,(int)*y)->floor)) *x = nx;
-        if (passable(*x,ny,map_cube((int)*x,(int)*y)->floor)) *y = ny;
+        if (passable(nx,*y,map_floor(map_cube((int)*x,(int)*y)))) *x = nx;
+        if (passable(*x,ny,map_floor(map_cube((int)*x,(int)*y)))) *y = ny;
     }
 }
 void body_space(float x,float y,float *floor,float *ceiling) {
@@ -37,7 +46,7 @@ void body_space(float x,float y,float *floor,float *ceiling) {
     for (int i=0;i<4;++i) {
         const Cube *c=map_cube((int)(x+((i&1)?.32f:-.32f)),(int)(y+((i&2)?.32f:-.32f)));
         if (map_solid(c) || (c->tag&192)) { *floor=127; *ceiling=-128; return; }
-        *floor=fmaxf(*floor,c->floor); *ceiling=fminf(*ceiling,c->ceil);
+        *floor=fmaxf(*floor,map_floor(c)); *ceiling=fminf(*ceiling,map_ceiling(c));
     }
 }
 static int body_fits(float x,float y,float feet,float height,float step) {
@@ -53,6 +62,16 @@ void walk_body(float *x,float *y,float dx,float dy,float feet,float height,float
         if (body_fits(*x,ny,feet,height,step)) *y=ny;
     }
 }
+static float surface_delta(int ix,int iy,float u,float v,int ceiling) {
+    const uint8_t *d=&deltas[iy*MAP+ix];
+    float a=d[0], b=d[1], c=d[MAP+1], e=d[MAP];
+    if (ceiling) {
+        if (u+v<=1) return (a+u*(b-a)+v*(e-a))*.25f;
+        return (c+(1-v)*(b-c)+(1-u)*(e-c))*.25f;
+    }
+    if (u>=v) return (a+u*(b-a)+v*(c-b))*.25f;
+    return (a+v*(e-a)+u*(c-e))*.25f;
+}
 int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit *hit) {
     float dx = tx-x, dy = ty-y;
     // Visit each boundary so thin pillars and raised ledges occlude gunfire.
@@ -64,13 +83,31 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
     for (;;) {
         float end = fminf(1,fminf(nx,ny));
         const Cube *c = map_cube(ix,iy);
-        float a = z+(tz-z)*t, b = z+(tz-z)*end;
-        if (map_solid(c) || fminf(a,b) <= c->floor || fmaxf(a,b) >= c->ceil) {
+        float boundary=end;
+        int slope=c->kind==2 || c->kind==3;
+        if (slope) {
+            float rate=c->kind==2 ? dx-dy : dx+dy;
+            if (rate!=0) {
+                float crossing=(c->kind==2 ? ix-x+y-iy : 1+ix-x+iy-y)/rate;
+                if (crossing>t && crossing<end) end=crossing;
+            }
+        }
+        float a=z+(tz-z)*t, b=z+(tz-z)*end;
+        float fa=c->floor, fb=fa, ca=c->ceil, cb=ca;
+        if (slope) {
+            float da=surface_delta(ix,iy,x+t*dx-ix,y+t*dy-iy,c->kind==3);
+            float db=surface_delta(ix,iy,x+end*dx-ix,y+end*dy-iy,c->kind==3);
+            if (c->kind==2) { fa-=da; fb-=db; }
+            else { ca+=da; cb+=db; }
+        }
+        if (map_solid(c) || a<=fa || b<=fb || a>=ca || b>=cb) {
             if (hit) {
                 int axis=entry_axis;
-                if (!map_solid(c) && a>c->floor && a<c->ceil && tz!=z) {
-                    if (b>=c->ceil && !c->roof) return 0; // open sky
-                    t=((b<=c->floor ? c->floor : c->ceil)-z)/(tz-z);
+                if (!map_solid(c) && a>fa && a<ca) {
+                    if (b>=cb && !c->roof) return 0; // open sky
+                    float before=b<=fb ? a-fa : ca-a;
+                    float after=b<=fb ? b-fb : cb-b;
+                    t+=(end-t)*before/(before-after);
                     axis=2;
                 }
                 hit->x=x+t*dx; hit->y=y+t*dy; hit->z=z+t*(tz-z); hit->axis=axis;
@@ -82,6 +119,7 @@ int trace_surface(float x,float y,float z,float tx,float ty,float tz,SurfaceHit 
         }
         if (end >= 1) return 0;
         t = end;
+        if (end<boundary) continue;
         if (nx <= end) { ix += sx; nx += step_x; entry_axis=0; }
         if (ny <= end) { iy += sy; ny += step_y; entry_axis=1; }
     }
@@ -105,7 +143,7 @@ void navigation_prepare(void) {
         unsigned mask=0;
         if (!map_solid(dest)) for (int i=0; i<4; ++i) {
             const Cube *from=map_cube(x-vx[i],y-vy[i]);
-            if (fits(from,from->floor) && fits(dest,from->floor)) mask |= 1u<<i;
+            if (fits(from,map_floor(from)) && fits(dest,map_floor(from))) mask |= 1u<<i;
         }
         arrivals[y*MAP+x]=(uint8_t)mask;
     }

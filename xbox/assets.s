@@ -8,6 +8,7 @@ _\name:
 _\name\()_end:
 .endm
 asset world
+asset deltas
 asset gpu_vertices
 asset gpu_textures
 asset usp
