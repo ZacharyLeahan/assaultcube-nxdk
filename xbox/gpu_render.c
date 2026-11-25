@@ -426,26 +426,9 @@ static void level(const MatchView *v) {
     batch(SKY_PORTAL_BATCH);
     glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
-    glActiveTexture(GL_TEXTURE1);
-    glEnable(GL_TEXTURE_2D);
-    glActiveTexture(GL_TEXTURE0);
-    glClientActiveTexture(GL_TEXTURE1);
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    for (int i=SKY_PORTAL_BATCH+1;i<WORLD_BATCHES;++i) {
-        glClientActiveTexture(GL_TEXTURE1);
-        glTexCoordPointer(2,GL_FLOAT,sizeof(LightUV),world_light_uv+batches[i].first);
-        glClientActiveTexture(GL_TEXTURE0);
-        batch(i);
-    }
-    glClientActiveTexture(GL_TEXTURE1);
-    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-    glClientActiveTexture(GL_TEXTURE0);
-    glActiveTexture(GL_TEXTURE1);
-    glDisable(GL_TEXTURE_2D);
-    glActiveTexture(GL_TEXTURE0);
-    glDisable(GL_CULL_FACE);
+    // Draw opaque MD2 actors before the lightmapped world. Their depth
+    // rejects hidden world fragments when a body fills the death camera.
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
-    for (int i=PROP_START;i<PROP_END;++i) batch(i);
     glDisableClientState(GL_COLOR_ARRAY);
     shadow_count=0;
     if (!v->hide_bot) {
@@ -487,6 +470,29 @@ static void level(const MatchView *v) {
         stencil_reference(64);
         glPopMatrix();
     }
+    glEnableClientState(GL_COLOR_ARRAY);
+    glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
+    glActiveTexture(GL_TEXTURE1);
+    glEnable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0);
+    glClientActiveTexture(GL_TEXTURE1);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    for (int i=SKY_PORTAL_BATCH+1;i<WORLD_BATCHES;++i) {
+        glClientActiveTexture(GL_TEXTURE1);
+        glTexCoordPointer(2,GL_FLOAT,sizeof(LightUV),world_light_uv+batches[i].first);
+        glClientActiveTexture(GL_TEXTURE0);
+        batch(i);
+    }
+    glClientActiveTexture(GL_TEXTURE1);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glClientActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE1);
+    glDisable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0);
+    glDisable(GL_CULL_FACE);
+    glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
+    for (int i=PROP_START;i<PROP_END;++i) batch(i);
+    glDisableClientState(GL_COLOR_ARRAY);
     for (unsigned i=0;i<v->gib_count;++i) {
         const GibView *g=&v->gibs[i];
         glPushMatrix();

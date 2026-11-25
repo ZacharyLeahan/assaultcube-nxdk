@@ -5,9 +5,10 @@ from pathlib import Path
 from struct import Struct
 
 ROW = Struct("<4I2fI")
+INPUT_TIME = Struct("<3I")
 
 
-def summarize(path):
+def summarize(path, work_path=None):
     data = path.read_bytes()
     frequency = int.from_bytes(data[:4], "little")
     if not frequency or len(data) != 4 + 720 * ROW.size:
@@ -21,9 +22,29 @@ def summarize(path):
     print(f"Median {intervals[len(intervals)//2]:.2f} ms, worst {intervals[-1]:.2f} ms")
     print(f"Previous scanout address mismatches: {mismatches}")
 
+    if work_path is None:
+        return
+    data = work_path.read_bytes()
+    if len(data) != len(frames) * INPUT_TIME.size:
+        raise ValueError(f"{work_path}: incomplete input timings")
+    for i, (sample, work, _) in enumerate(INPUT_TIME.iter_unpack(data)):
+        until_present = (frames[i][0] - sample) & 0xffffffff
+        previous_interval = (frames[i][0] - frames[i-1][0]) & 0xffffffff if i else None
+        if work > until_present or (previous_interval is not None and until_present > previous_interval):
+            raise ValueError(f"{work_path}: timing row {i} falls outside its frame")
+        if i and frames[i][6] != frames[i-1][6]:
+            event = "Death camera" if frames[i][6] else "First-person return"
+            refreshes = (frames[i][1] - frames[i-1][1]) & 0xffffffff
+            print(f"{event} at frame {i}: {work*1000/frequency:.2f} ms from input sample "
+                  f"through GPU completion, elapsed refreshes {refreshes}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("trace", type=Path, nargs="+")
-    for trace in parser.parse_args().trace:
-        summarize(trace)
+    parser.add_argument("--work", type=Path, help="input-times.bin from the same capture")
+    args = parser.parse_args()
+    if args.work and len(args.trace) != 1:
+        parser.error("--work requires exactly one frame trace")
+    for trace in args.trace:
+        summarize(trace, args.work)

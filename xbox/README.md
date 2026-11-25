@@ -87,7 +87,9 @@ xemu 0.8.139 booted the same XISO with HD enabled and with the 4:3 fallback. The
 
 Build `38ac0d41` was tested at 720p with one bot, an opening rifle burst, a steady right-stick turn, forward movement, and a turn in the opposite direction. The instrumented previous build (`53a596b5`) recorded ten two-refresh intervals and one three-refresh interval in 719 intervals. Two fresh launches of the revised build each recorded 719 consecutive one-refresh intervals. Worst measured intervals were 50.00 ms before and 17.06 and 16.84 ms after. Camera rotation at fixed stick deflection advanced by 0.887 degrees each frame in both revised runs. These measurements cover presentation register writes on the console. TV processing and end-to-end input latency were outside the test.
 
-For a trace, place an empty `frame-trace.on` beside the installed XBE and start a match. After 720 frames, the title saves `frame-trace.bin` in that folder. Run `python xbox/tests/frame_trace.py frame-trace.bin` on the host to inspect refresh intervals. Remove or rename the marker before the next launch to disable recording.
+For a trace, place an empty `frame-trace.on` beside the installed XBE and start a match. After 720 frames, the title saves `frame-trace.bin` in that folder. Run `python xbox/tests/frame_trace.py frame-trace.bin` on the host to inspect refresh intervals. Add `--work input-times.bin` from the same run to measure the first death-camera and respawn frames from controller sampling through GPU completion. Remove or rename the marker before the next launch to disable recording.
+
+On the original Xbox at 720p, build `e299b78e` took 17.26 ms of work on the first rifle death-camera frame and displayed the previous frame for two refreshes. Drawing opaque actors before the map in build `d1df0c8c` reduced that work to 15.72 ms in each of two repeats. Both 720-frame captures held one refresh throughout.
 
 ### Right-stick latency
 
