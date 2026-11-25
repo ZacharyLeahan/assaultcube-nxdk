@@ -116,21 +116,27 @@ static void test_tracking_breakaway(void) {
     }
 }
 
-static void test_stance(void) {
+static void test_stance(unsigned hz) {
     MatchView v;
     MatchInput input={.start=1};
-    match_prepare(); match_update(&input,16,1.f/60); match_view(&v);
+    match_prepare(); match_update(&input,0,0); match_view(&v);
     float standing=v.eye, peak=standing;
     int jumps=0, landings=0;
     input=(MatchInput){.jump=1};
-    for (int i=0;i<90;++i) {
-        match_update(&input,16,1.f/60); match_view(&v);
+    for (unsigned frame=1;frame<=hz;++frame) {
+        unsigned now=frame*1000/hz,previous=(frame-1)*1000/hz,dt=now-previous;
+        match_update(&input,dt,dt*.001f); match_view(&v);
         jumps+=v.movement_sound==PLAYER_JUMP;
-        landings+=v.movement_sound==PLAYER_LAND;
+        landings+=v.movement_sound==SOFT_LAND;
         peak=fmaxf(peak,v.eye);
-        if (i>60) assert(fabsf(v.eye-standing)<.001f);
+        // Heights from the original 5 ms physics loop on a flat floor.
+        if (now==100) assert(fabsf(v.eye-standing-1.660f)<.002f);
+        if (now==300) assert(fabsf(v.eye-standing-2.941f)<.002f);
+        if (now==600) assert(fabsf(v.eye-standing-.099f)<.002f);
+        if (v.movement_sound==SOFT_LAND) assert(previous<605 && now>=605);
+        if (now>=650) assert(fabsf(v.eye-standing)<.001f);
     }
-    assert(peak>standing+2 && peak<standing+5);
+    assert(fabsf(peak-standing-2.943f)<.01f);
     assert(jumps==1 && landings==1);
     input=(MatchInput){.crouch=1,.strafe=.2f};
     for (int i=0;i<15;++i) {
@@ -335,7 +341,9 @@ int main(void) {
     assert(map_floor(map_cube(91,72))==2.375f);
     assert(trace_surface(91.5f,72.5f,4,91.5f,72.5f,1,&slope));
     assert(slope.axis==2 && fabsf(slope.z-2.515f)<.001f);
-    test_stance();
+    test_stance(50);
+    test_stance(60);
+    test_stance(200);
     test_tracking_breakaway();
     MatchView view;
     MatchInput input = {0};

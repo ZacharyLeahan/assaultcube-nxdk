@@ -30,7 +30,8 @@ struct Fighter {
     unsigned respawn_at, ready_at, reload_at, flash_until, pain_until;
 };
 Fighter player, bot;
-float feet_z, stance, jump_speed, air_seconds, sway_vertical;
+float feet_z, stance, jump_speed, sway_vertical;
+unsigned air_ms,jump_start_ticks;
 unsigned sway_ms;
 bool grounded, held_jump, in_water;
 unsigned last_splash;
@@ -115,7 +116,7 @@ void spawn(Fighter &f, int index) {
         switch_end=0;
         memset(damage_directions,0,sizeof(damage_directions));
         hurt_until=0;
-        feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=air_seconds=0;
+        feet_z=ground(f.x,f.y); stance=3.6f; jump_speed=0; air_ms=jump_start_ticks=0;
         grounded=true; held_jump=false;
         in_water=false; last_splash=0;
         sway_ms=0; sway_vertical=0;
@@ -399,7 +400,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         bool swimming=player.eye_height<WATER_LEVEL+.5f;
         if (swimming && !in_water) jump_speed=0;
         if ((grounded || swimming) && !climbing && !held_jump && in->jump && !in->crouch && stance>=3.59f) {
-            grounded=false; jump_speed=swimming?16:32; air_seconds=0;
+            grounded=false; jump_speed=swimming?16:32; air_ms=0;
+            jump_start_ticks=swimming?0:2;
             if (swimming) { player.velocity_x/=8; player.velocity_y/=8; }
             else movement_sound=PLAYER_JUMP;
         }
@@ -430,7 +432,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             was_crouching=in->crouch;
             stance_sound=was_crouching?CROUCH_IN:CROUCH_OUT;
         }
-        if ((grounded || air_seconds<=.05f) && !swimming && (in->move || in->strafe)) {
+        if ((grounded || air_ms<=50) && !swimming && (in->move || in->strafe)) {
             bool wading=feet_z+.25f<WATER_LEVEL;
             if (!wading || WATER_LEVEL-map_cube((int)player.x,(int)player.y)->floor<=stance)
                 step_sound=in->crouch?(wading?WATER_CROUCH_STEPS:CROUCH_STEPS):(wading?WATER_STEPS:FOOTSTEPS);
@@ -445,24 +447,29 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         if (feet_z>floor+.01f) grounded=false;
         if (climbing) {
             feet_z=fminf(fminf(ladder_top,ceiling-stance-.9f),feet_z+(swimming?8:16)*in->move*dt);
-            air_seconds=jump_speed=0;
+            air_ms=jump_start_ticks=0; jump_speed=0;
             grounded=feet_z<=floor;
         } else if (swimming) {
             float desired=8*in->move*sinf(player.pitch);
             jump_speed+=(desired-jump_speed)*fraction;
             feet_z=fminf(ceiling-stance-.9f,feet_z+(jump_speed-2.5f)*dt);
             grounded=feet_z<=floor;
-            air_seconds=0;
+            air_ms=jump_start_ticks=0;
         } else if (!grounded) {
-            // PC air friction and its time-in-air-dependent downward step.
-            air_seconds+=dt;
-            jump_speed*=expf(-dt/.60f);
-            feet_z+=(jump_speed-9.5f-air_seconds*(100.f/3))*dt;
-            if (feet_z+stance+.9f>=ceiling) { feet_z=ceiling-stance-.9f; jump_speed=0; }
+            // PC movement computes displacement before assigning the jump impulse.
+            // The first moving tick still uses floor friction, then air friction.
+            for (unsigned i=0;i<steps && i<20;++i) {
+                if (jump_start_ticks==2) { --jump_start_ticks; continue; }
+                if (jump_start_ticks) { jump_start_ticks=0; jump_speed*=23.f/24; }
+                else { air_ms+=5; jump_speed*=119.f/120; }
+                feet_z+=(jump_speed-9.5f-air_ms/30.f)*.005f;
+                if (feet_z+stance+.9f>=ceiling) { feet_z=ceiling-stance-.9f; jump_speed=0; }
+                if (feet_z<=floor+.01f) { feet_z=floor; break; }
+            }
         }
-        if (feet_z<=floor) {
-            if (air_seconds>.2f) movement_sound=PLAYER_LAND;
-            feet_z=floor; grounded=true; jump_speed=air_seconds=0;
+        if (feet_z<=floor && !jump_start_ticks) {
+            if (air_ms>200) movement_sound=air_ms>800?PLAYER_LAND:SOFT_LAND;
+            feet_z=floor; grounded=true; jump_speed=0; air_ms=0;
         }
         float delta=feet_z+stance-player.eye_height;
         player.eye_height+=grounded?fmaxf(-12*dt,fminf(12*dt,delta)):delta;
