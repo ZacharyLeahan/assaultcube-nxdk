@@ -18,6 +18,7 @@ typedef struct { int x, y, w, h; } Glyph;
 #include "generated/gpu.h"
 #include "generated/water.h"
 extern const unsigned char gpu_vertices[], gpu_textures[];
+extern const unsigned char cell_light[256][256][3];
 typedef struct { float x,y,z,u,v; unsigned char rgba[4]; } Vertex;
 static const Vertex *geometry;
 typedef struct { float x,y,z; } Position;
@@ -112,19 +113,24 @@ int gpu_init(int width, int height) {
     glDisable(GL_LIGHTING);
     glDisable(GL_CULL_FACE);
     glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
+    glTexEnvi(GL_TEXTURE_ENV,GL_RGB_SCALE,2);
+    glEnableClientState(GL_COLOR_ARRAY);
     return 1;
 }
 
 static void bind_vertices(const Vertex *v) {
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glEnableClientState(GL_COLOR_ARRAY);
     glVertexPointer(3,GL_FLOAT,sizeof(Vertex),&v->x);
     glTexCoordPointer(2,GL_FLOAT,sizeof(Vertex),&v->u);
     glColorPointer(4,GL_UNSIGNED_BYTE,sizeof(Vertex),v->rgba);
 }
 static void color(float r,float g,float b,float a) {
     tint[0]=r*255; tint[1]=g*255; tint[2]=b*255; tint[3]=a*255;
+}
+static void model_color(float x,float y) {
+    const unsigned char *rgb=cell_light[(unsigned)y & 255][(unsigned)x & 255];
+    glColor4ub(rgb[0],rgb[1],rgb[2],255);
 }
 static void begin_quads(void) { first=cursor; }
 static void vertex(float x,float y,float z,float u,float v) {
@@ -245,7 +251,10 @@ static void level(const MatchView *v) {
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
     for (int i=SKY_PORTAL_BATCH+1;i<WORLD_BATCHES;++i) batch(i);
     glDisable(GL_CULL_FACE);
+    glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
     for (int i=PROP_START;i<PROP_END;++i) batch(i);
+    glDisableClientState(GL_COLOR_ARRAY);
+    model_color(v->tx,v->ty);
     {
         glPushMatrix();
         glTranslatef(v->tx,v->ty,map_floor(map_cube((int)v->tx,(int)v->ty)));
@@ -262,9 +271,12 @@ static void level(const MatchView *v) {
         glPushMatrix();
         glTranslatef(p->x,p->y,p->base+1+.05f*sinf(v->elapsed_ms*.01f+p->x+p->y));
         glRotatef(v->elapsed_ms*.1f,0,0,1);
+        model_color(p->x,p->y);
         batch(PICKUP_BATCH+p->icon);
         glPopMatrix();
     }
+    glEnableClientState(GL_COLOR_ARRAY);
+    glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
     bind_vertices(stream);
     // Transparent effects blend against the sky or the nearest opaque surface.
     glDepthMask(GL_FALSE);
@@ -368,11 +380,16 @@ static void weapon_transform(const MatchView *v) {
 static void weapon(const MatchView *v) {
     if(v->respawning) return;
     weapon_transform(v);
+    glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE);
+    glDisableClientState(GL_COLOR_ARRAY);
+    model_color(v->px,v->py);
     bind_vertices(geometry);
     int first=v->pistol?PISTOL_BATCH:ASSAULT_BATCH;
     int current=first+2*v->gun_pose, next=first+2*v->next_gun_pose;
     animated_batch(current,next,v->weapon_kick);
     animated_batch(current+1,next+1,v->weapon_kick);
+    glEnableClientState(GL_COLOR_ARRAY);
+    glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
 }
 static void muzzle_flash(const MatchView *v) {
     if (v->flash && !v->respawning) {

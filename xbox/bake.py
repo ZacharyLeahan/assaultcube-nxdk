@@ -88,8 +88,11 @@ def bake():
         "".join(f"    {{{x}, {y}, {height}, {kind}}},\n" for x, y, height, kind in pickups) + "};\n")
     from bake_gpu import bake_gpu
     entities = [struct.unpack_from("<4h4B", data, offset+16*i) for i in range(count)]
+    from bake_lighting import model_lighting
+    lighting = model_lighting(cells, entities, *struct.unpack_from("<ii", data, 924))
+    (OUT / "cell_light.bin").write_bytes(lighting.tobytes())
     model_slots=re.findall(rb'^mapmodel \d+ \d+ (-?\d+) [\d.]+ "([^"]+)"',config,re.M)
-    bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots)
+    bake_gpu(OUT, PKG, names, cells, deltas, entities, model_slots, lighting)
     sounds=("weapon/auto","weapon/auto_reload","weapon/usp","weapon/pistol_reload",
             "player/jump","player/land","player/footsteps","player/crouch","player/watersteps",
             "player/watercrouch","player/crouch_in","player/crouch_out",*(f"player/pain{i}" for i in range(1,7)),

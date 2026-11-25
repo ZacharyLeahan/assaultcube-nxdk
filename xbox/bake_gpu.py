@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 
-def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
+def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lighting):
     blob = bytearray()
     textures, batches, symbols = [], [], []
     vertices = bytearray()
@@ -133,10 +133,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
         texture(Image.open(packages/f"textures/skymaps/makke/sand_{side}.jpg"),(256,256),False)
 
     def model_skin(path,size):
-        # Raise shadows in the original dark skins while preserving highlights.
-        skin=Image.open(path).convert("RGB")
-        curve=[round(255*(n/255)**.70) for n in range(256)]
-        return texture(skin.point(curve*3),size)
+        with Image.open(path) as skin:
+            return texture(skin,size)
 
     bot_frames=(0,*range(40,58),*range(178,184))
     symbols.append("static const unsigned char bot_frame_batch[198] = {"+
@@ -163,11 +161,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
     def model_batch(tex,pos,uv,tri,st):
         pts=[]
         for idx,t in zip(tri,st):
-            a,b,c=pos[idx]
-            normal=np.cross(b-a,c-a)
-            n=normal/max(.0001,np.linalg.norm(normal))
-            shade=int(np.clip(207+36*n[2]-14*n[0],150,255))
-            for v,k in zip(idx,t): pts.append((pos[v],uv[k],(shade,)*3))
+            for v,k in zip(idx,t): pts.append((pos[v],uv[k],(255,255,255)))
         add_batch(tex,pts,3)
 
     def md3_surfaces(data, header, pose):
@@ -239,7 +233,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots):
                 xyz=local@np.array([[c,s,0],[-s,c,0],[0,0,1]])
                 z=int(world[y,x,1].view(np.int8))+int(offset)+elevation/5
                 xyz+=[x,y,z]
-                rgb=light(x,y,z,2)
+                rgb=lighting[y,x]
                 points.extend((xyz[v],uv[v],rgb) for face in tri for v in face)
         if points: add_batch(tex,points,3)
     mark("PROP_END",len(batches))
