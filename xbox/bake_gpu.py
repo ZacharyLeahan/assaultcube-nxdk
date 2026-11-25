@@ -401,6 +401,7 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     mark("PROP_START",len(batches))
     radar_meshes=[]
     prop_bounds=[]
+    collision=bytearray()
     prop_lights=[]
     for slot,(offset,name) in enumerate(model_slots):
         folder=packages/"models/mapmodels"/name.decode()
@@ -429,7 +430,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
                 prop_lights.append((x,y,first,tri.size))
                 bounds=(xyz.min(axis=0).astype(np.float32),xyz.max(axis=0).astype(np.float32))
                 limits=["{"+",".join(format(n,".9g") for n in side)+"}" for side in bounds]
-                prop_bounds.append("    {"+",".join([*limits,str(first),str(tri.size)])+"},\n")
+                prop_bounds.append("    {"+",".join([*limits,str(len(collision)//12),str(tri.size)])+"},\n")
+                collision.extend(xyz[tri].astype("<f4").tobytes())
         if points: add_batch(tex,points,3)
     mark("PROP_END",len(batches))
     symbols.append("static const PropLightSpan prop_lights[] = {\n"+
@@ -540,7 +542,8 @@ def bake_gpu(out, packages, names, cells, deltas, entities, model_slots, lightin
     symbols.append("static const unsigned short hud_indices[]={"+",".join(map(str,hud_indices))+"};\n")
     (out/"hud_poses.bin").write_bytes(hud_positions)
     (out/"gpu_textures.bin").write_bytes(blob)
-    (out/"gpu_vertices.bin").write_bytes(vertices)
+    (out/"gpu_geometry.bin").write_bytes(zlib.compress(vertices,6))
+    (out/"prop_triangles.bin").write_bytes(collision)
     def rows(name,kind,data):
         return f"static const {kind} {name}[] = {{\n"+ "".join("    {"+",".join(map(str,r))+"},\n" for r in data)+"};\n"
     (out/"gpu.h").write_text("".join(symbols)+rows("hud_frames","HudFrame",hud_frames)+rows("images","ImageInfo",textures)+rows("batches","Batch",batches)+rows("glyphs","Glyph",glyphs))

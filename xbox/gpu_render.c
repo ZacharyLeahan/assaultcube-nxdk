@@ -123,21 +123,21 @@ static int gpu_failure(int line,int texture) {
     if(f) {fprintf(f,"Renderer initialization failed at line %d, texture %d\n",line,texture);fclose(f);}
     return 0;
 }
+static int unpack_asset(const unsigned char *packed,unsigned length,void *out,unsigned size) {
+    z_stream z={0};
+    z.zalloc=zalloc_gpu;z.zfree=zfree_gpu;
+    z.next_in=(Bytef *)packed;z.avail_in=length;
+    z.next_out=out;z.avail_out=size;
+    if(inflateInit(&z)!=Z_OK) return 0;
+    int ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
+    inflateEnd(&z);
+    return ok;
+}
 static int upload_texture(unsigned i,unsigned slot) {
-    const ImageInfo *im = &images[i];
-    unsigned size = im->unpacked;
-    unsigned char *pixels = malloc(size);
-    if (!pixels) return 0;
-    z_stream z = {0};
-    z.zalloc=zalloc_gpu; z.zfree=zfree_gpu;
-    z.next_in=(Bytef *)(gpu_textures+im->offset); z.avail_in=im->bytes;
-    z.next_out=pixels; z.avail_out=size;
-    int ok = inflateInit(&z)==Z_OK;
-    if (ok) {
-        ok=inflate(&z,Z_FINISH)==Z_STREAM_END && z.total_out==size;
-        inflateEnd(&z);
-    }
-    if (!ok) { free(pixels); return 0; }
+    const ImageInfo *im=&images[i];
+    unsigned char *pixels=malloc(im->unpacked);
+    if(!pixels) return 0;
+    if(!unpack_asset(gpu_textures+im->offset,im->bytes,pixels,im->unpacked)) {free(pixels);return 0;}
     glBindTexture(GL_TEXTURE_2D,textures[slot]);
     glTexParameteri(GL_TEXTURE_2D,GL_GENERATE_MIPMAP,im->mip && !im->indexed);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -194,15 +194,21 @@ int gpu_init(int width, int height) {
     pb_show_debug_screen();
     void *buffer = pbgl_alloc(VERTEX_BYTES);
     if (!buffer) return gpu_failure(__LINE__,texture_index);
-    memcpy(buffer,gpu_vertices,VERTEX_BYTES);
+    extern const unsigned char gpu_geometry[],gpu_geometry_end[];
+    // Inflate in cached memory. NV2A geometry is write-combined and expensive
+    // for the CPU to read back, including while generating light coordinates.
+    Vertex *source=malloc(VERTEX_BYTES);
+    if(!source || !unpack_asset(gpu_geometry,(uintptr_t)gpu_geometry_end-(uintptr_t)gpu_geometry,source,VERTEX_BYTES))
+        return gpu_failure(__LINE__,texture_index);
+    memcpy(buffer,source,VERTEX_BYTES);
     geometry = buffer;
     const Batch *last_world=&batches[WORLD_BATCHES-1];
     unsigned world_count=last_world->first+last_world->count;
     world_light_uv=pbgl_alloc(world_count*sizeof(*world_light_uv));
     if (!world_light_uv) return gpu_failure(__LINE__,texture_index);
-    const Vertex *source=(const Vertex *)gpu_vertices;
     for (unsigned i=0;i<world_count;++i)
         world_light_uv[i]=(LightUV){(source[i].x+.5f)/256,(source[i].y+.5f)/256};
+    free(source);
     unsigned world_gun=WORLD_WEAPON_MAX_INDICES;
     unsigned extra=batches[BODY_BATCH].count+world_gun;
     for (unsigned i=0;i<sizeof(weapon_art)/sizeof(weapon_art[0]);++i) {

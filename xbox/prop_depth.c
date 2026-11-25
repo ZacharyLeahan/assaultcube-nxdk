@@ -30,7 +30,7 @@ float prop_depth(MatchPoint origin,MatchPoint direction,float depth) {
         }
         if (near>far) continue;
         for (unsigned j=0;j<mesh->count;j+=3) {
-            const Vertex *v=gpu_vertices+mesh->first+j;
+            const MatchPoint *v=prop_triangles+mesh->first+j;
             MatchPoint ab={v[1].x-v->x,v[1].y-v->y,v[1].z-v->z};
             MatchPoint ac={v[2].x-v->x,v[2].y-v->y,v[2].z-v->z};
             MatchPoint normal=cross(direction,ac);

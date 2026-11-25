@@ -11,7 +11,8 @@ asset world
 asset deltas
 asset cell_light
 asset ambience
-asset gpu_vertices
+asset gpu_geometry
+asset prop_triangles
 asset hud_poses
 asset bot_poses
 asset gpu_textures

@@ -18,7 +18,7 @@ with TemporaryDirectory() as directory:
     asm = tmp / "assets.S"
     text = ["#define JOIN_(a,b) a##b", "#define JOIN(a,b) JOIN_(a,b)",
             "#define NAME(n) JOIN(__USER_LABEL_PREFIX__,n)", ".data"]
-    for name in ("cell_light","world","deltas","ambience","gpu_vertices"):
+    for name in ("cell_light","world","deltas","ambience","prop_triangles"):
         text += [".balign 16", f".globl NAME({name})", f"NAME({name}):",
                  f'.incbin "generated/{name}.bin"']
     asm.write_text("\n".join(text) + "\n")
