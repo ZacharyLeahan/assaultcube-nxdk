@@ -133,6 +133,24 @@ extern "C" void test_easy_bot_aim(void) {
     stance=PLAYER_EYE_HEIGHT;
     bot_fire_ray(0,0,GUN_ASSAULT);
     assert(player.state.health<health);
+
+    // Fire through the standing barrel, then over its rim at the same player.
+    start_perception_test();
+    bot.x=93; bot.y=141; bot.yaw=-90*radians; bot.eye_height=-5.8f;
+    place_target(-90,8);
+    feet_z=-8; stance=PLAYER_EYE_HEIGHT; player.yaw=player.pitch=0;
+    health=player.state.health;
+    bot_fire_ray(bot.yaw,0,GUN_ASSAULT);
+    assert(player.state.health==health && mark_count==0);
+    assert(sparks[0].y>135 && sparks[0].y<136 && fabsf(sparks[0].x-93)<.001f);
+    update_bot(0);
+    assert(!bot_saw_player);
+    bot.eye_height=player.eye_height=-4.8f;
+    clock_ms=next_enemy_search;
+    update_bot(0);
+    assert(bot_saw_player);
+    bot_fire_ray(bot.yaw,0,GUN_ASSAULT);
+    assert(player.state.health<health);
 }
 
 extern "C" void test_wall_impact_lifetime(void) {
