@@ -34,15 +34,21 @@ typedef struct {
     unsigned born, lifetime;
 } SplashParticle;
 typedef struct { SplashParticle motion; unsigned on_floor; } BloodParticle;
+typedef struct { int first,second; float blend; } BotPose;
+static inline MatchPoint mix_point(MatchPoint a,MatchPoint b,float t) {
+    MatchPoint result={a.x+t*(b.x-a.x),a.y+t*(b.y-a.y),a.z+t*(b.z-a.z)};
+    return result;
+}
 typedef struct {
     float px, py, eye, angle, pitch, tx, ty, bot_floor, bot_yaw,bot_tilt;
     MatchPoint bot_head;
     int health, armour, magazine, reserve, pistol, player_frags, bot_frags, bot_alive;
-    float bot_pose_blend, weapon_kick;
+    BotPose current_pose,previous_pose;
+    float pose_transition,weapon_kick;
     float gun_side, gun_up, gun_forward, gun_rotation, gun_back;
     unsigned gun_pose, next_gun_pose;
     unsigned bot_flash_end_ms;
-    int bot_pose, next_bot_pose, respawning, reload, flash, wide_crosshair;
+    int respawning, reload, flash, wide_crosshair;
     float damage_alpha;
     int bot_shot_pending,empty_click;
     const unsigned *damage_directions;
