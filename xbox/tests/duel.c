@@ -201,7 +201,37 @@ static void test_well_ladder(void) {
     for (int i=0;i<110;++i) match_update(&in,16,.016f);
     match_view(&v); assert(v.px>142 && v.eye>3);
 }
+static void test_incoming_fire(int strafe) {
+    MatchInput in={.start=1};
+    MatchView v;
+    match_prepare(); match_update(&in,0,0);
+    int heard=0;
+    for (unsigned f=0;f<1200 && !heard;++f) {
+        in=(MatchInput){0};
+        if (strafe && f<60) { in.strafe=.7f; in.move=-.45f; }
+        match_update(&in,(f+1)*1000/60-f*1000/60,1.f/60);
+        match_view(&v);
+        PositionalSound event=strafe?v.air:v.impact;
+        if (!event.sound) continue;
+        assert(v.bot_sound==RIFLE_SHOT);
+        assert(v.bot_line.expires==v.elapsed_ms+75);
+        float distance=hypotf(hypotf(event.pos.x-v.px,event.pos.y-v.py),event.pos.z-v.eye);
+        assert(distance<=15);
+        if (strafe) assert(event.sound==BULLET_AIR1 || event.sound==BULLET_AIR2);
+        else {
+            assert(event.sound==BULLET_IMPACT);
+            assert(v.mark_count && v.spark_count);
+            const BulletMark *m=v.marks+v.mark_count-1;
+            assert(m->x==event.pos.x && m->y==event.pos.y && m->z==event.pos.z);
+        }
+        heard=1;
+    }
+    assert(heard);
+}
+
 int main(void) {
+    test_incoming_fire(0);
+    test_incoming_fire(1);
     test_strafe_reversal(60);
     test_strafe_reversal(50);
     test_rifle_recoil(60,0);
