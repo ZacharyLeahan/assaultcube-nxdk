@@ -195,7 +195,7 @@ int main(void) {
     if (SDL_Init(SDL_INIT_GAMECONTROLLER) || !gpu_init(mode.width,mode.height)) { debugPrint("AssaultCube init failed"); return 1; }
     if (SDL_InitSubSystem(SDL_INIT_AUDIO)==0) {
         SDL_AudioSpec spec = {0};
-        spec.freq = 48000; spec.format = AUDIO_S16LSB; spec.channels = 2; spec.samples = 1024; spec.callback = mix_audio;
+        spec.freq = 48000; spec.format = AUDIO_S16LSB; spec.channels = 2; spec.samples = 256; spec.callback = mix_audio;
         audio_device = SDL_OpenAudioDevice(NULL,0,&spec,NULL,0);
         if (audio_device) SDL_PauseAudioDevice(audio_device,0);
     }
