@@ -386,6 +386,22 @@ static void test_knife(void) {
     }
     assert(saw_respawn_warning && v.gib_count==0);
 }
+static void test_pistol_frag_message(void) {
+    MatchInput in={.start=1};
+    MatchView v;
+    match_prepare();
+    match_update(&in,0,0);
+    for (unsigned frame=0;frame<300;++frame) {
+        in=(MatchInput){.move=frame<120,.swap=frame==7,
+                        .fire=frame>=132 && (frame-132)%15<5};
+        match_update(&in,(frame+1)*1000/60-frame*1000/60,1.f/60);
+        match_attack(&in);
+        match_view(&v);
+        if (v.player_frags) break;
+    }
+    assert(v.pistol && v.player_frags==1 && !v.bot_alive);
+    assert(v.frag_messages[0].age==0 && !strcmp(v.frag_messages[0].text,"you busted Bot"));
+}
 static void test_fighter_contact(void) {
     MatchView v;
     match_prepare(); match_view(&v);
@@ -674,6 +690,7 @@ int main(void) {
     test_weapon_switch();
     test_knife();
     test_death_camera();
+    test_pistol_frag_message();
     test_fighter_contact();
     test_rifle_trigger(0);
     test_rifle_trigger(1);
