@@ -29,6 +29,10 @@ The radar and overhead map show the well water and map models, including barrels
 
 Rifle and pistol reports overlap during a burst. Gunfire, impacts and map sounds follow the camera when you look around after a frag.
 
+At 48 kHz the Xbox requests 256 stereo frames per audio buffer (5.33 ms). With nxdk SDL versions that force a 1024-frame buffer, the build compiles a local copy of the Xbox SDL driver that honors the request. In a physical SMG replay, the median time from the input poll on a firing frame to the start of its buffer at the AC97 digital output went from 33.4 to 8.9 ms across 44 shots per build. The 95th percentile went from 42.2 to 10.9 ms. The measurement ends at the console output and excludes controller transport and external audio equipment.
+
+To check burst timing, record two SMG bursts separated by a reload over HDMI and run `python xbox/tests/smg_audio.py before.wav after.wav`. The script locates the original SMG attack in the recorded PCM and compares consecutive shot intervals to 80 ms.
+
 To compare HDMI recordings, begin a local rifle burst within the first four seconds of each capture and run `python xbox/tests/rifle_audio.py before.wav after.wav`. The reported prior-shot gain measures how much of the preceding rounds remains audible under the next shot.
 
 The map supplies six ambient sound sources. The courtyard has stereo wind and a distant hawk, water becomes audible near the well, and three air conditioners can be located by ear.
