@@ -1,4 +1,5 @@
 #include "match.h"
+#include "lan/lan.h"
 #include "geometry.h"
 #include "navigation.h"
 #include <math.h>
@@ -107,7 +108,8 @@ struct Gib {
 Gib gibs[12]; // Two knife frags reach the three-point duel limit.
 GibView gib_views[12];
 unsigned gib_count,gib_remainder;
-bool hide_bot,gib_sound;
+bool hide_bot,gib_sound,lan_match;
+unsigned lan_end_ms;
 unsigned next_spark,spark_count,effect_seed;
 unsigned effect_random(unsigned limit) {
     effect_seed=1664525u*effect_seed+1013904223u;
@@ -718,6 +720,28 @@ void update_bot(float dt) {
 }
 
 void match_prepare(void) { player.state.nextprimary=GUN_ASSAULT; navigation_prepare(); begin(READY); }
+void match_lan_spawn(int hp,int armour) {
+    if (!lan_match) { begin(PLAYING); hide_bot=true; lan_match=true; }
+    player.state.nextprimary=GUN_ASSAULT;
+    spawn(player,17);
+    player.state.health=hp; player.state.armour=armour;
+}
+void match_lan_remote(float x,float y,float floor,float yaw,float pitch,int moving) {
+    bot.x=x;bot.y=y;bot.eye_height=floor+PLAYER_EYE_HEIGHT;
+    bot.yaw=yaw;bot.pitch=pitch;bot_pose=moving;hide_bot=false;
+}
+void match_lan_hide(void) { hide_bot=true; }
+void match_lan_health(int hp,int armour) {
+    if(hp<player.state.health) hurt_until=clock_ms+250;
+    if(hp<=0 && !player.respawn_at) {
+        place_death_camera();
+        player.respawn_at=clock_ms+player_respawn_ms;
+    }
+    player.state.health=hp;player.state.armour=armour;
+}
+void match_lan_time(unsigned remaining_ms) { lan_end_ms=clock_ms+remaining_ms; }
+void match_lan_score(int local,int frags) { (local?player:bot).frags=frags; }
+void match_lan_stop(void) { if(lan_match) {lan_match=false;begin(READY);} }
 void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) {
     gib_sound=false;
     if (gib_count) update_gibs(elapsed);
@@ -749,8 +773,8 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         --mark_count;
     }
     update_blood(elapsed);
-    if (clock_ms >= duration) { phase = INTERMISSION; return; }
-    if (player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
+    if (!lan_match && clock_ms >= duration) { phase = INTERMISSION; return; }
+    if (!lan_match && player.respawn_at && player.respawn_at <= clock_ms) respawn_near(player,bot);
     if (bot.respawn_at && bot.respawn_at <= clock_ms) respawn_near(bot,player);
     float dt = fminf(.10f,motion_seconds);
     float old_dx=bot.x-player.x, old_dy=bot.y-player.y;
@@ -783,7 +807,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
         float floor,ceiling;
         body_space(player.x,player.y,feet_z,&floor,&ceiling);
         ActorBounds opponent={bot.x,bot.y,eye(bot)-PLAYER_EYE_HEIGHT,eye(bot)+PLAYER_ABOVE_EYE};
-        const ActorBounds *blocker=bot.respawn_at?nullptr:&opponent;
+        const ActorBounds *blocker=(bot.respawn_at || hide_bot)?nullptr:&opponent;
         actor_clearance(blocker,player.x,player.y,feet_z,stance+PLAYER_ABOVE_EYE,&floor,&ceiling);
         float ladder_top=0;
         bool climbing=!in->crouch && ladder_space(player.x,player.y,feet_z,&ladder_top);
@@ -892,6 +916,7 @@ void match_update(const MatchInput *in, unsigned elapsed, float motion_seconds) 
             player.shots=player.shot_until=0;
         }
     }
+    if(lan_match) { if(bot_pose) stride_phase+=elapsed*.012f; return; }
     collect(player); update_bot(dt); collect(bot);
     // During fine two-stick tracking, share a fraction of the target's angular
     // motion. An existing aiming error never pulls the crosshair to center.
@@ -1033,7 +1058,7 @@ MatchSound match_attack(const MatchInput *in) {
         ray.angle=atan2f(dy,dx); ray.pitch=atan2f(dz,hypotf(dx,dy));
         bot_view(&ray);
         float magnitude=sqrtf(dx*dx+dy*dy+dz*dz);
-        if (target_contact(&ray,length*hypotf(dx,dy),false)) {
+        if (!lan_match && target_contact(&ray,length*hypotf(dx,dy),false)) {
             damage(bot,player,gun,dx,dy,dz);
             // PC raydamage shortens the effects endpoint to the struck actor.
             length=hypotf(distance(player.x,player.y,bot.x,bot.y),eye(player)-eye(bot))/magnitude;
@@ -1145,7 +1170,8 @@ void match_view(MatchView *v) {
     v->bot_voice=bot_voice; v->gib_sound=gib_sound; v->hide_bot=hide_bot;
     for (unsigned i=0;i<gib_count;++i) gib_views[i]=gibs[i].view;
     v->gibs=gib_views; v->gib_count=gib_count;
-    v->seconds = clock_ms >= duration ? 0 : (duration-clock_ms+999)/1000;
+    unsigned end_ms=lan_match?lan_end_ms:duration;
+    v->seconds = clock_ms >= end_ms ? 0 : (end_ms-clock_ms+999)/1000;
     v->items = item_views; v->item_count = 0;
     for (int i = 0; i < item_count; ++i) if (clock_ms >= unavailable_until[i]) {
         const ItemLocation &p = locations[i];
