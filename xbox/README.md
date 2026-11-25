@@ -125,7 +125,7 @@ python xbox/tests/aim_latency.py aim-usb.bin frame-trace.bin --pixels input-time
 python xbox/tests/frame_trace.py frame-trace.bin
 ```
 
-The analysis excludes capture boundaries, respawns and trials where the camera was already turning. A normal build uses the stock SDL Xbox driver.
+The analysis excludes capture boundaries, respawns and trials where the camera was already turning. A normal build uses the stock SDL Xbox controller driver.
 
 ### Camera response and motion
 
