@@ -107,11 +107,11 @@ extern "C" void test_easy_bot_spacing(void) {
     bot.shot_until=bot.ready_at=clock_ms+120;
     update_bot(0);
     bot_view(&v);
-    assert(!v.bot_pistol);
+    assert(v.bot_weapon!=VIEW_PISTOL);
     clock_ms=bot.ready_at;
     update_bot(0);
     bot_view(&v);
-    assert(v.bot_pistol && combat_forward==0);
+    assert(v.bot_weapon==VIEW_PISTOL && combat_forward==0);
 }
 
 extern "C" void test_easy_bot_aim(void) {
@@ -425,7 +425,7 @@ extern "C" void test_lan_knife(void) {
     assert(bot.state.health==hp && !player.frags);
     match_lan_shot(GUN_KNIFE,121,121,feet_z);
     MatchView v={};match_view(&v);
-    assert(v.bot_knife && !v.bot_light && !v.bot_flash_end_ms);
+    assert(v.bot_weapon==VIEW_KNIFE && !v.bot_light && !v.bot_flash_end_ms);
     match_lan_remote_death(1);
     in={};match_update(&in,16,.016f);match_view(&v);
     assert(v.hide_bot && v.gib_count==6 && v.gib_sound);
