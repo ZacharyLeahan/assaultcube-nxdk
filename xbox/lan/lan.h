@@ -5,6 +5,15 @@
 extern "C" {
 #endif
 void lan_init(void);
+void lan_browser_open(void);
+void lan_browser_close(void);
+void lan_browser_move(int direction);
+void lan_browser_join(void);
+int lan_browser_active(void);
+int lan_browser_count(void);
+int lan_browser_selected(void);
+const char *lan_browser_row(int index);
+const char *lan_browser_hint(void);
 void lan_poll(unsigned now);
 void lan_send_sounds(const MatchView *v);
 int match_lan_sound_id(MatchSound sound);

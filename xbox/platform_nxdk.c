@@ -364,7 +364,17 @@ int main(void) {
         unsigned pressed=buttons & ~previous_buttons;
         previous_buttons=buttons;
         int paused=system.choice!=MENU_CLOSED;
-        if (!paused && ((pressed&UP) || (start && view.phase==PLAYING))) {
+        int browser_input=lan_browser_active();
+        if (browser_input) {
+            if (pressed&CANCEL) lan_browser_close();
+            else if (pressed&UP) lan_browser_move(-1);
+            else if (pressed&DOWN) lan_browser_move(1);
+            else if (pressed&ACCEPT) lan_browser_join();
+            releasing=1;
+        } else if (!paused && view.phase==READY && !lan_connected() && (pressed&ACCEPT)) {
+            lan_browser_open();
+            browser_input=1;
+        } else if (!paused && ((pressed&UP) || (start && view.phase==PLAYING))) {
             system=(SystemMenu){MENU_RESUME,0};
         } else if (paused) {
             if ((pressed&CANCEL) || start) {
@@ -387,7 +397,7 @@ int main(void) {
             }
             if (system.choice==MENU_CLOSED) releasing=1;
         }
-        int network=lan_connected(),menu_input=paused || system.choice!=MENU_CLOSED;
+        int network=lan_connected(),menu_input=browser_input || paused || system.choice!=MENU_CLOSED;
         int pause_audio=system.choice!=MENU_CLOSED && !network;
         if(audio_device && pause_audio!=audio_paused) {
             SDL_PauseAudioDevice(audio_device,pause_audio);

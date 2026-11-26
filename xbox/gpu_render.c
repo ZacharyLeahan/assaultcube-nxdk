@@ -898,6 +898,25 @@ static void system_overlay(const SystemMenu *menu) {
     glDisable(GL_BLEND);
 }
 
+static void lan_browser_overlay(void) {
+    float x=(hud_width-680)/2;
+    glEnable(GL_TEXTURE_2D);glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
+    color(.03f,.04f,.05f,.94f);
+    begin_quads();quad(x,130,680,450,0,0,1,1);end_quads();
+    glBindTexture(GL_TEXTURE_2D,textures[FONT_TEX]);color(1,1,1,1);
+    text(x+24,150,30,"Join LAN Game");
+    for(int i=0;i<lan_browser_count();++i) {
+        int chosen=i==lan_browser_selected();
+        color(1,chosen?.75f:1,chosen?.25f:1,1);
+        if(chosen) text(x+20,211+i*36,20,">");
+        text(x+49,211+i*36,20,lan_browser_row(i));
+    }
+    color(1,1,1,1);text(x+24,532,19,lan_browser_hint());
+    glDisable(GL_BLEND);
+}
+
 static void scoreboard(const MatchView *v) {
     LanScore rows[2];
     int network=lan_connected(),count=2;
@@ -932,6 +951,7 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
     glMatrixMode(GL_PROJECTION); glLoadIdentity(); glOrtho(0,hud_width,720,0,-1,1);
     glMatrixMode(GL_MODELVIEW); glLoadIdentity();
     if (menu->choice!=MENU_CLOSED) { system_overlay(menu); return; }
+    if (lan_browser_active()) { lan_browser_overlay(); return; }
     if (v->camera.z<WATER_SURFACE) {
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
         glBindTexture(GL_TEXTURE_2D,textures[SOLID_TEX]);
@@ -1056,7 +1076,8 @@ static void hud(const MatchView *v,unsigned fps10,int connected,int showmap,int 
     color(.95f,.94f,.87f,1);
     if(setup) {
         snprintf(line,sizeof(line),"Controllers connected: %d",connected);
-        text(42,85,19,line);
+        if(v->phase==READY && connected) text(42,85,22,"A   Join LAN Game");
+        else text(42,85,19,line);
         text(42,164,19,lan_status()?lan_status():"D-pad Up   System menu");
         text(42,136,19,weapon_art[v->selected_primary].choice);
         text(42,186,19,v->stock_round?"X   Round: Stock Bot Deathmatch":"X   Round: Quick duel");
