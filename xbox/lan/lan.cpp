@@ -2,6 +2,8 @@
 #include "enet_platform.h"
 #include <enet/enet.h>
 #include <nxdk/net.h>
+#include <SDL_thread.h>
+#include <SDL_atomic.h>
 #include <lwip/netif.h>
 #include <math.h>
 #include <stdio.h>
@@ -104,6 +106,7 @@ void command(int cmd) {Message m; m.word(cmd);m.transmit();}
 void stop(const char *why) {
     snprintf(status,sizeof(status),"LAN: %s",why);
     if(peer) enet_peer_reset(peer);
+    if(!connect_start) connect_start=1;
     peer=nullptr;ready=alive=false;own=remote=-1;
     match_lan_stop();
 }
@@ -370,6 +373,146 @@ void messages(Reader &r,unsigned now,int sender=-1) {
 }
 }
 
+namespace {
+bool network_initialized, browsing, browser_connecting;
+ENetSocket discovery=ENET_SOCKET_NULL;
+struct Listing {
+    ENetAddress endpoint;
+    unsigned last_seen;
+    bool joinable;
+    char row[88];
+};
+Listing listings[8];
+int listing_count, selected;
+unsigned last_query;
+unsigned char query_id;
+char browser_hint[96];
+
+SDL_Thread *network_worker;
+SDL_atomic_t worker_finished;
+int initialize_network(void *) {
+    int result=nxNetInit(nullptr);
+    SDL_AtomicSet(&worker_finished,1);
+    return result;
+}
+bool network_init() {
+    // nxdk returns -2 if its DHCP wait expires. The interface is already
+    // registered and can still acquire a lease after the cable is connected.
+    if(!network_initialized) {
+        int result=nxNetInit(nullptr);
+        network_initialized=result==0 || (result==-2 && g_pnetif);
+    }
+    return network_initialized;
+}
+bool prepare_connection() {
+    if(!network_init()) {stop("network setup failed");return false;}
+    if(!host) host=enet_host_create(nullptr,1,3,0,0);
+    if(!host) {stop("cannot open socket");return false;}
+    connect_start=0;
+    return true;
+}
+void close_discovery() {
+    if(discovery!=ENET_SOCKET_NULL) enet_socket_destroy(discovery);
+    discovery=ENET_SOCKET_NULL;
+}
+void read_listing(unsigned now,const ENetAddress &source,Reader &r) {
+    if(r.integer()!=query_id || r.integer()!=EXTPING_NOP || source.port<2) return;
+    int protocol=r.integer(),mode=r.integer(),players=r.integer();
+    r.integer();
+    char map[32],name[64];
+    r.string(map,sizeof(map));r.string(name,sizeof(name));
+    int capacity=r.integer(), flags=r.integer();
+    if(!r.valid || players<0 || capacity<1 || players>MAXCLIENTS || capacity>MAXCLIENTS) return;
+    // Server descriptions may contain Cube colour escapes. Only print glyphs from the HUD font.
+    unsigned n=0;
+    for(unsigned i=0;name[i] && n<22;++i) {
+        if(name[i]=='\f' && name[i+1]) {++i;continue;}
+        if(name[i]>=32 && name[i]<=126) name[n++]=name[i];
+    }
+    name[n]=0;
+    const char *reason=protocol!=PROTOCOL_VERSION?"Version":
+        (map[0] || players) && (strcmp(map,"ac_desert") || mode!=GMODE_DEATHMATCH)?"Map/mode":
+        flags&(1<<PONGFLAG_PASSWORD)?"Password":
+        ((flags>>PONGFLAG_MASTERMODE)&MM_MASK)==MM_PRIVATE?"Private":
+        players>=capacity?"Full":nullptr;
+    int i=0;
+    while(i<listing_count && (listings[i].endpoint.host!=source.host ||
+          listings[i].endpoint.port!=CUBE_SERVINFO_TO_SERV_PORT(source.port))) ++i;
+    if(i==listing_count) {
+        if(listing_count==8) return;
+        ++listing_count;
+    }
+    Listing &entry=listings[i];
+    entry.endpoint={source.host,(enet_uint16)CUBE_SERVINFO_TO_SERV_PORT(source.port)};
+    entry.last_seen=now;entry.joinable=!reason;
+    ip4_addr_t ip;ip.addr=source.host;
+    snprintf(entry.row,sizeof(entry.row),"%s   %d/%d   %s",name[0]?name:ip4addr_ntoa(&ip),
+             players,capacity,reason?reason:map[0]?"ac_desert DM":"Empty server");
+}
+void open_discovery() {
+    discovery=enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+    if(discovery==ENET_SOCKET_NULL || enet_socket_set_option(discovery,ENET_SOCKOPT_BROADCAST,1)<0 ||
+       enet_socket_set_option(discovery,ENET_SOCKOPT_NONBLOCK,1)<0) {
+        close_discovery();snprintf(browser_hint,sizeof(browser_hint),"Network unavailable. B to return.");
+    }
+}
+void poll_discovery(unsigned now) {
+    if(discovery==ENET_SOCKET_NULL || browser_connecting) return;
+    for(int i=0;i<listing_count;) {
+        if(now-listings[i].last_seen<6500) {++i;continue;}
+        --listing_count;
+        memmove(listings+i,listings+i+1,(listing_count-i)*sizeof(Listing));
+        if(selected>i || (selected>0 && selected==listing_count)) --selected;
+    }
+    if(!g_pnetif || !netif_is_up(g_pnetif) || ip4_addr_isany_val(*netif_ip4_addr(g_pnetif))) return;
+    if(!query_id || now-last_query>=1500) {
+        query_id=query_id%120+1;last_query=now;
+        unsigned char bytes[]={query_id,EXTPING_NOP};
+        ENetBuffer buf={bytes,sizeof(bytes)};
+        enet_uint32 subnet_broadcast=netif_ip4_addr(g_pnetif)->addr | ~netif_ip4_netmask(g_pnetif)->addr;
+        ENetAddress broadcast={subnet_broadcast,CUBE_SERVINFO_PORT_LAN};
+        enet_socket_send(discovery,&broadcast,&buf,1);
+    }
+    for(int i=0;i<16;++i) {
+        unsigned char bytes[MAXTRANS];ENetBuffer buf={bytes,sizeof(bytes)};ENetAddress from;
+        int length=enet_socket_receive(discovery,&from,&buf,1);
+        if(length<=0) break;
+        Reader r{bytes,(size_t)length,0};read_listing(now,from,r);
+    }
+}
+}
+void lan_browser_open(void) {
+    if(ready || browsing) return;
+    if(host && (peer || !connect_start)) stop("manual connection cancelled");
+    browsing=true;selected=listing_count=0;query_id=0;browser_hint[0]=0;
+    if(network_initialized) open_discovery();
+    else if(!network_worker) {
+        SDL_AtomicSet(&worker_finished,0);
+        network_worker=SDL_CreateThread(initialize_network,"LAN network",nullptr);
+        if(!network_worker) snprintf(browser_hint,sizeof(browser_hint),"Could not start networking. B to return.");
+    }
+}
+void lan_browser_close(void) {
+    if(browser_connecting) stop("connection cancelled");
+    browser_connecting=browsing=false;close_discovery();
+}
+void lan_browser_move(int direction) {
+    if(listing_count && !browser_connecting) selected=(selected+direction+listing_count)%listing_count;
+}
+void lan_browser_join(void) {
+    if(browser_connecting || !listing_count || !listings[selected].joinable) return;
+    address=listings[selected].endpoint;
+    if(prepare_connection()) browser_connecting=true;
+    else snprintf(browser_hint,sizeof(browser_hint),"%s",status);
+}
+int lan_browser_active(void) {return browsing;}
+int lan_browser_count(void) {return listing_count;}
+int lan_browser_selected(void) {return selected;}
+const char *lan_browser_row(int i) {return listings[i].row;}
+const char *lan_browser_hint(void) {
+    return browser_connecting?"Joining server...":browser_hint[0]?browser_hint:
+           listing_count?"D-pad  Select     A  Join     B  Back":"Searching for LAN games...     B  Back";
+}
 void lan_init(void) {
     FILE *f=fopen("D:\\lan-server.txt","r");if(!f)return;
     char text[64];bool read=fgets(text,sizeof(text),f)!=nullptr;
@@ -383,9 +526,7 @@ void lan_init(void) {
     text[strcspn(read?text:""," \t\r\n")]=0;
     if(!read || !ip4addr_aton(text,(ip4_addr_t *)&address.host)) {stop("invalid lan-server.txt");return;}
     address.port=CUBE_DEFAULT_SERVER_PORT;
-    if(nxNetInit(nullptr)<0) {stop("network setup failed");return;}
-    host=enet_host_create(nullptr,1,3,0,0);
-    if(!host) {stop("cannot open socket");return;}
+    if(!prepare_connection()) return;
     snprintf(status,sizeof(status),"LAN  Connecting to %s",text);
 }
 const char *lan_status(void) {
@@ -421,6 +562,21 @@ void lan_toggle_primary(unsigned now) {
 }
 void lan_poll(unsigned now) {
     if(choice_time && now-choice_time>=2500) choice_time=0;
+    if(network_worker && SDL_AtomicGet(&worker_finished)) {
+        int result;
+        SDL_WaitThread(network_worker,&result);network_worker=nullptr;
+        network_initialized=result==0 || (result==-2 && g_pnetif);
+        if(browsing && network_initialized) open_discovery();
+        else if(browsing) snprintf(browser_hint,sizeof(browser_hint),"Network unavailable. B to return.");
+    }
+    if(browsing) {
+        if(ready) {browser_connecting=browsing=false;close_discovery();}
+        else if(browser_connecting && !peer && connect_start) {
+            browser_connecting=false;snprintf(browser_hint,sizeof(browser_hint),"%s",status);
+        }
+        poll_discovery(now);
+        if(browsing && !browser_connecting) return;
+    }
     if(!host)return;
     if(!peer) {
         if(connect_start || !netif_is_up(g_pnetif) || ip4_addr_isany_val(*netif_ip4_addr(g_pnetif))) return;
@@ -538,5 +694,3 @@ void lan_send(const MatchView *v,const MatchInput *input,MatchSound effect,unsig
     }
     if(effect==RIFLE_RELOAD || effect==PISTOL_RELOAD || effect==AKIMBO_RELOAD || effect==SNIPER_RELOAD || effect==SMG_RELOAD || effect==CARBINE_RELOAD || effect==SHOTGUN_RELOAD){Message m;m.word(SV_RELOAD);m.word(now);m.word(gun);m.transmit();}
 }
-
-
