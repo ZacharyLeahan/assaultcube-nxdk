@@ -2,7 +2,7 @@
 
 **Early Xbox prototype.** Play a local deathmatch against one easy bot on `ac_desert`. First to three frags wins, with a 90-second time limit. Built with [nxdk](https://github.com/XboxDev/nxdk).
 
-1. [Download default.xbe](https://github.com/ZacharyLeahan/assaultcube-nxdk/releases/download/xbox-prototype-2/default.xbe). The game assets are included in this one file.
+1. [Download default.xbe](https://github.com/ZacharyLeahan/assaultcube-nxdk/releases/download/xbox-prototype-3/default.xbe). The game assets are included in this one file.
 2. On an original Xbox set up for homebrew, create a folder such as `F:\Games\AssaultCube\` and copy `default.xbe` into it by FTP.
 3. Launch `default.xbe` from your dashboard and press **Start** to play.
 
@@ -14,7 +14,7 @@ At 720p on an original Xbox, the first prototype missed four refreshes across a 
 
 ## Private LAN crossplay
 
-In the development build, an original Xbox and a stock Windows client can join the same PC-hosted deathmatch on `ac_desert`. Both players saw the other strafe and fire during the hardware test. [Private LAN setup](xbox/lan/README.md)
+Extract the [Windows host ZIP](https://github.com/ZacharyLeahan/assaultcube-nxdk/releases/download/xbox-prototype-3/Windows-LAN-host.zip) into your stock AssaultCube 1.3.0.2 folder and double-click **Host ac_desert LAN.cmd**. On Xbox, press **A** at the ready screen, select your PC server, and press **A** to join. [Private LAN setup](xbox/lan/README.md)
 
 | Stock Windows client | Original Xbox |
 | --- | --- |
